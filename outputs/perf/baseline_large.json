@@ -1,0 +1,68 @@
+{
+  "label": "baseline_large",
+  "results": [
+    {
+      "scale": "large",
+      "op": "synthesize",
+      "n": 8800000,
+      "mean_ms": 637.2981250024168,
+      "std_ms": 32.82337500422727,
+      "min_ms": 604.4747499981895,
+      "n_repeats": 2
+    },
+    {
+      "scale": "large",
+      "op": "_sample_partners",
+      "n": 2000000,
+      "mean_ms": 3810.5351810130137,
+      "std_ms": 182.16852802191295,
+      "min_ms": 3673.9484170102514,
+      "n_repeats": 3
+    },
+    {
+      "scale": "large",
+      "op": "coasean_step",
+      "n": 2000000,
+      "mean_ms": 4248.732999326118,
+      "std_ms": 67.10649732921138,
+      "min_ms": 4159.180916001787,
+      "n_repeats": 3
+    },
+    {
+      "scale": "large",
+      "op": "fold_surplus",
+      "n": 1,
+      "mean_ms": 0.00800840207375586,
+      "std_ms": 0.00504214894842479,
+      "min_ms": 0.0036249984987080097,
+      "n_repeats": 5
+    },
+    {
+      "scale": "large",
+      "op": "gini_coefficient",
+      "n": 8800000,
+      "mean_ms": 1160.5665204988327,
+      "std_ms": 60.44956250116229,
+      "min_ms": 1100.1169579976704,
+      "n_repeats": 2
+    },
+    {
+      "scale": "large",
+      "op": "scatter_add_at",
+      "n": 2000000,
+      "mean_ms": 8.220610994612798,
+      "std_ms": 0.04935002208511634,
+      "min_ms": 8.153874980052933,
+      "n_repeats": 3
+    },
+    {
+      "scale": "large",
+      "op": "scatter_bincount",
+      "n": 2000000,
+      "mean_ms": 8.514694335948056,
+      "std_ms": 0.5202185729300828,
+      "min_ms": 8.114500000374392,
+      "n_repeats": 3
+    }
+  ]
+}

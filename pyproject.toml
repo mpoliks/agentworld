@@ -1,0 +1,49 @@
+[project]
+name = "agentworld"
+version = "0.1.0"
+description = "Computational research artifact for Antikythera's Agentworld brief: simulating the smooth-striated continuum of an 800B agent / 8B human economy"
+authors = [
+    {name = "Marek Poliks"},
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pandas>=2.1",
+    "matplotlib>=3.8",
+    "networkx>=3.2",
+    "tqdm>=4.66",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+    "click>=8.1",
+    "numba>=0.59; python_version<'3.13'",
+    "SALib>=1.4",   # Saltelli/Sobol global sensitivity
+    "pyarrow>=14",  # Parquet ensemble store
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.1",
+    "ipykernel>=6.27",
+    "jupyter>=1.0",
+]
+viz = [
+    "plotly>=5.18",
+    "seaborn>=0.13",
+]
+
+[project.scripts]
+agentworld = "engine.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["engine*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

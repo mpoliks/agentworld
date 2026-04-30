@@ -1,0 +1,92 @@
+{
+  "args": {
+    "scale": "large",
+    "workers": 4,
+    "bench_scales": [
+      "small",
+      "medium",
+      "large"
+    ],
+    "sanity_scale": "xlarge",
+    "sanity_scenario": "coasean_paradise",
+    "conv_scales": [
+      "small",
+      "medium",
+      "large"
+    ],
+    "conv_seeds": 3,
+    "skip": []
+  },
+  "phases": {
+    "bench": {
+      "path": "outputs/perf/optimized.json"
+    },
+    "sanity": {
+      "scenario": "coasean_paradise",
+      "scale": "xlarge",
+      "elapsed_sec": 2086.132275125012,
+      "final_alpha": 0.08,
+      "label": "Smoothworld",
+      "peak_rss_mb": 6808.796875
+    },
+    "runall": {
+      "scale": "large",
+      "n_workers": 4,
+      "wall_sec": 805.1794535829977,
+      "scenarios": {
+        "baroque_cathedral": 163.32505833299365,
+        "coasean_paradise": 166.28093995901872,
+        "smoothing_cascade": 233.94608720799442,
+        "equilibrium_drift": 236.46806491698953,
+        "hemispherical_schism": 178.96358554202016,
+        "fold_avalanche": 235.73953791699023,
+        "compute_famine": 176.4656660000037,
+        "universal_advocate": 179.59339504200034,
+        "nimby_cascade": 177.27160954099963,
+        "slop_market": 176.2751393749786,
+        "public_defender": 179.84532812502584,
+        "synthetic_consumers": 287.03875541698653,
+        "matryoshka_collapse": 169.3358178329945,
+        "exo_baroque_singularity": 169.77394479099894,
+        "recursive_simulation": 218.07098374998895
+      },
+      "slowest": [
+        [
+          "synthetic_consumers",
+          287.03875541698653
+        ],
+        [
+          "equilibrium_drift",
+          236.46806491698953
+        ],
+        [
+          "fold_avalanche",
+          235.73953791699023
+        ],
+        [
+          "smoothing_cascade",
+          233.94608720799442
+        ],
+        [
+          "recursive_simulation",
+          218.07098374998895
+        ]
+      ]
+    },
+    "convergence": {
+      "wall_sec": 7850.7463471250085,
+      "n_scenarios": 15,
+      "scales": [
+        "small",
+        "medium",
+        "large"
+      ]
+    },
+    "dashboard": {
+      "wall_sec": 0.13620529201580212,
+      "dashboard_mb": 0.43453311920166016
+    }
+  },
+  "wall_sec": 10747.389935833984,
+  "peak_rss_mb": 6808.796875
+}
