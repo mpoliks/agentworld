@@ -1,0 +1,21 @@
+{
+  "n_samples": 2000,
+  "seed": 0,
+  "n_steps": 20,
+  "elapsed_sec": 46.40533399581909,
+  "p_smooth": 0.0185,
+  "p_baroque": 0.321,
+  "p_mixed": 0.6605,
+  "p_diverged": 0.0,
+  "ebi_quantiles": {
+    "p05": 1.5815199857370887,
+    "p50": 3.1835339005863363,
+    "p95": 22.3380263618755
+  },
+  "welfare_quantiles": {
+    "p05": 0.16957520011539842,
+    "p50": 0.220395304000643,
+    "p95": 0.3044721186981447
+  },
+  "parquet_path": "outputs/validation/posterior_sweep.parquet"
+}

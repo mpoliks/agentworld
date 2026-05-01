@@ -362,6 +362,49 @@ def validate_anchor_cmd(scenario, scale, seed, out, no_progress):
     )
 
 
+@validate_group.command("priors")
+@click.option("--samples", "n_samples", default=256, show_default=True, type=int,
+              help="Sobol sample count. Plan canonical = 2000.")
+@click.option("--seed", default=0, show_default=True, type=int)
+@click.option("--n-steps", default=20, show_default=True, type=int,
+              help="Steps per evaluation (short horizon).")
+@click.option("--out", default="outputs/validation/posterior_sweep",
+              show_default=True,
+              help="Path prefix; .parquet, .summary.json, .png are written.")
+@click.option("--no-progress", is_flag=True)
+def validate_priors_cmd(n_samples, seed, n_steps, out, no_progress):
+    """Sweep the speculative-parameter prior; persist outcome distribution."""
+    from engine.validation.posterior_sweep import (
+        run_posterior_sweep, write_posterior_artifacts,
+    )
+    out_path = Path(out)
+    df, summary = run_posterior_sweep(
+        n_samples=n_samples, seed=seed, n_steps=n_steps, progress=not no_progress,
+    )
+    write_posterior_artifacts(
+        df, summary,
+        parquet_path=out_path.with_suffix(".parquet"),
+        summary_path=out_path.with_suffix(".summary.json"),
+        chart_path=out_path.with_suffix(".png"),
+    )
+    click.echo(
+        f"\n[priors] {summary.n_samples} samples in {summary.elapsed_sec:.1f}s -> "
+        f"{out_path.with_suffix('.parquet')}"
+    )
+    click.echo(
+        f"        P(smooth)={summary.p_smooth:.2%}  "
+        f"P(mixed)={summary.p_mixed:.2%}  "
+        f"P(baroque)={summary.p_baroque:.2%}  "
+        f"P(diverged)={summary.p_diverged:.2%}"
+    )
+    click.echo(
+        f"        EBI p05/p50/p95 = "
+        f"{summary.ebi_quantiles['p05']:.2f} / "
+        f"{summary.ebi_quantiles['p50']:.2f} / "
+        f"{summary.ebi_quantiles['p95']:.2f}"
+    )
+
+
 @validate_group.command("adversarial")
 @click.option("--n-evals", default=200, show_default=True, type=int,
               help="Number of simulated-annealing proposals.")
