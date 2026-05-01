@@ -325,5 +325,139 @@ def exo_imperial_sweep_cmd(out, steps, regions, tracts):
     )
 
 
+@main.group("validate")
+def validate_group():
+    """Validation artifacts (anchor / priors / adversarial)."""
+
+
+@validate_group.command("anchor")
+@click.option("--scenario", default="equilibrium_drift", show_default=True,
+              help="Base scenario; the anchor's α-schedule is applied on top.")
+@click.option("--scale", type=click.Choice(SCALE_CHOICES), default="small",
+              show_default=True)
+@click.option("--seed", default=0, show_default=True, type=int)
+@click.option("--out", default="outputs/validation/historical_anchor",
+              show_default=True,
+              help="Path prefix; .json (summary) + .png (chart) are written.")
+@click.option("--no-progress", is_flag=True)
+def validate_anchor_cmd(scenario, scale, seed, out, no_progress):
+    """Run the stylized US 1980-2024 historical anchor."""
+    from engine.validation.historical_anchor import (
+        run_historical_anchor, write_anchor_chart, write_anchor_summary,
+    )
+    out_path = Path(out)
+    res = run_historical_anchor(
+        scenario=scenario, scale=scale, seed=seed, progress=not no_progress,
+    )
+    summary_path = out_path.with_suffix(".json")
+    chart_path = out_path.with_suffix(".png")
+    write_anchor_summary(res, summary_path)
+    write_anchor_chart(res, chart_path)
+    click.echo(
+        f"\n[anchor] RMSE={res.rmse:.4f} MAE={res.mae:.4f} bias={res.bias:+.4f}"
+    )
+    click.echo(
+        f"         worst year={res.largest_error_year} "
+        f"({res.largest_error:+.4f}) -> {summary_path} {chart_path}"
+    )
+
+
+@validate_group.command("priors")
+@click.option("--samples", "n_samples", default=256, show_default=True, type=int,
+              help="Sobol sample count. Plan canonical = 2000.")
+@click.option("--seed", default=0, show_default=True, type=int)
+@click.option("--n-steps", default=20, show_default=True, type=int,
+              help="Steps per evaluation (short horizon).")
+@click.option("--out", default="outputs/validation/posterior_sweep",
+              show_default=True,
+              help="Path prefix; .parquet, .summary.json, .png are written.")
+@click.option("--no-progress", is_flag=True)
+def validate_priors_cmd(n_samples, seed, n_steps, out, no_progress):
+    """Sweep the speculative-parameter prior; persist outcome distribution."""
+    from engine.validation.posterior_sweep import (
+        run_posterior_sweep, write_posterior_artifacts,
+    )
+    out_path = Path(out)
+    df, summary = run_posterior_sweep(
+        n_samples=n_samples, seed=seed, n_steps=n_steps, progress=not no_progress,
+    )
+    write_posterior_artifacts(
+        df, summary,
+        parquet_path=out_path.with_suffix(".parquet"),
+        summary_path=out_path.with_suffix(".summary.json"),
+        chart_path=out_path.with_suffix(".png"),
+    )
+    click.echo(
+        f"\n[priors] {summary.n_samples} samples in {summary.elapsed_sec:.1f}s -> "
+        f"{out_path.with_suffix('.parquet')}"
+    )
+    click.echo(
+        f"        P(smooth)={summary.p_smooth:.2%}  "
+        f"P(mixed)={summary.p_mixed:.2%}  "
+        f"P(baroque)={summary.p_baroque:.2%}  "
+        f"P(diverged)={summary.p_diverged:.2%}"
+    )
+    click.echo(
+        f"        EBI p05/p50/p95 = "
+        f"{summary.ebi_quantiles['p05']:.2f} / "
+        f"{summary.ebi_quantiles['p50']:.2f} / "
+        f"{summary.ebi_quantiles['p95']:.2f}"
+    )
+
+
+@validate_group.command("adversarial")
+@click.option("--n-evals", default=200, show_default=True, type=int,
+              help="Number of simulated-annealing proposals.")
+@click.option("--seed", default=0, show_default=True, type=int)
+@click.option("--out", default="outputs/validation/adversarial_search.json",
+              show_default=True)
+@click.option("--n-steps", default=30, show_default=True, type=int,
+              help="Steps per evaluation.")
+@click.option("--no-progress", is_flag=True)
+def validate_adversarial_cmd(n_evals, seed, out, n_steps, no_progress):
+    """Search for a parameter region where EBI > 10 AND welfare > paradise."""
+    from engine.validation.adversarial import (
+        adversarial_search, write_adversarial_summary,
+    )
+    out_path = Path(out)
+    res = adversarial_search(
+        n_evals=n_evals, seed=seed, n_steps=n_steps, progress=not no_progress,
+    )
+    write_adversarial_summary(res, out_path)
+    verdict = "COUNTER-EXAMPLE FOUND" if res.found_counter_example else "INVARIANT (no counter-example)"
+    click.echo(
+        f"\n[adversarial] {verdict} after {res.n_evals} evals in "
+        f"{res.elapsed_sec:.1f}s -> {out_path}"
+    )
+    click.echo(
+        f"             best_ebi={res.best_ebi:.3f} (target>{res.ebi_target}) "
+        f"best_welfare={res.best_welfare:.4e} (paradise={res.paradise_welfare:.4e})"
+    )
+
+
+@main.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True,
+              help="Bind address. Default 127.0.0.1 (localhost only).")
+@click.option("--port", default=8765, show_default=True, type=int)
+@click.option("--log-level", default="info", show_default=True,
+              type=click.Choice(["critical", "error", "warning", "info", "debug"]))
+def serve_cmd(host, port, log_level):
+    """Start the SSE streaming server (dev only).
+
+    Streams alpha-engine StepMetrics over HTTP/SSE so a browser at
+    http://localhost:8765 can watch a run progress step-by-step. Requires
+    the `serve` extra: `pip install agentworld[serve]`.
+    """
+    try:
+        from engine.serve import serve  # local import: optional dependency
+    except ImportError as e:
+        raise click.UsageError(
+            f"Could not import the serve module ({e}). Install the extras: "
+            "pip install fastapi uvicorn"
+        ) from e
+    click.echo(f"[agentworld] serving on http://{host}:{port} (Ctrl+C to stop)")
+    serve(host=host, port=port, log_level=log_level)
+
+
 if __name__ == "__main__":
     main()

@@ -33,6 +33,156 @@ from engine.core.population import N_SECTORS
 
 
 @dataclass
+class LawConfig:
+    """Dynamic law layer configuration.
+
+    When enabled, law is modeled as the substrate that enables stranger
+    trade rather than only as a small random rejection tax. It defaults off
+    so the demand/productive-folding plan can be evaluated independently.
+    `law_strength` is world state initialized from this config and maintained
+    by upkeep; `law_capture` is world state that rises with wealth
+    concentration and falls with civic pushback.
+    """
+
+    enabled: bool = False
+    law_strength_initial: float = 0.85
+    law_capture_initial: float = 0.0
+    upkeep_investment: float = 0.10
+    natural_decay: float = 0.005
+    law_decay_recovery: float = 1.0
+    beta_capture_growth: float = 0.02
+    civic_pushback_default: float = 0.30
+    gamma_civic_pushback: Optional[float] = None
+    concentration_penalty_gini_anchor: float = 0.4
+    local_trust_surplus_floor: float = 0.35
+
+    def __post_init__(self) -> None:
+        if self.gamma_civic_pushback is None:
+            if self.civic_pushback_default > 0:
+                self.gamma_civic_pushback = (
+                    self.beta_capture_growth * 0.5 / self.civic_pushback_default
+                )
+            else:
+                self.gamma_civic_pushback = 0.0
+
+
+@dataclass
+class PigouvianConfig:
+    """Pigouvian automation tax configuration.
+
+    When enabled, A2A transactions pay a per-pair tax proportional to their
+    "automation gap" — how far the pair is from having a human consumer at
+    either endpoint. The tax is zero for H2H pairs, small for H2A, and
+    maximal for fully-autonomous A2A pairs. Revenue is recycled back to
+    humans via one of three configurable channels.
+
+    Fields:
+        enabled: Top-level flag. False preserves backward-compatible
+            behavior; True turns on the per-pair Pigouvian tax.
+        tax_rate: Maximum Pigouvian rate applied to pure A2A pairs
+            (automation_gap ≈ 1 - a2a_floor). Effective rate for a pair
+            is ``tax_rate * (1 - demand_factor)``.
+        a2a_floor: Minimum demand factor for pure A2A pairs — the share
+            of A2A surplus that genuinely reaches humans via downstream
+            production. Reuses the same semantics as DemandConfig.a2a_floor.
+        recycling: Revenue recycling channel.
+            "human_wealth"     — redistribute to human prototypes weighted
+                                 by inverse wealth (progressive transfer).
+            "friction_subsidy" — reduce transaction cost for human-involving
+                                 pairs in subsequent steps.
+            "capability"       — invest in raising human capability over time.
+        recycling_progressivity: Exponent on inverse-wealth weighting when
+            recycling = "human_wealth". Higher values target poorer humans
+            more aggressively. 1.0 = proportional to 1/wealth.
+    """
+
+    enabled: bool = False
+    tax_rate: float = 0.0
+    a2a_floor: float = 0.15
+    recycling: Literal["human_wealth", "friction_subsidy", "capability"] = "human_wealth"
+    recycling_progressivity: float = 1.0
+
+
+@dataclass
+class DemandConfig:
+    """Demand-side feedback configuration.
+
+    Demand-side feedback says: real welfare from a transaction depends on
+    whether the produced thing has a human (or human-controlled agent)
+    consumer at the end of the chain. Pure A2A activity creates *nominal*
+    but not *real* welfare unless it ultimately reaches human consumption.
+
+    The fields here govern how an A2A surplus contribution gets discounted
+    when computing the new ``real_welfare_authentic`` aggregate. The flag
+    ``enabled`` exists so existing scenarios can be re-anchored one at a
+    time; with ``enabled = False`` the demand factor is identically 1.0
+    and the alpha-engine reproduces its previous outputs bit-for-bit.
+
+    Fields:
+        enabled: Top-level flag. False preserves backward-compatible
+            behavior in every existing scenario; True turns on the
+            demand-modulation. Existing scenarios stay False until they
+            are migrated and re-anchored.
+        a2a_floor: Minimum fraction of A2A surplus that is "really real"
+            — accounts for the share of A2A activity that does flow to
+            humans indirectly via downstream production (intermediate
+            goods, B2B inputs, etc.). 0.15 is an order-of-magnitude
+            estimate; sweep it in sensitivity analysis.
+        agent_consumer_share: Reserved for a future extension where
+            autonomous agents can themselves be welfare endpoints (e.g.
+            an agent buying compute it consumes for its own purposes
+            that it valued). Currently unused by the demand-factor
+            formula; kept on the dataclass to stabilize the public API.
+    """
+
+    enabled: bool = False
+    a2a_floor: float = 0.15
+    agent_consumer_share: float = 0.0
+
+
+@dataclass
+class StrategyConfig:
+    """Per-prototype intermediation preference learning."""
+
+    enabled: bool = False
+    n_actions: int = 3
+    epsilon: float = 0.10
+    pref_delta: float = 0.05
+    initial_pref: float = 0.5
+    initial_pref_sd: float = 0.15
+    reward_learning_rate: float = 0.1
+    local_alpha_noise_sd: float = 0.02
+
+
+@dataclass
+class InstitutionConfig:
+    """Firm formation and within-firm coordination dynamics."""
+
+    enabled: bool = False
+    max_firms: int = 5000
+    formation_surplus_threshold: float = 0.02
+    dissolution_wealth_threshold: float = 0.5
+    within_firm_cost_discount: float = 0.60
+    firm_overhead_per_member: float = 0.002
+    merge_probability: float = 0.01
+    formation_check_every_k: int = 5
+    max_firm_size: int = 500
+
+
+@dataclass
+class PopulationDynamicsConfig:
+    """Capability learning, depreciation, and prototype recycling."""
+
+    enabled: bool = False
+    capability_learning_rate: float = 0.001
+    capability_decay_rate: float = 0.0002
+    wealth_depreciation: float = 0.005
+    exit_wealth_threshold: float = 0.1
+    savings_rate: float = 0.3
+    entry_capability_boost: float = 0.05
+
+
+@dataclass
 class TopologyConfig:
     """Configuration for the smooth-striated topology."""
 
@@ -95,6 +245,50 @@ class TopologyConfig:
     hawkes_branching_ratio: float = 0.65
     hawkes_decay: float = 1.20
 
+    # ---- Productive vs parasitic folding split ------------------------------
+    # The fold operator currently produces nominal_added and real_subtracted.
+    # When `base_variance_absorption > 0`, it *also* produces a real-welfare
+    # contribution — modelling the productive economic content of risk
+    # transfer (insurance, hedging, price discovery, capital efficiency).
+    # The split is governed by the intermediating-agent capability and the
+    # depth of the fold. Default is 0.0 so existing scenarios are unchanged
+    # bit-for-bit; new scenarios opt in.
+    #
+    # See `engine/core/folding.py` and `docs/concepts/demand_and_intermediation.md`
+    # for the full derivation.
+    base_variance_absorption: float = 0.0   # depth-1 productive welfare share at max capability
+    productive_decay: float = 0.65          # per-layer decay of welfare creation
+    cap_midpoint: float = 0.50              # capability above which folding becomes productive
+    cap_slope: float = 4.0                  # sharpness of the capability → productivity sigmoid
+    max_productive_real_share: float = 0.60 # caps productive folding by underlying real surplus
+
+    # ---- Demand-side feedback ------------------------------------------------
+    # Real welfare from a transaction depends on whether the produced thing
+    # has a human (or human-controlled agent) consumer. With
+    # `demand.enabled = False` this is a no-op (the new authentic-welfare
+    # metric equals real welfare). See `DemandConfig` and the concept doc.
+    demand: DemandConfig = field(default_factory=DemandConfig)
+
+    # ---- Pigouvian automation tax -----------------------------------------------
+    # Per-pair tax proportional to the automation gap (1 - demand_factor).
+    # Revenue is recycled to humans. Default-off; see
+    # `docs/concepts/pigouvian_automation.md`.
+    pigouvian: PigouvianConfig = field(default_factory=PigouvianConfig)
+
+    # ---- Dynamic law layer ----------------------------------------------------
+    # See `brief/dynamic_mechanisms.md`, §3. Default-off until the law
+    # mechanism is evaluated separately. `World` carries the mutable
+    # law-strength/capture state; this config supplies initial conditions
+    # and policy controls.
+    law: LawConfig = field(default_factory=LawConfig)
+
+    # ---- Endogenous emergence mechanisms -------------------------------------
+    # Default-off so historical alpha-engine scenarios keep the same execution
+    # path unless they explicitly opt in.
+    strategy: StrategyConfig = field(default_factory=StrategyConfig)
+    institutions: InstitutionConfig = field(default_factory=InstitutionConfig)
+    pop_dynamics: PopulationDynamicsConfig = field(default_factory=PopulationDynamicsConfig)
+
 
 @dataclass
 class Topology:
@@ -128,8 +322,14 @@ class Topology:
 
     # ---- core kernels -----------------------------------------------------
 
-    def transaction_cost(self, capability_a: np.ndarray, capability_b: np.ndarray,
-                         stack_a: np.ndarray, stack_b: np.ndarray) -> np.ndarray:
+    def transaction_cost(
+        self,
+        capability_a: np.ndarray,
+        capability_b: np.ndarray,
+        stack_a: np.ndarray,
+        stack_b: np.ndarray,
+        alpha_override: np.ndarray | float | None = None,
+    ) -> np.ndarray:
         """
         Compute per-transaction cost in units-of-account for a vector of pairs.
 
@@ -137,6 +337,7 @@ class Topology:
         Higher alpha (more striated) increases the protocol overhead.
         """
         cfg = self.cfg
+        alpha = alpha_override if alpha_override is not None else cfg.alpha
         cap_min = np.minimum(capability_a, capability_b)
         # Cross-stack compatibility (vectorized lookup).
         compat = self.cross_stack[stack_a, stack_b]
@@ -145,7 +346,7 @@ class Topology:
         coase_term = cfg.base_friction * (1.0 - cap_min) ** cfg.coase_exp
 
         # Striation term: more striated → more protocol overhead, regardless of cap.
-        striation_term = cfg.alpha * 0.020 * (1.0 + 0.3 * (1.0 - compat))
+        striation_term = alpha * 0.020 * (1.0 + 0.3 * (1.0 - compat))
 
         # Cross-stack term.
         cross_term = (1.0 - compat) * 0.015
@@ -156,9 +357,10 @@ class Topology:
 
         return floor + coase_term + striation_term + cross_term
 
-    def folding_propensity(self) -> float:
+    def folding_propensity(self, realized_alpha: float | None = None) -> float:
         """How likely a positive-surplus market is to spawn sub-markets this step."""
-        return self.cfg.folding_propensity * (self.cfg.alpha ** 1.4)
+        alpha = self.cfg.alpha if realized_alpha is None else realized_alpha
+        return self.cfg.folding_propensity * (alpha ** 1.4)
 
     def matryoshka_real_tax(self) -> float:
         """Fraction of real surplus consumed by market+individual layers."""

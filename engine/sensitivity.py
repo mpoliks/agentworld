@@ -207,9 +207,15 @@ def basin_counts(points: Iterable[SweepPoint]) -> dict[str, int]:
 # Default parameter problem for the alpha-engine. Bounds are the
 # stipulated range of each knob (we sweep within bounds; we do not claim
 # the bounds themselves are calibrated). Each bound was chosen to span
-# the values used across the 15 named scenarios.
+# the values used across the named scenarios.
+#
+# The last four parameters (a2a_floor and the productive-folding
+# triple) were added for the demand-and-intermediation work; see
+# `docs/concepts/demand_and_intermediation.md`. The Sobol sweep treats
+# them like any other speculative parameter: we report S1 / ST within
+# the bounds; we do not claim any bound is "the value."
 ALPHA_ENGINE_PROBLEM: dict = {
-    "num_vars": 10,
+    "num_vars": 15,
     "names": [
         "alpha",
         "agent_capability_mean",
@@ -221,6 +227,11 @@ ALPHA_ENGINE_PROBLEM: dict = {
         "fold_nominal_multiplier",
         "cross_stack_compat",
         "market_layer_tax",
+        "a2a_floor",
+        "base_variance_absorption",
+        "productive_decay",
+        "cap_slope",
+        "max_productive_real_share",
     ],
     "bounds": [
         [0.05, 0.95],   # alpha
@@ -233,6 +244,11 @@ ALPHA_ENGINE_PROBLEM: dict = {
         [1.3, 2.2],     # fold_nominal_multiplier
         [0.30, 0.95],   # cross_stack_compat
         [0.005, 0.05],  # market_layer_tax
+        [0.05, 0.40],   # a2a_floor (DemandConfig)
+        [0.0, 0.60],    # base_variance_absorption (productive folding)
+        [0.40, 0.85],   # productive_decay
+        [2.0, 6.0],     # cap_slope
+        [0.20, 0.80],   # max_productive_real_share
     ],
 }
 
@@ -290,6 +306,8 @@ def _alpha_world_from_vector(
     n_agent_prototypes: int,
     seed: int,
 ) -> WorldConfig:
+    from engine.core.topology import DemandConfig
+
     return WorldConfig(
         population=PopulationConfig(
             n_human_prototypes=n_human_prototypes,
@@ -308,6 +326,16 @@ def _alpha_world_from_vector(
             fold_nominal_multiplier=float(x[7]),
             cross_stack_compat=float(x[8]),
             market_layer_tax=float(x[9]),
+            # Demand-side feedback: enabled for the Sobol sweep so the
+            # `welfare_authentic` output reflects the new mechanism. The
+            # `a2a_floor` parameter is swept at index 10.
+            demand=DemandConfig(enabled=True, a2a_floor=float(x[10])),
+            # Productive vs parasitic folding split. Active whenever
+            # `base_variance_absorption > 0`.
+            base_variance_absorption=float(x[11]),
+            productive_decay=float(x[12]),
+            cap_slope=float(x[13]),
+            max_productive_real_share=float(x[14]),
         ),
         n_steps=n_steps,
         pairs_per_step=pairs_per_step,
@@ -328,13 +356,16 @@ def run_sobol_sensitivity(
         "exo_baroque_index",
         "real_per_capita_welfare",
         "gini_wealth",
+        "exo_baroque_authentic",
+        "real_welfare_authentic_cumulative",
+        "productive_welfare_yield",
     ),
     progress: bool = True,
 ) -> SobolSummary:
     """Run a Saltelli/Sobol global sensitivity sweep on the alpha-engine.
 
     With `n_base_samples=N`, the SALib sampler produces `N * (D + 2)`
-    parameter vectors (D=10 here, so N=64 -> 768 simulations). Increase
+    parameter vectors (D=15 here, so N=64 -> 1088 simulations). Increase
     N for tighter Sobol-index confidence intervals; the cost scales linearly.
 
     Returns S1 and ST per (metric, parameter), plus the bounds we swept

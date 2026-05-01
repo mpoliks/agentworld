@@ -1,5 +1,5 @@
 """
-Scenarios — 15 parameterizations of the smooth-striated continuum.
+Scenarios — parameterizations of the smooth-striated continuum.
 
 Each scenario returns a fully-formed `WorldConfig`. All are inspired by a
 specific position in the conceptual brief; cite the brief when adding new ones.
@@ -10,7 +10,7 @@ Usage:
     world = World.build(cfg)
     world.run(progress=True)
 
-The 15 scenarios:
+Original 15 (alpha-engine, no demand feedback, no productive folding split):
     1.  coasean_paradise      — Smoothworld limit (Krier)
     2.  baroque_cathedral     — Baroqueworld limit (Bratton)
     3.  equilibrium_drift     — Mid-alpha steady state
@@ -26,6 +26,34 @@ The 15 scenarios:
     13. matryoshka_collapse   — Market+individual layers gate-keep heavily
     14. recursive_simulation  — Alpha drives itself based on EBI feedback
     15. exo_baroque_singularity — Aggressive recursive fold limits
+
+Networked variants (16-17):
+    16. coasean_paradise_networked  — Smooth limit on scale-free network
+    17. baroque_cathedral_networked — Baroque limit on degree-corrected SBM
+
+Demand-and-intermediation scenarios (18-22, see docs/concepts/demand_and_intermediation.md):
+    18. synthetic_consumers_v2  — Synthetic consumers with demand-side feedback ON
+    19. agentic_disconnect      — Humans abdicate, agents act; demand feedback exposes the gap
+    20. productive_baroque      — High alpha + capable intermediaries; productive folding ON
+    21. derivatives_revolution  — Aggressive productive folding; bounded-welfare check
+    22. casino_collapse         — High alpha + low cap; productivity gated by capability
+
+Dynamic-law scenarios (23-25, see brief/dynamic_mechanisms.md):
+    23. legal_collapse       — law strength decays without upkeep
+    24. regulatory_capture   — concentrated wealth captures the legal layer
+    25. civic_renaissance    — upkeep + civic pushback restore legal capacity
+
+Pigouvian automation-tax scenarios (26-29, see docs/concepts/pigouvian_automation.md):
+    26. pigouvian_light      — moderate A2A tax, revenue to human wealth
+    27. pigouvian_heavy      — high A2A tax; tests over-correction dynamics
+    28. pigouvian_friction    — tax recycled as H2A friction subsidy
+    29. pigouvian_baroque     — Pigouvian tax on productive-baroque baseline
+
+Emergence scenarios (30-33):
+    30. endogenous_paradise        — agents learn alpha on a smooth-friendly surface
+    31. endogenous_baroque         — agents learn alpha under a high folding ceiling
+    32. institutional_emergence    — strategy plus firm formation
+    33. full_emergence             — strategy, firms, and population dynamics
 """
 
 from __future__ import annotations
@@ -35,7 +63,15 @@ from typing import Callable, Dict
 import numpy as np
 
 from engine.core.population import PopulationConfig
-from engine.core.topology import TopologyConfig
+from engine.core.topology import (
+    DemandConfig,
+    InstitutionConfig,
+    LawConfig,
+    PigouvianConfig,
+    PopulationDynamicsConfig,
+    StrategyConfig,
+    TopologyConfig,
+)
 from engine.core.world import WorldConfig
 
 
@@ -478,6 +514,9 @@ def coasean_paradise_networked() -> WorldConfig:
             cross_stack_compat=0.85,
             noise_model="t_copula",
             folding_model="hawkes",
+            demand=DemandConfig(enabled=True, a2a_floor=0.20),
+            base_variance_absorption=0.20,
+            productive_decay=0.70,
         ),
         pairs_per_step=200_000,
         n_steps=60,
@@ -524,17 +563,653 @@ def baroque_cathedral_networked() -> WorldConfig:
             cross_stack_compat=0.45,
             noise_model="t_copula",
             folding_model="hawkes",
+            demand=DemandConfig(enabled=True, a2a_floor=0.15),
+            base_variance_absorption=0.35,
+            productive_decay=0.65,
         ),
         n_steps=60,
         seed=17,
     )
 
 
+# ---------- 18. Synthetic Consumers v2 (demand-feedback ON) ------------------
+
+
+def synthetic_consumers_v2() -> WorldConfig:
+    """
+    `synthetic_consumers` re-run with demand-side feedback turned on.
+
+    This is a controlled twin of `synthetic_consumers`: same population
+    parameters, same population seed, same world seed, and only
+    `DemandConfig.enabled` changes. Compare `real_welfare_cumulative`
+    (un-modulated) to `real_welfare_authentic_cumulative`: the gap is
+    the demand-side-feedback effect.
+
+    What to look for: authentic per-capita welfare collapses relative to
+    the un-modulated version; `exo_baroque_authentic` is much higher
+    than the legacy `exo_baroque_index`. This is the empirical signature
+    the plan calls G3.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            human_autonomy_mean=0.30,
+            agent_autonomy_mean=0.97,
+            n_agent_prototypes=120_000,
+            seed=99,
+        ),
+        topology=TopologyConfig(
+            alpha=0.6,
+            folding_propensity=0.45,
+            demand=DemandConfig(enabled=True, a2a_floor=0.15),
+        ),
+        pairs_per_step=300_000,
+        n_steps=60,
+        seed=9,
+    )
+
+
+# ---------- 19. Agentic Disconnect (demand-feedback ON) -----------------------
+
+
+def agentic_disconnect() -> WorldConfig:
+    """
+    Humans have abdicated decision-making but agents are capability-strong.
+
+    High `agent_autonomy_mean = 0.95`, low `human_autonomy_mean = 0.20`
+    (humans delegate almost everything), mid alpha. Tests the case where
+    the population has high effective agent autonomy and modest folding,
+    with demand-side feedback on. The model says: even at moderate
+    intermediation, real welfare collapses if the human side has stepped
+    out of the consumption loop.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            human_autonomy_mean=0.20,
+            agent_autonomy_mean=0.95,
+            n_agent_prototypes=80_000,
+            seed=1180,
+        ),
+        topology=TopologyConfig(
+            alpha=0.5,
+            demand=DemandConfig(enabled=True, a2a_floor=0.15),
+        ),
+        n_steps=60,
+        seed=18,
+    )
+
+
+# ---------- 20. Productive Baroque -------------------------------------------
+
+
+def productive_baroque() -> WorldConfig:
+    """
+    Baroque-ish alpha but capable intermediaries and productive folding on.
+
+    The plan's claim (c): high intermediation does not always corrupt
+    welfare. With high agent capability and `base_variance_absorption =
+    0.45`, the fold cascade is welfare-creating at shallow depth — risk
+    transfer / capital efficiency / price discovery doing real work.
+    Demand-side feedback is also on so the welfare is judged against the
+    human-consumed share, not nominal volume.
+
+    Acceptance (G2): terminal real per-capita welfare near but below
+    `coasean_paradise`'s, and terminal EBI in [8, 50].
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.85, agent_capability_sd=0.10,
+            human_capability_mean=0.65, human_capability_sd=0.12,
+            n_human_prototypes=6_000, n_agent_prototypes=60_000,
+            seed=1190,
+        ),
+        topology=TopologyConfig(
+            alpha=0.85,
+            base_friction=0.045,
+            folding_propensity=0.45,
+            folding_branching=2.6,
+            folding_max_depth=6,
+            fold_nominal_multiplier=1.7,
+            fold_real_efficiency=0.92,
+            market_layer_tax=0.025,
+            individual_layer_alignment_tax=0.020,
+            cross_stack_compat=0.65,
+            base_variance_absorption=0.45,
+            productive_decay=0.65,
+            cap_midpoint=0.50,
+            cap_slope=4.0,
+            max_productive_real_share=0.30,
+            demand=DemandConfig(enabled=True, a2a_floor=0.15),
+        ),
+        pairs_per_step=200_000,
+        n_steps=60,
+        seed=19,
+    )
+
+
+# ---------- 21. Derivatives Revolution ---------------------------------------
+
+
+def derivatives_revolution() -> WorldConfig:
+    """
+    Aggressively encourage productive folding; mid-alpha; low Matryoshka taxes.
+
+    Sanity-check scenario for the productive folding split: tests that
+    even with `base_variance_absorption = 0.40` and `productive_decay
+    = 0.75`, the model does not produce free welfare ad infinitum. Low
+    taxes alone land only modestly above `coasean_paradise`; the generous
+    productive split is what lifts terminal real per-capita welfare to the
+    high end of the limit-test band, around 0.09 stylized units
+    (roughly 1.7× `coasean_paradise` at the default seed).
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.80, agent_capability_sd=0.10,
+            human_capability_mean=0.60, human_capability_sd=0.12,
+            n_human_prototypes=5_000, n_agent_prototypes=50_000,
+            seed=1200,
+        ),
+        topology=TopologyConfig(
+            alpha=0.55,
+            base_friction=0.035,
+            folding_propensity=0.45,
+            folding_branching=2.5,
+            folding_max_depth=6,
+            fold_nominal_multiplier=1.8,
+            fold_real_efficiency=0.93,
+            market_layer_tax=0.008,
+            individual_layer_alignment_tax=0.006,
+            base_variance_absorption=0.40,
+            productive_decay=0.75,
+            cap_midpoint=0.50,
+            cap_slope=4.0,
+            demand=DemandConfig(enabled=True, a2a_floor=0.20),
+        ),
+        n_steps=60,
+        seed=20,
+    )
+
+
+# ---------- 22. Casino Collapse ----------------------------------------------
+
+
+def casino_collapse() -> WorldConfig:
+    """
+    High alpha + low capability + opt-in productive folding.
+
+    The split says "productive folding requires capable intermediaries";
+    this scenario verifies that low-capability folding is parasitic
+    regardless of opt-in. With `agent_capability_mean = 0.40` and
+    `cap_midpoint = 0.50`, the productive-share sigmoid stays well
+    below 0.5 at every depth, and the productive contribution is small
+    relative to the (still-large) parasitic nominal multiplication.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.40, agent_capability_sd=0.18,
+            human_capability_mean=0.30, human_capability_sd=0.18,
+            n_human_prototypes=5_000, n_agent_prototypes=50_000,
+            seed=1210,
+        ),
+        topology=TopologyConfig(
+            alpha=0.85,
+            folding_propensity=0.6,
+            folding_branching=2.8,
+            fold_nominal_multiplier=2.2,
+            fold_real_efficiency=0.85,
+            base_variance_absorption=0.40,
+            productive_decay=0.65,
+            cap_midpoint=0.50,
+            cap_slope=4.0,
+        ),
+        n_steps=60,
+        seed=22,
+    )
+
+
+# ---------- 23. Legal Collapse -------------------------------------------------
+
+
+def legal_collapse() -> WorldConfig:
+    """
+    Law as substrate, allowed to decay. With no upkeep investment, legal
+    strength falls from a functional starting point toward the low-trust
+    regime over the default horizon.
+    """
+    return WorldConfig(
+        population=PopulationConfig(seed=1230),
+        topology=TopologyConfig(
+            alpha=0.45,
+            law=LawConfig(
+                enabled=True,
+                law_strength_initial=0.85,
+                upkeep_investment=0.0,
+                natural_decay=0.011,
+                civic_pushback_default=0.10,
+            ),
+        ),
+        n_steps=60,
+        seed=23,
+    )
+
+
+# ---------- 24. Regulatory Capture --------------------------------------------
+
+
+def regulatory_capture() -> WorldConfig:
+    """
+    High initial wealth concentration and zero civic pushback let legal
+    capture compound, turning cross-stack and newcomer trade into low-surplus
+    cost rejections.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            wealth_pareto_alpha=1.15,
+            initial_wealth_agent_mean=8.0,
+            seed=1240,
+        ),
+        topology=TopologyConfig(
+            alpha=0.55,
+            cross_stack_compat=0.40,
+            law=LawConfig(
+                enabled=True,
+                law_strength_initial=0.90,
+                law_capture_initial=0.20,
+                upkeep_investment=0.08,
+                beta_capture_growth=0.03,
+                civic_pushback_default=0.0,
+            ),
+        ),
+        n_steps=60,
+        seed=24,
+    )
+
+
+# ---------- 25. Civic Renaissance ---------------------------------------------
+
+
+def civic_renaissance() -> WorldConfig:
+    """
+    Concentrated initial wealth meets high legal upkeep and high civic
+    pushback. Tests whether the Coasean substrate can be maintained as an
+    active political achievement rather than a free background condition.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            wealth_pareto_alpha=1.20,
+            agent_capability_mean=0.82,
+            human_capability_mean=0.62,
+            seed=1250,
+        ),
+        topology=TopologyConfig(
+            alpha=0.30,
+            cross_stack_compat=0.75,
+            law=LawConfig(
+                enabled=True,
+                law_strength_initial=0.70,
+                upkeep_investment=0.16,
+                natural_decay=0.006,
+                law_capture_initial=0.20,
+                civic_pushback_default=0.75,
+            ),
+        ),
+        n_steps=60,
+        seed=25,
+    )
+
+
+# ---------- 26. Pigouvian Light -----------------------------------------------
+
+
+def pigouvian_light() -> WorldConfig:
+    """
+    Moderate Pigouvian automation tax (10%) on A2A surplus, recycled
+    progressively to human wealth. Demand-side feedback is on so we can
+    compare authentic welfare with and without the tax against
+    `synthetic_consumers_v2` (the un-taxed twin).
+
+    What to look for: authentic per-capita welfare rises relative to
+    synthetic_consumers_v2; nominal GDP drops moderately; Gini
+    compresses via the progressive wealth transfer.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            human_autonomy_mean=0.30,
+            agent_autonomy_mean=0.97,
+            n_agent_prototypes=120_000,
+            seed=99,
+        ),
+        topology=TopologyConfig(
+            alpha=0.6,
+            folding_propensity=0.45,
+            demand=DemandConfig(enabled=True, a2a_floor=0.15),
+            pigouvian=PigouvianConfig(
+                enabled=True,
+                tax_rate=0.10,
+                a2a_floor=0.15,
+                recycling="human_wealth",
+                recycling_progressivity=1.0,
+            ),
+        ),
+        pairs_per_step=300_000,
+        n_steps=60,
+        seed=9,
+    )
+
+
+# ---------- 27. Pigouvian Heavy -----------------------------------------------
+
+
+def pigouvian_heavy() -> WorldConfig:
+    """
+    High Pigouvian automation tax (35%) on A2A surplus. Tests whether
+    aggressive taxation of non-human-coupled activity over-corrects:
+    does per-capita welfare overshoot or undershoot the Coasean baseline?
+    Does A2A volume collapse entirely?
+
+    What to look for: A2A surplus drops sharply; nominal GDP collapses;
+    compare terminal per-capita welfare to coasean_paradise — if it
+    exceeds it, the tax has successfully redirected surplus to humans.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            human_autonomy_mean=0.30,
+            agent_autonomy_mean=0.97,
+            n_agent_prototypes=120_000,
+            seed=99,
+        ),
+        topology=TopologyConfig(
+            alpha=0.6,
+            folding_propensity=0.45,
+            demand=DemandConfig(enabled=True, a2a_floor=0.15),
+            pigouvian=PigouvianConfig(
+                enabled=True,
+                tax_rate=0.35,
+                a2a_floor=0.15,
+                recycling="human_wealth",
+                recycling_progressivity=1.5,
+            ),
+        ),
+        pairs_per_step=300_000,
+        n_steps=60,
+        seed=9,
+    )
+
+
+# ---------- 28. Pigouvian Friction --------------------------------------------
+
+
+def pigouvian_friction() -> WorldConfig:
+    """
+    Pigouvian tax recycled as a friction subsidy for human-involving
+    transactions. Instead of direct wealth transfer, the revenue reduces
+    the effective transaction cost for H2A pairs in subsequent steps,
+    making it cheaper for humans to participate in the economy.
+
+    What to look for: H2A interaction share rises relative to
+    synthetic_consumers_v2; humans re-enter the consumption loop;
+    authentic welfare improves through structural participation rather
+    than direct transfer.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            human_autonomy_mean=0.30,
+            agent_autonomy_mean=0.97,
+            n_agent_prototypes=120_000,
+            seed=99,
+        ),
+        topology=TopologyConfig(
+            alpha=0.6,
+            folding_propensity=0.45,
+            demand=DemandConfig(enabled=True, a2a_floor=0.15),
+            pigouvian=PigouvianConfig(
+                enabled=True,
+                tax_rate=0.15,
+                a2a_floor=0.15,
+                recycling="friction_subsidy",
+            ),
+        ),
+        pairs_per_step=300_000,
+        n_steps=60,
+        seed=9,
+    )
+
+
+# ---------- 29. Pigouvian Baroque ---------------------------------------------
+
+
+def pigouvian_baroque() -> WorldConfig:
+    """
+    Pigouvian tax layered on top of the productive-baroque baseline.
+    Tests whether taxing A2A surplus suppresses the productive folding
+    channel (risk transfer, price discovery) or only the parasitic one.
+
+    What to look for: compare `productive_welfare_yield` and
+    `real_welfare_from_intermediation_cumulative` to `productive_baroque`
+    — if the productive share is preserved while parasitic nominal
+    multiplication drops, the Pigouvian tax is well-targeted. If
+    productive folding also collapses, the tax is too blunt.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.85, agent_capability_sd=0.10,
+            human_capability_mean=0.65, human_capability_sd=0.12,
+            n_human_prototypes=6_000, n_agent_prototypes=60_000,
+            seed=1190,
+        ),
+        topology=TopologyConfig(
+            alpha=0.85,
+            base_friction=0.045,
+            folding_propensity=0.45,
+            folding_branching=2.6,
+            folding_max_depth=6,
+            fold_nominal_multiplier=1.7,
+            fold_real_efficiency=0.92,
+            market_layer_tax=0.025,
+            individual_layer_alignment_tax=0.020,
+            cross_stack_compat=0.65,
+            base_variance_absorption=0.45,
+            productive_decay=0.65,
+            cap_midpoint=0.50,
+            cap_slope=4.0,
+            max_productive_real_share=0.30,
+            demand=DemandConfig(enabled=True, a2a_floor=0.15),
+            pigouvian=PigouvianConfig(
+                enabled=True,
+                tax_rate=0.12,
+                a2a_floor=0.15,
+                recycling="human_wealth",
+                recycling_progressivity=1.0,
+            ),
+        ),
+        pairs_per_step=200_000,
+        n_steps=60,
+        seed=19,
+    )
+
+
+# ---------- 30. Endogenous Paradise -------------------------------------------
+
+
+def endogenous_paradise() -> WorldConfig:
+    """Agents start undecided and discover whether smoothing is profitable."""
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.85,
+            agent_capability_sd=0.12,
+            human_capability_mean=0.65,
+            human_capability_sd=0.15,
+            n_human_prototypes=6_000,
+            n_agent_prototypes=60_000,
+            seed=3010,
+        ),
+        topology=TopologyConfig(
+            alpha=0.5,
+            base_friction=0.025,
+            coase_exp=2.1,
+            folding_propensity=0.10,
+            market_layer_tax=0.010,
+            individual_layer_alignment_tax=0.008,
+            cross_stack_compat=0.85,
+            strategy=StrategyConfig(enabled=True, initial_pref=0.5),
+        ),
+        pairs_per_step=200_000,
+        n_steps=60,
+        seed=30,
+    )
+
+
+# ---------- 31. Endogenous Baroque --------------------------------------------
+
+
+def endogenous_baroque() -> WorldConfig:
+    """High folding ceiling and low friction: can baroque emerge endogenously?"""
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.78,
+            agent_capability_sd=0.16,
+            n_human_prototypes=6_000,
+            n_agent_prototypes=60_000,
+            seed=3110,
+        ),
+        topology=TopologyConfig(
+            alpha=0.5,
+            base_friction=0.035,
+            folding_propensity=0.65,
+            folding_branching=3.2,
+            folding_max_depth=7,
+            fold_nominal_multiplier=2.0,
+            fold_real_efficiency=0.91,
+            market_layer_tax=0.025,
+            individual_layer_alignment_tax=0.018,
+            cross_stack_compat=0.65,
+            strategy=StrategyConfig(enabled=True, initial_pref=0.5),
+        ),
+        n_steps=60,
+        seed=31,
+    )
+
+
+# ---------- 32. Institutional Emergence ---------------------------------------
+
+
+def institutional_emergence() -> WorldConfig:
+    """Strategy plus firms: tests whether coordination institutions form."""
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.80,
+            agent_capability_sd=0.14,
+            human_capability_mean=0.60,
+            human_capability_sd=0.14,
+            n_human_prototypes=6_000,
+            n_agent_prototypes=60_000,
+            seed=3210,
+        ),
+        topology=TopologyConfig(
+            alpha=0.5,
+            folding_propensity=0.35,
+            cross_stack_compat=0.70,
+            strategy=StrategyConfig(enabled=True, initial_pref=0.5),
+            institutions=InstitutionConfig(
+                enabled=True,
+                formation_surplus_threshold=0.0001,
+                formation_check_every_k=2,
+                merge_probability=0.02,
+            ),
+        ),
+        n_steps=60,
+        seed=32,
+    )
+
+
+# ---------- 33. Full Emergence -------------------------------------------------
+
+
+def full_emergence() -> WorldConfig:
+    """Strategy, firms, and population churn enabled together."""
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.78,
+            agent_capability_sd=0.16,
+            human_capability_mean=0.58,
+            human_capability_sd=0.16,
+            n_human_prototypes=6_000,
+            n_agent_prototypes=60_000,
+            seed=3310,
+        ),
+        topology=TopologyConfig(
+            alpha=0.5,
+            folding_propensity=0.45,
+            folding_branching=2.8,
+            cross_stack_compat=0.65,
+            strategy=StrategyConfig(enabled=True, initial_pref=0.5),
+            institutions=InstitutionConfig(
+                enabled=True,
+                formation_surplus_threshold=0.0001,
+                formation_check_every_k=2,
+                merge_probability=0.02,
+            ),
+            pop_dynamics=PopulationDynamicsConfig(
+                enabled=True,
+                wealth_depreciation=0.002,
+                exit_wealth_threshold=0.05,
+            ),
+        ),
+        n_steps=60,
+        seed=33,
+    )
+
+
 # ---------- registry ----------------------------------------------------------
+
+def baroque_with_high_welfare() -> WorldConfig:
+    """Adversarial scenario (A3, validation_lift_plus_live_viz plan).
+
+    The brief's load-bearing claim is that high intermediation (high EBI)
+    does not coexist with high welfare. The adversarial search at
+    `engine/validation/adversarial.py` tries to break that claim by
+    sweeping the speculative folding parameters under productive folding
+    being on. With seed=0 and 200 SA evaluations at small runtime scale,
+    the search lands a counter-example region where terminal EBI is large
+    AND terminal `real_per_capita_welfare` exceeds `coasean_paradise`'s.
+
+    The parameters below are pinned from
+    `outputs/validation/adversarial_search.json`. Keep the two in sync; the
+    test in `engine/tests/test_validation_adversarial.py` checks the
+    persisted JSON rather than this scenario, but if you retune the search
+    update both.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.8279,
+            agent_capability_sd=0.10,
+            human_capability_mean=0.55,
+            human_capability_sd=0.15,
+            n_human_prototypes=600,
+            n_agent_prototypes=6_000,
+            seed=99 + 7,
+        ),
+        topology=TopologyConfig(
+            alpha=0.9500,
+            folding_propensity=0.8500,
+            folding_branching=4.5,
+            fold_real_efficiency=0.5281,
+            fold_nominal_multiplier=3.0,
+            base_variance_absorption=0.2615,
+            productive_decay=0.7142,
+            cap_midpoint=0.50,
+            cap_slope=4.0,
+            max_productive_real_share=0.85,
+        ),
+        pairs_per_step=20_000,
+        n_steps=30,
+        seed=99,
+    )
+
 
 SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
     "coasean_paradise": coasean_paradise,
     "baroque_cathedral": baroque_cathedral,
+    "baroque_with_high_welfare": baroque_with_high_welfare,
     "equilibrium_drift": equilibrium_drift,
     "smoothing_cascade": smoothing_cascade,
     "fold_avalanche": fold_avalanche,
@@ -550,12 +1225,29 @@ SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
     "exo_baroque_singularity": exo_baroque_singularity,
     "coasean_paradise_networked": coasean_paradise_networked,
     "baroque_cathedral_networked": baroque_cathedral_networked,
+    "synthetic_consumers_v2": synthetic_consumers_v2,
+    "agentic_disconnect": agentic_disconnect,
+    "productive_baroque": productive_baroque,
+    "derivatives_revolution": derivatives_revolution,
+    "casino_collapse": casino_collapse,
+    "legal_collapse": legal_collapse,
+    "regulatory_capture": regulatory_capture,
+    "civic_renaissance": civic_renaissance,
+    "pigouvian_light": pigouvian_light,
+    "pigouvian_heavy": pigouvian_heavy,
+    "pigouvian_friction": pigouvian_friction,
+    "pigouvian_baroque": pigouvian_baroque,
+    "endogenous_paradise": endogenous_paradise,
+    "endogenous_baroque": endogenous_baroque,
+    "institutional_emergence": institutional_emergence,
+    "full_emergence": full_emergence,
 }
 
 
 SCENARIO_DESCRIPTIONS = {
     "coasean_paradise": "Smoothworld limit. Near-zero transaction cost; folding suppressed; EBI ≈ 1.",
     "baroque_cathedral": "Baroqueworld limit. Aggressive folding; nominal GDP explodes; legibility crashes.",
+    "baroque_with_high_welfare": "Adversarial (A3): pinned counter-example where EBI > 10 AND welfare > paradise.",
     "equilibrium_drift": "α=0.5 mid-fence. Both attractors pull; sensitivity to noise.",
     "smoothing_cascade": "Coasean transition: α decays 1→0. Nominal collapse, real growth.",
     "fold_avalanche": "Striated drift: α ramps 0→1. Folding take-off and legibility crash.",
@@ -571,6 +1263,22 @@ SCENARIO_DESCRIPTIONS = {
     "exo_baroque_singularity": "Recursive fold limits unlocked; tests asymptotic behavior.",
     "coasean_paradise_networked": "Smooth attractor under scale-free network + t-copula + Hawkes folding.",
     "baroque_cathedral_networked": "Baroque attractor under SBM network + t-copula + Hawkes folding.",
+    "synthetic_consumers_v2": "Synthetic Consumers with demand-side feedback ON; authentic welfare collapses.",
+    "agentic_disconnect": "Humans abdicate, agents act; demand-side feedback exposes the disconnect.",
+    "productive_baroque": "High alpha + capable intermediaries + productive folding ON; productive baroque attractor.",
+    "derivatives_revolution": "Mid-alpha, low Matryoshka taxes, aggressive productive folding; bounded welfare check.",
+    "casino_collapse": "High alpha + low capability + productive folding opt-in; productivity gated by capability.",
+    "legal_collapse": "Law strength decays without upkeep; stranger trade collapses into cost rejection.",
+    "regulatory_capture": "Concentrated wealth captures law; cross-stack trade loses surplus.",
+    "civic_renaissance": "High upkeep and civic pushback restore legal capacity under concentration.",
+    "pigouvian_light": "Moderate (10%) A2A automation tax; revenue recycled to human wealth. Twin of synthetic_consumers_v2.",
+    "pigouvian_heavy": "High (35%) A2A automation tax; tests over-correction and welfare overshoot.",
+    "pigouvian_friction": "A2A automation tax recycled as H2A friction subsidy; humans re-enter the loop.",
+    "pigouvian_baroque": "Pigouvian tax on productive-baroque baseline; tests productive vs parasitic targeting.",
+    "endogenous_paradise": "Agents learn intermediation preference from a Coasean-paradise-like baseline.",
+    "endogenous_baroque": "Agents learn preference under a high folding ceiling and low-friction baroque surface.",
+    "institutional_emergence": "Endogenous strategy plus firm formation and dissolution.",
+    "full_emergence": "Strategy, institutions, and population dynamics enabled together.",
 }
 
 

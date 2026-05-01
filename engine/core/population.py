@@ -125,6 +125,12 @@ class Population:
     weight: np.ndarray
     is_human: np.ndarray
     autonomy: np.ndarray
+    intermediation_pref: np.ndarray | None = None
+    bandit_rewards: np.ndarray | None = None
+    bandit_counts: np.ndarray | None = None
+    last_action: np.ndarray | None = None
+    firm_id: np.ndarray | None = None
+    firm_next_id: int = 0
 
     # Sampling structures — built once at synthesize time, immutable thereafter.
     # See _build_sampling_structures. We exploit a structural property: in
@@ -145,7 +151,11 @@ class Population:
     config: PopulationConfig = field(default_factory=PopulationConfig)
 
     @classmethod
-    def synthesize(cls, config: Optional[PopulationConfig] = None) -> "Population":
+    def synthesize(
+        cls,
+        config: Optional[PopulationConfig] = None,
+        strategy_config: Optional[Any] = None,
+    ) -> "Population":
         """Generate a synthetic population from a config."""
         if config is None:
             config = PopulationConfig()
@@ -210,6 +220,24 @@ class Population:
         weight[:n_h] = np.float32(config.n_humans_real / n_h)
         weight[n_h:] = np.float32(config.n_agents_real / n_a)
 
+        strategy_enabled = bool(getattr(strategy_config, "enabled", False))
+        if strategy_enabled:
+            intermediation_pref = np.clip(
+                rng.normal(
+                    getattr(strategy_config, "initial_pref", 0.5),
+                    getattr(strategy_config, "initial_pref_sd", 0.15),
+                    n,
+                ),
+                0.01,
+                0.99,
+            ).astype(np.float32)
+        else:
+            intermediation_pref = np.zeros(n, dtype=np.float32)
+        bandit_rewards = np.zeros((n, 3), dtype=np.float32)
+        bandit_counts = np.ones((n, 3), dtype=np.int32)
+        last_action = np.full(n, -1, dtype=np.int8)
+        firm_id = np.full(n, -1, dtype=np.int32)
+
         pop = cls(
             capability=cap,
             sector=sector,
@@ -219,6 +247,11 @@ class Population:
             weight=weight,
             is_human=is_human,
             autonomy=autonomy,
+            intermediation_pref=intermediation_pref,
+            bandit_rewards=bandit_rewards,
+            bandit_counts=bandit_counts,
+            last_action=last_action,
+            firm_id=firm_id,
             config=config,
         )
         pop._build_sampling_structures()
