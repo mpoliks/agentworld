@@ -325,6 +325,43 @@ def exo_imperial_sweep_cmd(out, steps, regions, tracts):
     )
 
 
+@main.group("validate")
+def validate_group():
+    """Validation artifacts (anchor / priors / adversarial)."""
+
+
+@validate_group.command("anchor")
+@click.option("--scenario", default="equilibrium_drift", show_default=True,
+              help="Base scenario; the anchor's α-schedule is applied on top.")
+@click.option("--scale", type=click.Choice(SCALE_CHOICES), default="small",
+              show_default=True)
+@click.option("--seed", default=0, show_default=True, type=int)
+@click.option("--out", default="outputs/validation/historical_anchor",
+              show_default=True,
+              help="Path prefix; .json (summary) + .png (chart) are written.")
+@click.option("--no-progress", is_flag=True)
+def validate_anchor_cmd(scenario, scale, seed, out, no_progress):
+    """Run the stylized US 1980-2024 historical anchor."""
+    from engine.validation.historical_anchor import (
+        run_historical_anchor, write_anchor_chart, write_anchor_summary,
+    )
+    out_path = Path(out)
+    res = run_historical_anchor(
+        scenario=scenario, scale=scale, seed=seed, progress=not no_progress,
+    )
+    summary_path = out_path.with_suffix(".json")
+    chart_path = out_path.with_suffix(".png")
+    write_anchor_summary(res, summary_path)
+    write_anchor_chart(res, chart_path)
+    click.echo(
+        f"\n[anchor] RMSE={res.rmse:.4f} MAE={res.mae:.4f} bias={res.bias:+.4f}"
+    )
+    click.echo(
+        f"         worst year={res.largest_error_year} "
+        f"({res.largest_error:+.4f}) -> {summary_path} {chart_path}"
+    )
+
+
 @main.command("serve")
 @click.option("--host", default="127.0.0.1", show_default=True,
               help="Bind address. Default 127.0.0.1 (localhost only).")
