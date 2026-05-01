@@ -362,6 +362,36 @@ def validate_anchor_cmd(scenario, scale, seed, out, no_progress):
     )
 
 
+@validate_group.command("adversarial")
+@click.option("--n-evals", default=200, show_default=True, type=int,
+              help="Number of simulated-annealing proposals.")
+@click.option("--seed", default=0, show_default=True, type=int)
+@click.option("--out", default="outputs/validation/adversarial_search.json",
+              show_default=True)
+@click.option("--n-steps", default=30, show_default=True, type=int,
+              help="Steps per evaluation.")
+@click.option("--no-progress", is_flag=True)
+def validate_adversarial_cmd(n_evals, seed, out, n_steps, no_progress):
+    """Search for a parameter region where EBI > 10 AND welfare > paradise."""
+    from engine.validation.adversarial import (
+        adversarial_search, write_adversarial_summary,
+    )
+    out_path = Path(out)
+    res = adversarial_search(
+        n_evals=n_evals, seed=seed, n_steps=n_steps, progress=not no_progress,
+    )
+    write_adversarial_summary(res, out_path)
+    verdict = "COUNTER-EXAMPLE FOUND" if res.found_counter_example else "INVARIANT (no counter-example)"
+    click.echo(
+        f"\n[adversarial] {verdict} after {res.n_evals} evals in "
+        f"{res.elapsed_sec:.1f}s -> {out_path}"
+    )
+    click.echo(
+        f"             best_ebi={res.best_ebi:.3f} (target>{res.ebi_target}) "
+        f"best_welfare={res.best_welfare:.4e} (paradise={res.paradise_welfare:.4e})"
+    )
+
+
 @main.command("serve")
 @click.option("--host", default="127.0.0.1", show_default=True,
               help="Bind address. Default 127.0.0.1 (localhost only).")

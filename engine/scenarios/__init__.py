@@ -1161,9 +1161,55 @@ def full_emergence() -> WorldConfig:
 
 # ---------- registry ----------------------------------------------------------
 
+def baroque_with_high_welfare() -> WorldConfig:
+    """Adversarial scenario (A3, validation_lift_plus_live_viz plan).
+
+    The brief's load-bearing claim is that high intermediation (high EBI)
+    does not coexist with high welfare. The adversarial search at
+    `engine/validation/adversarial.py` tries to break that claim by
+    sweeping the speculative folding parameters under productive folding
+    being on. With seed=0 and 200 SA evaluations at small runtime scale,
+    the search lands a counter-example region where terminal EBI is large
+    AND terminal `real_per_capita_welfare` exceeds `coasean_paradise`'s.
+
+    The parameters below are pinned from
+    `outputs/validation/adversarial_search.json`. Keep the two in sync; the
+    test in `engine/tests/test_validation_adversarial.py` checks the
+    persisted JSON rather than this scenario, but if you retune the search
+    update both.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.8279,
+            agent_capability_sd=0.10,
+            human_capability_mean=0.55,
+            human_capability_sd=0.15,
+            n_human_prototypes=600,
+            n_agent_prototypes=6_000,
+            seed=99 + 7,
+        ),
+        topology=TopologyConfig(
+            alpha=0.9500,
+            folding_propensity=0.8500,
+            folding_branching=4.5,
+            fold_real_efficiency=0.5281,
+            fold_nominal_multiplier=3.0,
+            base_variance_absorption=0.2615,
+            productive_decay=0.7142,
+            cap_midpoint=0.50,
+            cap_slope=4.0,
+            max_productive_real_share=0.85,
+        ),
+        pairs_per_step=20_000,
+        n_steps=30,
+        seed=99,
+    )
+
+
 SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
     "coasean_paradise": coasean_paradise,
     "baroque_cathedral": baroque_cathedral,
+    "baroque_with_high_welfare": baroque_with_high_welfare,
     "equilibrium_drift": equilibrium_drift,
     "smoothing_cascade": smoothing_cascade,
     "fold_avalanche": fold_avalanche,
@@ -1201,6 +1247,7 @@ SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
 SCENARIO_DESCRIPTIONS = {
     "coasean_paradise": "Smoothworld limit. Near-zero transaction cost; folding suppressed; EBI ≈ 1.",
     "baroque_cathedral": "Baroqueworld limit. Aggressive folding; nominal GDP explodes; legibility crashes.",
+    "baroque_with_high_welfare": "Adversarial (A3): pinned counter-example where EBI > 10 AND welfare > paradise.",
     "equilibrium_drift": "α=0.5 mid-fence. Both attractors pull; sensitivity to noise.",
     "smoothing_cascade": "Coasean transition: α decays 1→0. Nominal collapse, real growth.",
     "fold_avalanche": "Striated drift: α ramps 0→1. Folding take-off and legibility crash.",
