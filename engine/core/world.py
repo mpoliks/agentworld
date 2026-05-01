@@ -385,6 +385,7 @@ class World:
             institutions_enabled=inst_cfg.enabled,
             dynamics_enabled=dyn_cfg.enabled,
             churn_count=churn_count,
+            fold_per_depth_contribution=fold.per_depth_contribution,
         )
 
         self._advance_law_state()

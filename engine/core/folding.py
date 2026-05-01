@@ -52,6 +52,15 @@ class FoldingResult:
     # nominal that ended up as bounded real welfare; in [0, 1].
     real_added_productive: float = 0.0
     productive_welfare_yield: float = 0.0
+    # Per-depth nominal contribution (index 0 = depth 1). Empty list when
+    # folding is disabled or the propensity gates the cascade off. Used by
+    # the live fold-tree visualisation (B4); does not influence engine
+    # math.
+    per_depth_contribution: list = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.per_depth_contribution is None:
+            self.per_depth_contribution = []
 
 
 def _productive_share_at_depth(
@@ -121,7 +130,7 @@ def fold_surplus(
     propensity = topo.folding_propensity(realized_alpha)
 
     if propensity <= 0 or base_real_surplus <= 0 or current_max_depth >= cfg.folding_max_depth:
-        return FoldingResult(0.0, 0.0, 0.0, current_max_depth)
+        return FoldingResult(0.0, 0.0, 0.0, current_max_depth, per_depth_contribution=[])
 
     if cfg.folding_model == "hawkes":
         return _fold_surplus_hawkes(
@@ -153,6 +162,7 @@ def _fold_surplus_geometric(
     cur_nominal = base_nominal_volume
     new_depth = current_max_depth
     productive_real_added = 0.0
+    per_depth: list[float] = []
 
     for d in range(1, cfg.folding_max_depth + 1):
         depth_prop = propensity * (0.85 ** (d - 1))
@@ -169,6 +179,7 @@ def _fold_surplus_geometric(
         real_lost = max(real_lost, real_lost_at_depth)
         n_subs += branch * depth_prop * (10.0 ** d)
         new_depth = d
+        per_depth.append(float(cur_nominal))
 
         # Productive-vs-parasitic split: zero contribution unless
         # `base_variance_absorption > 0` (the back-compat default).
@@ -198,6 +209,7 @@ def _fold_surplus_geometric(
         new_max_depth=new_depth,
         real_added_productive=productive_real_added,
         productive_welfare_yield=productive_welfare_yield,
+        per_depth_contribution=per_depth,
     )
 
 
@@ -248,6 +260,7 @@ def _fold_surplus_hawkes(
     new_depth = current_max_depth
     prev_factor = 1.0  # depth-1 has no parent to inherit excitation from
     productive_real_added = 0.0
+    per_depth: list[float] = []
 
     for d in range(1, cfg.folding_max_depth + 1):
         depth_prop = propensity * (0.85 ** (d - 1))
@@ -269,6 +282,7 @@ def _fold_surplus_hawkes(
         real_lost = max(real_lost, real_lost_at_depth)
         n_subs += branch * depth_prop * (10.0 ** d)
         new_depth = d
+        per_depth.append(float(contribution))
 
         # Productive split — uses the realized contribution at this depth,
         # not the mean. Self-exciting overshoots therefore generate
@@ -305,4 +319,5 @@ def _fold_surplus_hawkes(
         new_max_depth=new_depth,
         real_added_productive=productive_real_added,
         productive_welfare_yield=productive_welfare_yield,
+        per_depth_contribution=per_depth,
     )

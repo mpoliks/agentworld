@@ -111,6 +111,13 @@ class StepMetrics:
     churn_rate: float = 0.0
     wealth_floor: float = 0.0
 
+    # ---- Fold cascade per-depth contribution (B4 visualisation) -------------
+    # Per-step nominal contribution at each fold depth (index 0 = depth 1).
+    # Empty when folding is gated off; not used by the engine math; consumed
+    # by the live fold-tree visualisation. Kept on a separate field with a
+    # default factory so all serializers continue to round-trip cleanly.
+    fold_per_depth_contribution: list = field(default_factory=list)
+
 
 def gini_coefficient(x: np.ndarray, weights: Optional[np.ndarray] = None) -> float:
     """Weighted Gini coefficient. O(n log n)."""
@@ -216,6 +223,7 @@ class Metrics:
         institutions_enabled: bool = False,
         dynamics_enabled: bool = False,
         churn_count: int = 0,
+        fold_per_depth_contribution: Optional[list] = None,
     ) -> StepMetrics:
         self._cum_real += real_step
         self._cum_nominal += nominal_step
@@ -382,6 +390,11 @@ class Metrics:
             capability_std=capability_std,
             churn_rate=churn_rate,
             wealth_floor=wealth_floor,
+            fold_per_depth_contribution=(
+                list(fold_per_depth_contribution)
+                if fold_per_depth_contribution
+                else []
+            ),
         )
         self.history.append(m)
         return m

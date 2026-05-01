@@ -6,6 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="foldtree.js" defer></script>
 <link rel="stylesheet" href="_tokens.css">
 <style>
 header {
@@ -209,12 +211,14 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     </div>
 
     <div id="tab-foldtree" style="display: none;">
-      <div class="panel foldtree-panel" id="foldtree-host">
-        Fold tree · placeholder for B4. After B4 ships, this tab renders a d3-based growing tree whose
-        per-depth branches reflect each step's <code>FoldingResult.per_depth_contribution</code>.
-        <br><br>
-        For now, the chart tab carries the run.
+      <div class="panel" style="padding: 0;">
+        <div id="foldtree-host" style="height: 480px;"></div>
       </div>
+      <p class="chart-caption" style="padding: 8px 0;">
+        Each column is one step. Within a column, bars stack from the base (depth 1, accent) to the
+        top (deepest, red). Column height is logarithmic in step total fold-nominal; a Hawkes
+        overshoot lights up its deepest bar. Folding-off scenarios show empty columns.
+      </p>
     </div>
 
   </div>
@@ -345,6 +349,16 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
   }
 
+  // ---- fold tree ------------------------------------------------------
+  let foldTree = null;
+  function ensureFoldTree() {
+    if (foldTree) return foldTree;
+    if (typeof window.createFoldTree !== 'function') return null;
+    foldTree = window.createFoldTree($('foldtree-host'));
+    window.addEventListener('resize', () => foldTree && foldTree.resize());
+    return foldTree;
+  }
+
   function applyStep(step) {
     sStep.textContent = step.step;
     sAlpha.textContent = step.alpha != null ? step.alpha.toFixed(3) : '—';
@@ -353,6 +367,10 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     appendStep('chart-alpha', step.step, step.alpha);
     appendStep('chart-ebi', step.step, step.exo_baroque_index);
     appendStep('chart-rwpc', step.step, step.real_per_capita_welfare);
+    const ft = ensureFoldTree();
+    if (ft) {
+      ft.appendStep(step.step, step.fold_per_depth_contribution || []);
+    }
   }
 
   function onTerminal(kind, payload) {
@@ -401,6 +419,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     if (!sel.value) return;
     closeStream();
     resetCharts();
+    if (foldTree) { foldTree.reset(); }
     clearLog();
     sStep.textContent = '0';
     sAlpha.textContent = '—';
