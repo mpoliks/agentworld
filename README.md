@@ -212,6 +212,168 @@ uv run --extra dev python -m pytest engine/tests/
 
 ---
 
+## Running on Linux
+
+A copy-pasteable runbook for bringing the engine up on a fresh Linux box,
+verifying it, and exercising it at non-trivial size. Times are from a 2023
+Apple Silicon laptop; recent x86 Linux should land within ±2×.
+
+### 1. Bring-up
+
+```bash
+sudo apt-get update && sudo apt-get install -y \
+    python3.11 python3.11-venv git build-essential
+
+git clone git@github.com:mpoliks/agentworld.git
+cd agentworld
+
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -e ".[dev,viz,serve]"
+```
+
+`numba` is an optional accelerator (Python <3.13 only). If wheels fail,
+the engine still runs without it.
+
+### 2. Verify (the floor)
+
+```bash
+python -m pytest engine/tests/ -v        # ~30s, expect 142/142
+```
+
+The test that matters most for trust is `test_regression_canonical.py` —
+it asserts the 33 canonical scenarios reproduce their saved
+`outputs/runs/*.json` baselines to within float noise. If anything else
+fails, stop and investigate before running anything heavier.
+
+### 3. Reproduce the validation artifacts
+
+These are the numbers the brief now has to live next to. Each writes to
+`outputs/validation/` and overwrites in place. Run them in order:
+
+```bash
+agentworld validate anchor                        # ~1 min
+# expect: RMSE≈0.0634, MAE≈0.0612, bias≈-0.0612, worst year=2009
+
+agentworld validate adversarial --n-evals 200     # ~10s
+# expect: found_counter_example: TRUE
+# best_ebi >> 10, best_welfare slightly above paradise
+
+agentworld validate priors --samples 2000         # ~1 min
+# expect: P(smooth)≈1.85%, P(mixed)≈66%, P(baroque)≈32%
+# EBI quantiles p05/p50/p95 ≈ 1.58 / 3.18 / 22.34
+```
+
+For a stronger adversarial pass and a wider posterior:
+
+```bash
+agentworld validate adversarial --n-evals 1000    # ~50s
+agentworld validate priors --samples 4096 --seed 7  # ~2 min
+```
+
+The committed `outputs/validation/*.json` files are the reference; your
+re-runs should match basin probabilities to ~0.5pp and EBI quantiles to
+~5%.
+
+### 4. Stress runs (sizeable workloads)
+
+Pick by how much time you want to spend.
+
+```bash
+# Full canonical run-all at default scale (~88K prototypes per scenario):
+agentworld run-all --scale small --workers 4              # ~2-4 min
+
+# Same at medium scale (880K prototypes), ~8 GB RAM:
+agentworld run-all --scale medium --workers 4             # ~30-60 min
+
+# Same at large (8.8M prototypes), ~20 GB RAM:
+agentworld run-all --scale large --workers 2              # ~3-5 hr
+
+# xlarge (88M prototypes) needs ≥32 GB RAM; usually only run on a single
+# scenario for spot-checks:
+agentworld run baroque_cathedral --scale xlarge
+
+# Sobol global sensitivity sweep on the alpha-engine
+# (samples × (D+2) actual sims, e.g. 64 base = 576 sims):
+agentworld sobol --samples 64                             # ~5-15 min
+
+# Sobol on the exo-engine:
+agentworld exo sobol --samples 32                         # ~3-8 min
+
+# Ensemble bands across seeds for one scenario:
+agentworld ensemble baroque_cathedral --seeds 64 --workers 4   # ~5-15 min
+agentworld ensemble-all --seeds 32 --workers 4                  # ~30-60 min
+```
+
+A reasonable end-to-end "solid test" in one shell:
+
+```bash
+python -m pytest engine/tests/ \
+  && agentworld validate anchor --no-progress \
+  && agentworld validate adversarial --n-evals 1000 --no-progress \
+  && agentworld validate priors --samples 2000 --no-progress \
+  && agentworld run-all --scale small --workers 4 --no-progress \
+  && agentworld sobol --samples 32 --no-progress
+```
+
+Wall-clock: ~25–45 min on a modern Linux laptop. Exits non-zero on first
+failure.
+
+### 5. Live viz
+
+```bash
+agentworld serve --host 127.0.0.1 --port 8765
+```
+
+**Desktop Linux:** open `http://127.0.0.1:8765/` in a browser, pick
+`productive_baroque` from the dropdown, hit *Run*. Three streaming
+Plotly charts (α, EBI, real welfare/capita) update in place; the
+*Fold tree* tab fills in column-by-column as steps arrive.
+
+**Headless server:** SSH-tunnel from your laptop:
+
+```bash
+ssh -N -L 8765:127.0.0.1:8765 your-server
+# then open http://127.0.0.1:8765/ locally
+```
+
+If the page loads but charts stay empty, check the browser DevTools
+network tab for the `text/event-stream` response — some corporate
+proxies strip SSE.
+
+### 6. What "passing" looks like
+
+| Check | Expected | Where it lives |
+| --- | --- | --- |
+| `pytest engine/tests/` | 142/142 | — |
+| `outputs/validation/historical_anchor.json` | `rmse ≈ 0.063`, `bias ≈ -0.061` | A1 |
+| `outputs/validation/adversarial_search.json` | `"found_counter_example": true` | A3 |
+| `outputs/validation/posterior_sweep.summary.json` | `p_baroque > p_smooth × 10` | A2 |
+| `agentworld run-all` | 33 scenario JSONs in `outputs/runs/` | regenerated baselines |
+| Live page | `hello → step×N → done` events visible in DevTools → Network | B2/B3/B4 |
+
+### 7. Hardware notes
+
+| Workload | RAM | Time (small scale) |
+| --- | --- | --- |
+| `pytest engine/tests/` | <2 GB | ~30s |
+| `agentworld validate anchor` | ~1 GB | ~1 min |
+| `agentworld validate priors --samples 2000` | ~2 GB | ~1 min |
+| `agentworld run-all --scale small` | ~3 GB peak | ~2-4 min |
+| `agentworld sobol --samples 64` | ~3 GB | ~5-15 min |
+| `agentworld run-all --scale medium` | ~8 GB | ~30-60 min |
+| `agentworld run-all --scale large` | ~20 GB | ~3-5 hr |
+| `agentworld run baroque_cathedral --scale xlarge` | ~32 GB | ~30-60 min |
+
+The validation artifacts are all small-scale on purpose — a 4 GB / 4-core
+VM is enough to reproduce every documented number. Scale-ups exist for
+checking that aggregate behavior is stable as N rises and for
+investigating per-scenario noise structure; they are not required to
+trust the artifact's claims.
+
+---
+
 ## Citing
 
 This artifact is a companion to Antikythera's *Agentworld* research brief by Benjamin Bratton. It is not a substitute for that brief; it is a sandbox for the brief's hypotheses.
