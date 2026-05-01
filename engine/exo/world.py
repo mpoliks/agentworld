@@ -25,7 +25,7 @@ The world owns:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -358,7 +358,16 @@ class ExoWorld:
         self.step_idx += 1
         return m
 
-    def run(self, n_steps: Optional[int] = None, progress: bool = False) -> MetricsHistory:
+    def run(
+        self,
+        n_steps: Optional[int] = None,
+        progress: bool = False,
+        step_callback: Optional[Callable[[StepMetrics], None]] = None,
+    ) -> MetricsHistory:
+        """Run for n_steps. If `step_callback` is provided, it is invoked
+        synchronously with each step's `StepMetrics`. Bit-identical to the
+        no-callback path when `None`.
+        """
         n = n_steps if n_steps is not None else self.cfg.n_steps
         if progress:
             try:
@@ -370,7 +379,9 @@ class ExoWorld:
         else:
             iterator = range(n)
         for _ in iterator:
-            self.step()
+            m = self.step()
+            if step_callback is not None:
+                step_callback(m)
         return self.history
 
     # ---- snapshot --------------------------------------------------------

@@ -16,7 +16,7 @@ It exposes:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -391,8 +391,19 @@ class World:
         self.step_idx += 1
         return m
 
-    def run(self, n_steps: Optional[int] = None, progress: bool = False) -> "Metrics":
-        """Run for n_steps (or cfg.n_steps if None). Returns the metrics object."""
+    def run(
+        self,
+        n_steps: Optional[int] = None,
+        progress: bool = False,
+        step_callback: Optional[Callable[[StepMetrics], None]] = None,
+    ) -> "Metrics":
+        """Run for n_steps (or cfg.n_steps if None). Returns the metrics object.
+
+        If `step_callback` is provided, it is invoked synchronously with each
+        step's `StepMetrics` after the step completes. Used by the streaming
+        layer (`agentworld serve`). When `None`, the run is bit-identical to
+        the no-callback path.
+        """
         n = n_steps if n_steps is not None else self.cfg.n_steps
         if progress:
             try:
@@ -403,7 +414,9 @@ class World:
         else:
             iterator = range(n)
         for _ in iterator:
-            self.step()
+            m = self.step()
+            if step_callback is not None:
+                step_callback(m)
         return self.metrics
 
     # ---- snapshot ---------------------------------------------------------
