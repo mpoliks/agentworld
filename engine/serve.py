@@ -40,8 +40,10 @@ from fastapi.responses import (
     FileResponse,
     JSONResponse,
     PlainTextResponse,
+    RedirectResponse,
     StreamingResponse,
 )
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 
@@ -210,7 +212,7 @@ def create_app():
     def index():
         live = DASHBOARD_DIR / "live.html"
         if live.exists():
-            return FileResponse(str(live))
+            return RedirectResponse(url="/dashboard/live.html", status_code=307)
         return PlainTextResponse(
             "agentworld serve is running.\n\n"
             "POST /runs to start a scenario; GET /runs/{id}/stream for SSE.\n"
@@ -218,26 +220,16 @@ def create_app():
             status_code=200,
         )
 
-    @app.get("/foldtree", include_in_schema=False)
-    def foldtree():
-        ft = DASHBOARD_DIR / "foldtree.html"
-        if ft.exists():
-            return FileResponse(str(ft))
-        return PlainTextResponse(
-            "dashboard/foldtree.html is not present yet (B4).",
-            status_code=404,
+    if DASHBOARD_DIR.exists():
+        # Serve the dashboard directory verbatim. StaticFiles handles MIME
+        # types and traversal protection. Both index.html and live.html
+        # use relative URLs (e.g. _tokens.css) which resolve correctly
+        # under /dashboard/.
+        app.mount(
+            "/dashboard",
+            StaticFiles(directory=str(DASHBOARD_DIR), html=False),
+            name="dashboard",
         )
-
-    @app.get("/dashboard/{filename}", include_in_schema=False)
-    def dashboard_asset(filename: str):
-        # Whitelist: only allow files inside DASHBOARD_DIR with safe names.
-        safe = "".join(c for c in filename if c.isalnum() or c in "._-")
-        if safe != filename:
-            raise HTTPException(status_code=400, detail="bad filename")
-        path = DASHBOARD_DIR / filename
-        if not path.exists() or not path.is_file():
-            raise HTTPException(status_code=404, detail="not found")
-        return FileResponse(str(path))
 
     @app.get("/scenarios")
     def scenarios():

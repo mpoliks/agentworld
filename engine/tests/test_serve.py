@@ -60,6 +60,28 @@ def test_scenarios_endpoint():
         assert "equilibrium_drift" in names
 
 
+def test_root_redirects_to_live_html():
+    with TestClient(create_app()) as client:
+        r = client.get("/", follow_redirects=False)
+        assert r.status_code in (301, 302, 307)
+        assert r.headers["location"].endswith("/dashboard/live.html")
+
+
+def test_static_dashboard_assets_served():
+    """The /dashboard mount serves both live.html and the shared CSS tokens
+    so the page can load <link rel="stylesheet" href="_tokens.css"> from the
+    same directory."""
+    with TestClient(create_app()) as client:
+        r = client.get("/dashboard/live.html")
+        assert r.status_code == 200
+        assert "<title>agentworld" in r.text.lower()
+
+        r = client.get("/dashboard/_tokens.css")
+        assert r.status_code == 200
+        assert "--accent" in r.text
+        assert r.headers["content-type"].startswith("text/css")
+
+
 def test_unknown_scenario_404():
     with TestClient(create_app()) as client:
         r = client.post(

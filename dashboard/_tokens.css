@@ -1,0 +1,25 @@
+/* Shared design tokens for the agentworld dashboard surfaces.
+   Used by index.html (the static atlas) and live.html (the streaming page).
+   Page-specific component CSS stays inline in each HTML file. */
+:root {
+  --bg: #0c0d10;
+  --panel: #14161a;
+  --panel-2: #1a1d22;
+  --border: #2a2d33;
+  --text: #e7e8ea;
+  --text-2: #9ea2a8;
+  --text-3: #6a6d72;
+  --accent: #b89a55;
+  --green: #5fa572;
+  --red: #c25a5a;
+  --blue: #5b8ec4;
+  --purple: #9077c2;
+  --serif: 'Iowan Old Style', 'Georgia', 'Times New Roman', serif;
+  --sans: 'Inter', 'Helvetica Neue', 'Helvetica', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(184,154,85,0.3); }
+a:hover { border-bottom-color: var(--accent); }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 24px; }
