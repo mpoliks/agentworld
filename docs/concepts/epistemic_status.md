@@ -139,6 +139,109 @@ A scenario that lands at EBI = 47.3 with band [22, 81] is telling you: "given th
 
 ---
 
+## What the artifact can now falsify
+
+Until 2026-05, the engines produced no number that could in principle be
+*wrong* — every claim was conditional on a delta-distribution at the
+scenario default, which is unfalsifiable. Three artifacts shipped under
+the validation lift now give the engines first-class falsifiable claims:
+
+### 1. Stylized historical anchor (A1)
+
+The α-engine's `governance_overhead_fraction` was compared against the
+US FIRE supersector's share of GDP, 1980-2024 (45 annual values
+aggregated from BEA NIPA tables) under a hand-picked α-schedule that
+rises linearly from 0.40 to 0.70. The engine reports:
+
+```
+RMSE = 0.0634,  MAE = 0.0612,  bias = -0.0612
+```
+
+The engine systematically *under-attributes* intermediation by ~6
+percentage points — partly because the FIRE share includes imputed
+rents on owner-occupied housing and treats activities the engine
+classifies as productive trade as overhead. The largest single-year
+error is **2009**, the GFC trough, where empirical FIRE rises sharply
+while the engine's overhead tracks the smooth schedule.
+
+This is not a fitted model. The deliverable is the *documented* RMSE:
+every future engine claim now has one calibrated number it has to live
+next to. See [`historical_anchor.md`](historical_anchor.md) for sourcing
+and reproduction. Artifact: `outputs/validation/historical_anchor.{json,png}`.
+
+### 2. Prior-over-parameters sweep (A2)
+
+Eleven of the engine's load-bearing speculative knobs (seven α-engine,
+four exo) now carry declared priors in
+[`engine/validation/priors.py`](../../engine/validation/priors.py). A
+2000-sample Sobol-coverage sweep over the α-engine subset produces an
+outcome distribution under stated parameter ignorance:
+
+| Basin | P (under wide prior, n=2000) |
+| --- | --- |
+| Smoothworld (terminal EBI ≤ 1.5) | **1.85%** |
+| Mixed (1.5 < EBI < 5) | **66.05%** |
+| Baroqueworld (EBI ≥ 5) | **32.10%** |
+| diverged | 0.00% |
+
+Terminal EBI quantiles: `p05=1.58, p50=3.18, p95=22.34`.
+
+The Coasean basin survives the wide prior — at ~2% it is not vanishing
+— but it is at least an order of magnitude smaller than the Baroque
+basin under the bounds the brief argues are plausible. Future "the
+engine produces X" claims must condition on either the modal mixed
+basin or a named tighter region. See [`priors.md`](priors.md) for the
+inventory. Artifact: `outputs/validation/posterior_sweep.{parquet,summary.json,png}`.
+
+### 3. Adversarial scenario (A3)
+
+A simulated-annealing search over eight speculative folding knobs asks:
+*does there exist a region where terminal EBI > 10 AND terminal real-
+per-capita welfare exceeds `coasean_paradise`'s?* At seed=0 / n_evals=200,
+the search lands a counter-example in ~10 seconds:
+
+```
+found_counter_example: TRUE
+best_ebi:              ~147,118
+best_welfare:          ~0.277
+paradise_welfare:      ~0.265 (same-scale baseline)
+margin:                ~4%
+```
+
+The brief's strong claim — *high intermediation does not coexist with
+high welfare* — is therefore **falsified**. The weaker, productive-folding-
+aware claim survives: high alpha alone harms welfare; high alpha *with*
+productive folding (`base_variance_absorption > 0` and capable
+intermediaries) can produce welfare slightly above paradise, at the
+cost of an EBI that is unrecognizable as a comparison to anything in
+the historical anchor's range. The pinned scenario
+`baroque_with_high_welfare` reproduces the counter-example.
+
+Half the search knobs sat at upper bounds in the canonical run; a
+contracted-bound rerun is a follow-up worth publishing. See
+[`docs/scenarios/adversarial.md`](../scenarios/adversarial.md) for
+methods and bound-saturation flags. Artifact:
+`outputs/validation/adversarial_search.json`.
+
+### Together
+
+These three artifacts move the engines from "engineered" to "engineered
++ minimally validated." They do not turn the engines into forecasters.
+What they do is establish that:
+
+- **One quantity is documented to ±6pp against US 1980-2024 data** (A1).
+- **The Coasean basin is small but real under wide priors** (A2).
+- **The strong "Baroque kills welfare" claim is falsified within the
+  stipulated bounds** (A3); the productive-folding-conditional version
+  is the load-bearing claim going forward.
+
+Future engine work that perturbs any of these three numbers is required
+to say so, by name, and explain whether the change is intentional. The
+pin tests in `engine/tests/test_validation_*.py` exist to catch silent
+drift.
+
+---
+
 ## TL;DR for a reader
 
-The α-engine and the exo-engine are both stochastic dynamical systems with noise structure calibrated to public empirical data and load-bearing dynamics deliberately left speculative. They produce *conditional* statements about parameter sensitivity and basin structure, not forecasts. The two engines disagree by design and the disagreement is itself a deliverable. The Sobol sweep tells you which knobs matter; the ensemble bands tell you how much noise is in each scenario; the calibrated noise structure makes both more defensible than the previous Gaussian-IID defaults; and nothing in the artifact licenses an unconditional probability statement about the future.
+The α-engine and the exo-engine are both stochastic dynamical systems with noise structure calibrated to public empirical data and load-bearing dynamics deliberately left speculative. They produce *conditional* statements about parameter sensitivity and basin structure, not forecasts. The two engines disagree by design and the disagreement is itself a deliverable. The Sobol sweep tells you which knobs matter; the ensemble bands tell you how much noise is in each scenario; the calibrated noise structure makes both more defensible than the previous Gaussian-IID defaults; the validation lift adds three numbers (a 6pp anchor RMSE, a wide-prior basin distribution, and a falsifying counter-example to "Baroque kills welfare"); and nothing in the artifact licenses an unconditional probability statement about the future.
