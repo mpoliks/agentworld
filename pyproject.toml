@@ -32,6 +32,10 @@ viz = [
     "plotly>=5.18",
     "seaborn>=0.13",
 ]
+serve = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
 
 [project.scripts]
 agentworld = "engine.cli:main"

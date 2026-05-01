@@ -325,5 +325,29 @@ def exo_imperial_sweep_cmd(out, steps, regions, tracts):
     )
 
 
+@main.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True,
+              help="Bind address. Default 127.0.0.1 (localhost only).")
+@click.option("--port", default=8765, show_default=True, type=int)
+@click.option("--log-level", default="info", show_default=True,
+              type=click.Choice(["critical", "error", "warning", "info", "debug"]))
+def serve_cmd(host, port, log_level):
+    """Start the SSE streaming server (dev only).
+
+    Streams alpha-engine StepMetrics over HTTP/SSE so a browser at
+    http://localhost:8765 can watch a run progress step-by-step. Requires
+    the `serve` extra: `pip install agentworld[serve]`.
+    """
+    try:
+        from engine.serve import serve  # local import: optional dependency
+    except ImportError as e:
+        raise click.UsageError(
+            f"Could not import the serve module ({e}). Install the extras: "
+            "pip install fastapi uvicorn"
+        ) from e
+    click.echo(f"[agentworld] serving on http://{host}:{port} (Ctrl+C to stop)")
+    serve(host=host, port=port, log_level=log_level)
+
+
 if __name__ == "__main__":
     main()
