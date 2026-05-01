@@ -45,6 +45,14 @@ SCENARIO_ORDER = [
     "exo_baroque_singularity",
     "coasean_paradise_networked",
     "baroque_cathedral_networked",
+    "synthetic_consumers_v2",
+    "agentic_disconnect",
+    "productive_baroque",
+    "derivatives_revolution",
+    "casino_collapse",
+    "legal_collapse",
+    "regulatory_capture",
+    "civic_renaissance",
 ]
 
 SCENARIO_LABELS = {
@@ -65,6 +73,14 @@ SCENARIO_LABELS = {
     "exo_baroque_singularity": "Exo-Baroque Singularity",
     "coasean_paradise_networked": "Coasean Paradise (Networked)",
     "baroque_cathedral_networked": "Baroque Cathedral (Networked)",
+    "synthetic_consumers_v2": "Synthetic Consumers v2",
+    "agentic_disconnect": "Agentic Disconnect",
+    "productive_baroque": "Productive Baroque",
+    "derivatives_revolution": "Derivatives Revolution",
+    "casino_collapse": "Casino Collapse",
+    "legal_collapse": "Legal Collapse",
+    "regulatory_capture": "Regulatory Capture",
+    "civic_renaissance": "Civic Renaissance",
 }
 
 
@@ -294,9 +310,9 @@ footer p { max-width: 720px; line-height: 1.6; }
   <div class="wrap">
     <div class="super">Antikythera × Disintegrator · companion artifact</div>
     <h1>Agentworld<br><em>An atlas of the smooth-striated continuum</em></h1>
-    <p class="lead">A computational sandbox for the planetary economy when society is composed of <b>8 billion humans</b> and <b>800 billion to 1 trillion AI agents</b>. We look at one variable through fifteen scenarios that range from agents <em>dissolving</em> economic intermediation (e.g. removing transaction barriers) or <em>fractally multiplying</em> it (introducing new, recursive transaction barriers)? Both are stable equilibria of the same underlying technology, and which one materializes is an open question. What we offer here is a few distributions of possible scenarios.</p>
+    <p class="lead">A computational sandbox for the planetary economy when society is composed of <b>8 billion humans</b> and <b>800 billion to 1 trillion AI agents</b>. We look at one variable through twenty-five scenarios that range from agents <em>dissolving</em> economic intermediation (e.g. removing transaction barriers) or <em>fractally multiplying</em> it (introducing new, recursive transaction barriers)? Both are stable equilibria of the same underlying technology, and which one materializes is an open question. What we offer here is a few distributions of possible scenarios.</p>
     <div class="meta">
-      <span>15 scenarios</span>
+      <span>25 scenarios</span>
       <span>8 × 10⁹ humans + 8 × 10¹¹ agents · 6.6M importance-weighted prototypes</span>
       <span>60 steps · 20M pair-interactions per step</span>
     </div>
@@ -436,7 +452,7 @@ footer p { max-width: 720px; line-height: 1.6; }
 <section>
   <div class="wrap">
     <h2><span class="marker">§3</span> The scenarios</h2>
-    <p class="sub">Click a card to load its detail pane below. Cards are ordered along α – <i>Coasean Paradise</i> on the far left, <i>Exo-Baroque Singularity</i> on the far right. Each card prints the scenario's terminal α, exo-baroque index, and per-capita welfare. The fifteen scenarios fix different levers – alignment-layer rejection rate, agent autonomy, friction floor, capability variance, fold ceiling, the rate at which α responds to its own EBI – so that the rest of the system can be read as a response to that lever.</p>
+    <p class="sub">Click a card to load its detail pane below. Cards are ordered along α – <i>Coasean Paradise</i> on the far left, <i>Exo-Baroque Singularity</i> on the far right. Each card prints the scenario's terminal α, exo-baroque index, and per-capita welfare. The twenty-five scenarios fix different levers – alignment-layer rejection rate, agent autonomy, friction floor, capability variance, fold ceiling, the rate at which α responds to its own EBI, demand-side feedback, productive folding, and opt-in law dynamics – so that the rest of the system can be read as a response to that lever.</p>
     <div class="scenario-strip" id="scn-strip"></div>
   </div>
 </section>
@@ -479,6 +495,16 @@ footer p { max-width: 720px; line-height: 1.6; }
             <div class="chart-title">rejection share by Matryoshka layer</div>
             <div class="chart-caption">Of the trades that did not clear, which Matryoshka layer killed them. <span style="color:#c25a5a;">law</span> = a binary statutory veto. <span style="color:#5b8ec4;">market</span> = a probabilistic platform / fee filter. <span style="color:#5fa572;">alignment</span> = an individual-level objection. <span style="color:#b89a55;">cost</span> = the friction floor. The dominant color names the binding constraint at each step.</div>
             <div id="d-rej" style="height:240px;"></div>
+          </div>
+          <div class="chart-box">
+            <div class="chart-title">authentic vs un-modulated real welfare (cumulative, log)</div>
+            <div class="chart-caption"><b>Authentic</b> real welfare is the share that ultimately reaches a human consumer (or a human-controlled agent acting on a principal's behalf). The <b>un-modulated</b> trace is the legacy aggregate. The two coincide when <code>DemandConfig.enabled = False</code> (the default) — one curve is drawn on top of the other. When demand-side feedback is on, the gap between the curves is the surplus that A2A activity printed but no person consumed.</div>
+            <div id="d-authentic" style="height:240px;"></div>
+          </div>
+          <div class="chart-box">
+            <div class="chart-title">productive welfare yield over time</div>
+            <div class="chart-caption">Per-step productive yield of the fold cascade. <b>Welfare yield</b> is bounded real welfare created per fold-nominal dollar (risk transfer, hedging, price discovery). <b>Nominal residual</b> is the remaining fold nominal. Yield is zero when <code>base_variance_absorption = 0.0</code> (the back-compat default).</div>
+            <div id="d-pfs" style="height:240px;"></div>
           </div>
         </div>
       </div>
@@ -826,6 +852,32 @@ function loadDetail(name) {
       { x: h.step, y: stack(rm), name: 'market', stackgroup: 'one', mode: 'none', fillcolor: 'rgba(91,142,196,0.7)' },
       { x: h.step, y: stack(ra), name: 'alignment', stackgroup: 'one', mode: 'none', fillcolor: 'rgba(95,165,114,0.7)' },
       { x: h.step, y: stack(rc), name: 'cost', stackgroup: 'one', mode: 'none', fillcolor: 'rgba(184,154,85,0.7)' },
+    ],
+    { ...baseLayout, yaxis: { ...baseLayout.yaxis, range: [0, 1] }, showlegend: true, legend: { orientation: 'h', y: 1.15, font: { size: 9 } } },
+    { displayModeBar: false, responsive: true });
+
+  // Authentic vs un-modulated real welfare.
+  const authCum = h.real_welfare_authentic_cumulative || h.real_welfare_cumulative;
+  Plotly.react('d-authentic',
+    [
+      { x: h.step, y: h.real_welfare_cumulative, name: 'real welfare (un-modulated)',
+        mode: 'lines', line: { color: '#5fa572', width: 2 } },
+      { x: h.step, y: authCum, name: 'authentic (human-consumed)',
+        mode: 'lines', line: { color: '#b89a55', width: 2, dash: 'solid' } },
+    ],
+    { ...baseLayout, yaxis: { ...baseLayout.yaxis, type: 'log' },
+      showlegend: true, legend: { orientation: 'h', y: 1.15, font: { size: 9 } } },
+    { displayModeBar: false, responsive: true });
+
+  // Productive folding welfare yield vs nominal residual.
+  const pfs = h.productive_welfare_yield || h.step.map(() => 0);
+  const pas = (h.parasitic_nominal_residual != null)
+    ? h.parasitic_nominal_residual
+    : pfs.map(v => 1 - v);
+  Plotly.react('d-pfs',
+    [
+      { x: h.step, y: pfs, name: 'welfare yield', stackgroup: 'one', mode: 'none', fillcolor: 'rgba(95,165,114,0.7)' },
+      { x: h.step, y: pas, name: 'nominal residual', stackgroup: 'one', mode: 'none', fillcolor: 'rgba(194,90,90,0.7)' },
     ],
     { ...baseLayout, yaxis: { ...baseLayout.yaxis, range: [0, 1] }, showlegend: true, legend: { orientation: 'h', y: 1.15, font: { size: 9 } } },
     { displayModeBar: false, responsive: true });

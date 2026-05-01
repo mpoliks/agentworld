@@ -200,6 +200,18 @@ For the executive reader:
 
 ---
 
+## Development
+
+The project requires Python 3.10 or newer. On macOS, `/usr/bin/python3` may be
+Python 3.9 and will not have the dev dependencies installed. Use `uv` to run
+tests in the project environment:
+
+```bash
+uv run --extra dev python -m pytest engine/tests/
+```
+
+---
+
 ## Citing
 
 This artifact is a companion to Antikythera's *Agentworld* research brief by Benjamin Bratton. It is not a substitute for that brief; it is a sandbox for the brief's hypotheses.
