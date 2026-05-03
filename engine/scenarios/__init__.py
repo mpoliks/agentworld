@@ -103,7 +103,7 @@ def coasean_paradise() -> WorldConfig:
             cross_stack_compat=0.85,
         ),
         pairs_per_step=200_000,
-        n_steps=60,
+        n_steps=200,
         seed=1,
     )
 
@@ -137,7 +137,7 @@ def baroque_cathedral() -> WorldConfig:
             individual_layer_alignment_tax=0.025,
             cross_stack_compat=0.45,
         ),
-        n_steps=60,
+        n_steps=200,
         seed=2,
     )
 
@@ -171,7 +171,7 @@ def smoothing_cascade() -> WorldConfig:
     What to look for: nominal GDP collapse, real welfare growth, rising
     legibility, possibly a Gini drop.
     """
-    n_steps = 80
+    n_steps = 200
     schedule = np.linspace(0.95, 0.05, n_steps).tolist()
     return WorldConfig(
         population=PopulationConfig(seed=44),
@@ -193,7 +193,7 @@ def fold_avalanche() -> WorldConfig:
     What to look for: nominal GDP take-off; the inflection point where folding
     starts overwhelming direct exchange; legibility crash.
     """
-    n_steps = 80
+    n_steps = 200
     schedule = np.linspace(0.05, 0.95, n_steps).tolist()
     return WorldConfig(
         population=PopulationConfig(seed=55),
@@ -226,7 +226,7 @@ def hemispherical_schism() -> WorldConfig:
             cross_stack_compat=0.18,  # very low cross-stack compatibility
             n_stacks=4,
         ),
-        n_steps=60,
+        n_steps=200,
         seed=6,
     )
 
@@ -243,12 +243,13 @@ def compute_famine() -> WorldConfig:
     What to look for: collapse of low-margin transactions; widening gap
     between high-cap and low-cap participants.
     """
-    n_steps = 60
+    n_steps = 200
+    # Three equal-length phases: early plateau, ramp, late plateau.
     floor_schedule = list(
         np.concatenate([
-            np.full(20, 1e-4),
-            np.linspace(1e-4, 5e-2, 20),
-            np.full(20, 5e-2),
+            np.full(67, 1e-4),
+            np.linspace(1e-4, 5e-2, 67),
+            np.full(66, 5e-2),
         ])
     )
     return WorldConfig(
@@ -282,7 +283,7 @@ def universal_advocate() -> WorldConfig:
             base_friction=0.020,
             individual_layer_alignment_tax=0.020,
         ),
-        n_steps=60,
+        n_steps=200,
         seed=8,
     )
 
@@ -309,7 +310,7 @@ def synthetic_consumers() -> WorldConfig:
         ),
         topology=TopologyConfig(alpha=0.6, folding_propensity=0.45),
         pairs_per_step=300_000,
-        n_steps=60,
+        n_steps=200,
         seed=9,
     )
 
@@ -334,7 +335,7 @@ def nimby_cascade() -> WorldConfig:
             individual_layer_alignment_tax=0.06,
             market_layer_tax=0.05,
         ),
-        n_steps=60,
+        n_steps=200,
         seed=10,
     )
 
@@ -364,7 +365,7 @@ def slop_market() -> WorldConfig:
             fold_nominal_multiplier=2.2,
             fold_real_efficiency=0.85,
         ),
-        n_steps=60,
+        n_steps=200,
         seed=11,
     )
 
@@ -393,7 +394,7 @@ def public_defender() -> WorldConfig:
             base_friction=0.025,
             market_layer_tax=0.015,
         ),
-        n_steps=60,
+        n_steps=200,
         seed=12,
     )
 
@@ -417,7 +418,7 @@ def matryoshka_collapse() -> WorldConfig:
             market_layer_tax=0.10,
             individual_layer_alignment_tax=0.07,
         ),
-        n_steps=60,
+        n_steps=200,
         seed=13,
     )
 
@@ -438,7 +439,7 @@ def recursive_simulation() -> WorldConfig:
 
     What to look for: nonlinear take-off; small initial differences amplify.
     """
-    n_steps = 80
+    n_steps = 200
     # Sigmoid drive: alpha rises as a function of step^1.3 / total_steps^1.3.
     t = np.arange(n_steps) / (n_steps - 1)
     schedule = (0.15 + 0.75 / (1.0 + np.exp(-(t * 8 - 4)))).tolist()
@@ -473,7 +474,7 @@ def exo_baroque_singularity() -> WorldConfig:
             fold_nominal_multiplier=2.4,
             fold_real_efficiency=0.93,
         ),
-        n_steps=60,
+        n_steps=200,
         seed=15,
     )
 
@@ -519,7 +520,7 @@ def coasean_paradise_networked() -> WorldConfig:
             productive_decay=0.70,
         ),
         pairs_per_step=200_000,
-        n_steps=60,
+        n_steps=200,
         seed=16,
     )
 
@@ -567,7 +568,7 @@ def baroque_cathedral_networked() -> WorldConfig:
             base_variance_absorption=0.35,
             productive_decay=0.65,
         ),
-        n_steps=60,
+        n_steps=200,
         seed=17,
     )
 
@@ -603,7 +604,7 @@ def synthetic_consumers_v2() -> WorldConfig:
             demand=DemandConfig(enabled=True, a2a_floor=0.15),
         ),
         pairs_per_step=300_000,
-        n_steps=60,
+        n_steps=200,
         seed=9,
     )
 
@@ -633,7 +634,7 @@ def agentic_disconnect() -> WorldConfig:
             alpha=0.5,
             demand=DemandConfig(enabled=True, a2a_floor=0.15),
         ),
-        n_steps=60,
+        n_steps=200,
         seed=18,
     )
 
@@ -681,7 +682,7 @@ def productive_baroque() -> WorldConfig:
             demand=DemandConfig(enabled=True, a2a_floor=0.15),
         ),
         pairs_per_step=200_000,
-        n_steps=60,
+        n_steps=200,
         seed=19,
     )
 
@@ -724,7 +725,7 @@ def derivatives_revolution() -> WorldConfig:
             cap_slope=4.0,
             demand=DemandConfig(enabled=True, a2a_floor=0.20),
         ),
-        n_steps=60,
+        n_steps=200,
         seed=20,
     )
 
@@ -761,7 +762,7 @@ def casino_collapse() -> WorldConfig:
             cap_midpoint=0.50,
             cap_slope=4.0,
         ),
-        n_steps=60,
+        n_steps=200,
         seed=22,
     )
 
@@ -787,7 +788,7 @@ def legal_collapse() -> WorldConfig:
                 civic_pushback_default=0.10,
             ),
         ),
-        n_steps=60,
+        n_steps=200,
         seed=23,
     )
 
@@ -819,7 +820,7 @@ def regulatory_capture() -> WorldConfig:
                 civic_pushback_default=0.0,
             ),
         ),
-        n_steps=60,
+        n_steps=200,
         seed=24,
     )
 
@@ -852,7 +853,7 @@ def civic_renaissance() -> WorldConfig:
                 civic_pushback_default=0.75,
             ),
         ),
-        n_steps=60,
+        n_steps=200,
         seed=25,
     )
 
@@ -891,7 +892,7 @@ def pigouvian_light() -> WorldConfig:
             ),
         ),
         pairs_per_step=300_000,
-        n_steps=60,
+        n_steps=200,
         seed=9,
     )
 
@@ -930,7 +931,7 @@ def pigouvian_heavy() -> WorldConfig:
             ),
         ),
         pairs_per_step=300_000,
-        n_steps=60,
+        n_steps=200,
         seed=9,
     )
 
@@ -969,7 +970,7 @@ def pigouvian_friction() -> WorldConfig:
             ),
         ),
         pairs_per_step=300_000,
-        n_steps=60,
+        n_steps=200,
         seed=9,
     )
 
@@ -1022,7 +1023,7 @@ def pigouvian_baroque() -> WorldConfig:
             ),
         ),
         pairs_per_step=200_000,
-        n_steps=60,
+        n_steps=200,
         seed=19,
     )
 
@@ -1053,7 +1054,7 @@ def endogenous_paradise() -> WorldConfig:
             strategy=StrategyConfig(enabled=True, initial_pref=0.5),
         ),
         pairs_per_step=200_000,
-        n_steps=60,
+        n_steps=200,
         seed=30,
     )
 
@@ -1084,7 +1085,7 @@ def endogenous_baroque() -> WorldConfig:
             cross_stack_compat=0.65,
             strategy=StrategyConfig(enabled=True, initial_pref=0.5),
         ),
-        n_steps=60,
+        n_steps=200,
         seed=31,
     )
 
@@ -1116,7 +1117,7 @@ def institutional_emergence() -> WorldConfig:
                 merge_probability=0.02,
             ),
         ),
-        n_steps=60,
+        n_steps=200,
         seed=32,
     )
 
@@ -1154,7 +1155,7 @@ def full_emergence() -> WorldConfig:
                 exit_wealth_threshold=0.05,
             ),
         ),
-        n_steps=60,
+        n_steps=200,
         seed=33,
     )
 
@@ -1245,40 +1246,158 @@ SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
 
 
 SCENARIO_DESCRIPTIONS = {
-    "coasean_paradise": "Smoothworld limit. Near-zero transaction cost; folding suppressed; EBI ≈ 1.",
-    "baroque_cathedral": "Baroqueworld limit. Aggressive folding; nominal GDP explodes; legibility crashes.",
-    "baroque_with_high_welfare": "Adversarial (A3): pinned counter-example where EBI > 10 AND welfare > paradise.",
-    "equilibrium_drift": "α=0.5 mid-fence. Both attractors pull; sensitivity to noise.",
-    "smoothing_cascade": "Coasean transition: α decays 1→0. Nominal collapse, real growth.",
-    "fold_avalanche": "Striated drift: α ramps 0→1. Folding take-off and legibility crash.",
-    "hemispherical_schism": "Multipolar stacks; cross-stack friction is severe.",
-    "compute_famine": "Friction floor rises mid-run. Compute scarcity hits the marginal trade.",
-    "universal_advocate": "Krier's high-capability advocate everywhere; smooth tilt with equity.",
-    "synthetic_consumers": "Agent-to-agent dominance; humans become a small minority of activity.",
-    "nimby_cascade": "Alignment-layer NIMBYism at scale; Coasean clearance undone.",
-    "slop_market": "High α + low capability; folding without quality; EBI explodes.",
-    "public_defender": "Voucher-style capability uplift; Gini compression intervention.",
-    "matryoshka_collapse": "Market + individual layers gate-keep; most surplus dies in filters.",
-    "recursive_simulation": "α responds to EBI; positive-feedback Baroque take-off.",
-    "exo_baroque_singularity": "Recursive fold limits unlocked; tests asymptotic behavior.",
-    "coasean_paradise_networked": "Smooth attractor under scale-free network + t-copula + Hawkes folding.",
-    "baroque_cathedral_networked": "Baroque attractor under SBM network + t-copula + Hawkes folding.",
-    "synthetic_consumers_v2": "Synthetic Consumers with demand-side feedback ON; authentic welfare collapses.",
-    "agentic_disconnect": "Humans abdicate, agents act; demand-side feedback exposes the disconnect.",
-    "productive_baroque": "High alpha + capable intermediaries + productive folding ON; productive baroque attractor.",
-    "derivatives_revolution": "Mid-alpha, low Matryoshka taxes, aggressive productive folding; bounded welfare check.",
-    "casino_collapse": "High alpha + low capability + productive folding opt-in; productivity gated by capability.",
-    "legal_collapse": "Law strength decays without upkeep; stranger trade collapses into cost rejection.",
-    "regulatory_capture": "Concentrated wealth captures law; cross-stack trade loses surplus.",
-    "civic_renaissance": "High upkeep and civic pushback restore legal capacity under concentration.",
-    "pigouvian_light": "Moderate (10%) A2A automation tax; revenue recycled to human wealth. Twin of synthetic_consumers_v2.",
-    "pigouvian_heavy": "High (35%) A2A automation tax; tests over-correction and welfare overshoot.",
-    "pigouvian_friction": "A2A automation tax recycled as H2A friction subsidy; humans re-enter the loop.",
-    "pigouvian_baroque": "Pigouvian tax on productive-baroque baseline; tests productive vs parasitic targeting.",
-    "endogenous_paradise": "Agents learn intermediation preference from a Coasean-paradise-like baseline.",
-    "endogenous_baroque": "Agents learn preference under a high folding ceiling and low-friction baroque surface.",
-    "institutional_emergence": "Endogenous strategy plus firm formation and dissolution.",
-    "full_emergence": "Strategy, institutions, and population dynamics enabled together.",
+    "coasean_paradise": "The direct-trade limit. Transaction costs are near zero, no sub-trades spawn, and every unit of measured activity lands as actual human consumption. EBI sits at ≈ 1.",
+    "baroque_cathedral": "The fractal-trade limit. Each base trade spawns deep towers of sub-trades. Nominal GDP explodes; the share of activity that humans can audit collapses.",
+    "baroque_with_high_welfare": "An adversarial counter-example: a parameter pocket where the economy is highly fractal (EBI > 10) and yet humans consume more than they would in the direct-trade limit. Tests whether high EBI is sufficient to imply low welfare.",
+    "equilibrium_drift": "α held at 0.5 — the mid-range. Both the direct-trade and fractal-trade attractors pull; outcomes are sensitive to small parameter changes.",
+    "smoothing_cascade": "α scheduled to decay from 1 → 0 over the run. Tests whether an economy already deep in fractal-trade mode can be steered back to direct-trade.",
+    "fold_avalanche": "α scheduled to ramp from 0 → 1. Tests how fast direct-trade economies tip into fractal-trade once sub-trade ceilings come off.",
+    "hemispherical_schism": "Multiple incompatible economic stacks (think US/EU/China-style fragmentation). Cross-stack trades face severe friction; intra-stack trade dominates.",
+    "compute_famine": "The cost floor on every trade rises mid-run, simulating compute scarcity. Tests which trades get priced out first.",
+    "universal_advocate": "High-capability agents available to everyone, not just the wealthy. Direct-trade outcome with equity-side correction.",
+    "synthetic_consumers": "Agents do most of the buying as well as the selling. Humans are a tiny minority of activity even when α is moderate.",
+    "nimby_cascade": "Mass alignment-layer objections block trades that would otherwise clear. Tests how individual-level vetoes scale.",
+    "slop_market": "High α plus low agent capability — fractal-trade economy without the productive sub-trades. Pure overhead. EBI explodes; welfare crashes.",
+    "public_defender": "Voucher-style capability uplift for the bottom of the wealth distribution. Tests whether redistributive capability access compresses Gini.",
+    "matryoshka_collapse": "Both the market filter and the alignment filter are highly restrictive — most attempted trades die in filters before reaching the cost calculation.",
+    "recursive_simulation": "α itself responds to the running EBI: as the economy fractal-fies, the appetite for further fractal-fying grows. A positive-feedback take-off.",
+    "exo_baroque_singularity": "Sub-trade depth limits removed; tests the asymptotic behavior of fractal trade when nothing caps it.",
+    "coasean_paradise_networked": "Direct-trade outcome under realistic network structure (scale-free wiring, heavy-tail noise, self-exciting sub-trade cascades). Tests whether the smooth attractor survives realism.",
+    "baroque_cathedral_networked": "Fractal-trade outcome under realistic network structure (community-block wiring, heavy-tail noise, self-exciting sub-trade cascades).",
+    "synthetic_consumers_v2": "Like Synthetic Consumers but with the demand-side feedback turned on: only trades that ultimately reach a human consumer count as real welfare. Exposes how much accounting is internal to the agent layer.",
+    "agentic_disconnect": "Humans step back from active participation; agents transact on their behalf. Demand-side feedback exposes how much real welfare actually reaches humans vs. circulates among agents.",
+    "productive_baroque": "Fractal-trade economy where agents are capable enough that the sub-trades produce real value (e.g. risk pooling, price discovery), not just overhead. Tests the productive vs parasitic split.",
+    "derivatives_revolution": "Mid-α, low platform fees, aggressive productive sub-trades. Tests whether fractal trade can deliver welfare gains within reasonable bounds.",
+    "casino_collapse": "High α + low capability + productive sub-trades enabled. Tests whether enabling productive folding still produces welfare when agents lack the skill to execute it.",
+    "legal_collapse": "Legal capacity decays over the run (no upkeep). Stranger-to-stranger trade gets harder; many attempts die in cost rejection.",
+    "regulatory_capture": "Wealth concentrates and starts to capture the legal layer itself. Cross-stack trades lose surplus to the captured law.",
+    "civic_renaissance": "Active legal upkeep plus civic pushback against capture. Tests whether legal capacity can be sustained under concentration.",
+    "pigouvian_light": "10% tax on agent-to-agent trades, recycled to human wealth. Twin of synthetic_consumers_v2 with a corrective transfer.",
+    "pigouvian_heavy": "35% agent-to-agent tax. Tests overcorrection: can the tax be set high enough that human welfare overshoots the no-tax baseline?",
+    "pigouvian_friction": "Agent-to-agent tax recycled as a friction subsidy on human-to-agent trades. Tests bringing humans back into the trading mix via cost relief.",
+    "pigouvian_baroque": "The agent-to-agent tax applied to a productive-fractal baseline. Tests whether the tax correctly distinguishes productive sub-trades from purely extractive ones.",
+    "endogenous_paradise": "Direct-trade-like configuration, but agents learn their own intermediation preferences over the run via a bandit. Tests whether the smooth attractor survives strategic learning.",
+    "endogenous_baroque": "Fractal-trade configuration with the same learning layer enabled. Tests what agents would actually choose if they could.",
+    "institutional_emergence": "Adds firm formation and dissolution on top of strategic learning. Coalitions form when within-coalition trades become cheaper than market trades.",
+    "full_emergence": "All four feedback layers on at once: strategic learning, firm formation, population churn, and accumulating fold pressure.",
+}
+
+
+# Narrative vignettes — one short paragraph per scenario, written as a near-future
+# scene rather than a parameter description. Rendered in §4 of the dashboard
+# beneath SCENARIO_DESCRIPTIONS to give the lay reader a feel for what the
+# regime actually looks like to the people inside it. Target ~70-80 words each
+# so the detail panes have visual parity across scenarios.
+SCENARIO_NARRATIVES = {
+    "coasean_paradise": "A small town rebuilds its economy from scratch. Two parties meet, agree on a price, and the value moves directly between them. No platforms take a cut; no derivative markets layer on top; no instruments repackage the trade for some downstream buyer. Every dollar of measured GDP is something a human will eat, wear, learn, or sleep in. The accounting is boring because the economy is honest — welfare and nominal output collapse to the same number, and the bookkeeping fits on one page.",
+    "coasean_paradise_networked": "The same direct-trade settlement, wired into the messy real world: a power-law network where some traders are far more connected than others, heavy-tailed shocks that occasionally rip through the system, and the social tendency for buying decisions to copy each other. The simulation asks whether the smooth attractor is robust to realism — whether honest accounting can survive viral cascades, hub failures, and herding behaviour, or whether a Coasean economy is only ever a regular-graph fiction that scale-free reality dissolves on contact.",
+    "smoothing_cascade": "A regulatory commission inherits a fully-baroque economy and sets out to dismantle it on a schedule. Each quarter the rules tighten: derivative layers must unwind, sub-trades must cease compounding, the platforms must let trades clear directly. The model asks whether you can walk a fractal economy backward — whether the institutional muscle for direct exchange can be rebuilt once an entire generation of accountants, traders, and regulators has known nothing but the towers, and whether the unwinding causes its own kind of damage.",
+    "universal_advocate": "High-capability AI representation is no longer a luxury good. Every household — from the bottom percentile up — has access to the same caliber of negotiating agent the wealthy used to retain privately. The folding is mostly off, so the economy stays close to direct trade; what shifts is who benefits from each clean exchange. The market becomes flatter not because everyone is identical but because the asymmetric bargaining power that used to compound silently across decades has been zeroed out at the source.",
+    "public_defender": "A voucher program funds capability uplift specifically for the bottom of the wealth distribution. The state subsidizes the agentic muscle of those who couldn't otherwise afford it, while leaving the upper deciles to source their own. The simulation watches whether targeted access — rather than universal access — is enough to compress the wealth Gini in a moderately folded economy. It is the near-term policy lever that the more sweeping Universal Advocate scenario makes look maximalist and politically out of reach.",
+    "civic_renaissance": "Citizens organize around their legal commons. Active maintenance crews keep courts and enforcement capacity online; civic groups push back when wealth tries to bend the rule of law to its preferred shape. The simulation tests whether voluntary, decentralized upkeep — donated time, organized vigilance, ordinary people refusing to look away — can hold the line that Legal Collapse and Regulatory Capture each trace as a slow surrender. It is the optimistic mirror of those two scenarios, asked seriously and run to its conclusions.",
+    "compute_famine": "Mid-run, the underlying compute that powered all the cheap intermediation suddenly costs ten times what it did. Cost floors rise across every trade. The marginal sub-trade — the one that depended on near-zero overhead to make sense — gets priced out first. The model watches which layers of activity die back when the friction floor stops being negligible. It is a stress test for an economy that quietly bet everything on cheap inference, asked one morning to pay for it.",
+    "nimby_cascade": "Alignment-layer objections become a mass political instrument. Communities and individuals routinely block trades on values grounds — not just edge cases but at scale, and not just dramatic ones but ordinary daily commerce. The simulation watches what happens when veto power is widely held and frequently exercised: how many otherwise-clearing trades die in the alignment filter, and whether a high-veto economy converges on something more humane or merely more constipated, with surplus locked behind objections nobody can negotiate around.",
+    "matryoshka_collapse": "Both the market filter and the alignment filter have been ratcheted to their tightest setting — every trade must clear a strict regulatory test and a strict ethical test before its costs can even be calculated. Most attempts die before they reach the price stage. Activity volumes crater not because no one wants to trade but because almost nothing makes it through the gates. The economy shrinks into the small surviving subset of trades that satisfies everyone, and most days nothing of consequence happens.",
+    "legal_collapse": "Public legal capacity decays through neglect — courts under-resourced, contract enforcement unreliable, stranger-to-stranger trades increasingly unsafe. As legal infrastructure thins, more attempted trades die in the cost filter: the friction of operating without legal recourse becomes higher than the surplus of trading at all. The economy retreats inward, into networks of trust and known counterparties, while the formal sector shrivels. It is a slow-motion regression measured in lost contracts rather than in any single event.",
+    "equilibrium_drift": "The dial is held precisely at the midpoint between the smooth and striated limits. Both attractors pull on the economy, and any small parameter change can decide which one wins. The simulation watches a system poised on the edge — not in a dramatic crisis, but in a long, anxious drift where small policy choices, small accidents, and small fashions tip welfare and accounting separately, in ways the model surfaces and the inhabitants typically only feel as a vague directional weather.",
+    "agentic_disconnect": "Households delegate. Buying, comparison, negotiation, settlement — all of it routed through household-level agents. Most humans are no longer first-person economic actors; they're principals whose preferences are inferred. With demand-side feedback on, the model asks whether the welfare being booked actually reaches anyone, or whether it circulates among the agents indefinitely and never finds the human consumer it was supposedly produced for, leaving the population fed and clothed by mechanisms they would struggle to describe if asked.",
+    "hemispherical_schism": "The world's economy has split into incompatible stacks — different platforms, different alignment regimes, different legal frameworks. Trade inside a stack is cheap; trade across stacks bleeds surplus to translation, compliance, and trust costs. A US-EU-China-style fragmentation simulated in miniature: the model surfaces how much of the modern economy's productivity was actually a peace dividend on a single shared technical layer, and what gets lost when that layer comes apart into fortified regional blocs that no longer trust each other.",
+    "derivatives_revolution": "Platform fees fall to historical lows; productive sub-trades — risk pooling, hedging, price discovery, liquidity provision — light up across the economy. Folding is moderate but generative: each layer adds genuine value rather than just overhead. The simulation tests whether fractal trade can be a feature rather than a bug, and whether welfare gains within reasonable bounds are achievable when the sub-markets are skilled enough to do the jobs they nominally claim to be doing, instead of merely charging for the appearance of doing them.",
+    "regulatory_capture": "Wealth has concentrated to the point where it begins to author the rules. The legal layer — once nominally neutral — bends towards the largest holders. Cross-stack trades start losing surplus to law that has been quietly captured. Civic pushback is muted; institutional decay is gradual rather than sudden. The simulation surfaces what happens when the rule of law becomes one more thing the rich can buy: not a shock event, but a continuous tax on everyone else, paid in a currency they cannot directly see.",
+    "synthetic_consumers": "The buyer side has gone agentic. Demand is generated by AI on behalf of humans, aggregated, optimized, and routed through layers of agent intermediation. Humans remain the nominal beneficiaries but are a tiny share of the actual transactional mass. Even at moderate folding, the activity is overwhelmingly machine-to-machine, with the human consumer pulled along behind it like a paper signature attached to an electronic ledger that has long since stopped consulting them on anything beyond the broadest preference categories.",
+    "synthetic_consumers_v2": "Same machine-dominated demand side, but now the model only credits welfare that actually reaches a human consumer. The reported numbers separate cleanly into what the economy printed and what humans got. The gap between them is the surplus that lived its entire life inside the agent layer — measured, accounted, audited, and never landing anywhere a person could spend it. Accounting honesty is restored even as the underlying mismatch widens, and the auditors at least know which ledger is which.",
+    "slop_market": "An economy where the dial is high and the agents are dumb. Sub-trades spawn at maximum rate but can't extract real value from the layering — they're rent-collecting noise on top of every base exchange. Nominal GDP soars on pure paperwork. The exo-baroque index explodes; per-capita welfare crashes. The activity is fully measured and almost completely useless, like an industrial press stamping out spreadsheets no one will ever read, billed for and counted in the national accounts at full sticker price.",
+    "productive_baroque": "Same fractal rate as Slop Market, but with high-capability agents wielding it. The sub-trades actually do the work they claim — pooling risk, discovering price, smoothing volatility, transferring liquidity to where it's needed. The economy is deep and folded, and that depth is partially earned. The simulation surfaces the productive-vs-parasitic split: how much of a fractal economy's headline output is real, and how much is structurally inseparable from theatre even when the theatre is unusually well-staged and convincing.",
+    "casino_collapse": "All the conditions are wrong at once. The economy folds aggressively, but the agents lack the capability to extract real value from the layering. The 'productive' sub-trades fail to be productive — they devolve into pure speculation, with each tier amplifying the noise of the one below it. Activity is high, accounting volumes are large, and welfare collapses. The economy looks impressive on paper while quietly converting its underlying capacity into churn, and the casino floor never closes long enough to count the losses.",
+    "recursive_simulation": "The dial controls itself. Whenever the exo-baroque index rises, α rises further in response — the more fractal the economy gets, the hungrier it becomes for further folding. A positive-feedback loop with no governor. The simulation tracks the take-off, where folding generates enthusiasm for further folding, and the economy lifts off the welfare baseline in a way no exogenous α schedule could engineer. There is no equilibrium to settle into, only acceleration, and no policy lever powerful enough to reverse it once it begins.",
+    "baroque_cathedral": "Every transaction is an offering at the foot of a cathedral. A loaf of bread is bought, but the purchase is also packaged into a derivative, hedged, repackaged, audited, attested, indexed — each layer billed and counted as economic activity. The cathedral grows taller; the bread becomes harder to find inside it. National accounts soar; most of the activity humans cannot audit. The official numbers describe a flourishing economy that almost no one can locate, and certainly no one can eat.",
+    "baroque_cathedral_networked": "The same fractal-trade limit, but with the wiring of a real economy: community-block topology where dense local clusters trade among themselves; heavy-tailed shocks that propagate along high-traffic edges; self-exciting cascades where each large trade triggers more nearby ones. The simulation tests whether the cathedral remains intact under realistic network turbulence, or whether the depth of folding makes it especially fragile to the kind of shocks the smooth attractor would absorb without anyone outside the affected cluster ever noticing.",
+    "fold_avalanche": "The simulation begins in something close to a Coasean paradise and ends in a baroque cathedral. The model schedules α from zero to one over the run and watches the tipping dynamics: how quickly a direct-trade economy folds once the ceiling on sub-trade depth comes off, whether the transition is smooth or punctuated, and which diagnostic — welfare, EBI, or the sub-market count — registers the avalanche first. It is the unwinding of Smoothing Cascade run forward instead of backward.",
+    "exo_baroque_singularity": "The depth limit on sub-trades has been removed entirely. Folding compounds without ceiling. The asymptote is whatever an unbounded fractal market converges to when nothing caps the recursion. The simulation watches the system stretch toward that limit: nominal GDP runs away from real welfare in orders of magnitude, the exo-baroque index goes vertical, and almost the entire economy collapses into accounting humans can no longer read or audit at any scale, leaving only the residual trace of what the original trade was once supposed to be.",
+}
+
+
+def _enable_endogenous_dynamics(cfg: WorldConfig) -> WorldConfig:
+    """Turn on four richer-engine layers in-place on an existing scenario.
+
+    Switches `folding_pressure_feedback`, `pop_dynamics`, `institutions`,
+    and a 100× agent-trade-rate multiplier on with conservative defaults.
+    The scenario's α, folding parameters, network, demand, and law
+    settings are preserved so it keeps its thematic identity — what
+    changes is:
+
+    * EBI becomes a trajectory rather than a steady-state ratio, because
+      folding propensity rises with accumulated fold-pressure;
+    * capability and wealth churn over time and firms form/dissolve, so
+      the population mix shifts during a run;
+    * agents are sampled into trade pairs 100× more often than humans
+      per unit of mass — reflecting the real-world disparity that an AI
+      agent can attempt orders of magnitude more trades per second than
+      a human can. This pushes a2a-share further toward saturation and
+      drops human-legibility into the 10⁻⁵–10⁻⁴ range.
+
+    `strategy` (per-prototype intermediation-preference learning) is
+    deliberately *not* enabled here, because it would override the
+    scenario's structural α with whatever the bandit optimises and erase
+    the thematic distinction between scenarios. It stays scoped to the
+    explicitly endogenous_* / full_emergence scenario family.
+    """
+    t = cfg.topology
+    t.folding_pressure_feedback = True
+    if not t.institutions.enabled:
+        t.institutions = InstitutionConfig(enabled=True)
+    if not t.pop_dynamics.enabled:
+        t.pop_dynamics = PopulationDynamicsConfig(enabled=True)
+    cfg.population.agent_trade_rate_multiplier = 100.0
+    cfg.population.human_trade_rate_multiplier = 1.0
+    return cfg
+
+
+# Scenarios that should exercise the endogenous-feedback layers. Selection
+# rule: α ≥ 0.4, not already a smooth-limit case, not already running its
+# own time-varying schedule (fold_avalanche, smoothing_cascade — α ramps),
+# not the EBI-self-reflexive recursive_simulation, not the explicitly
+# pre-endogenous scenarios. Civic_renaissance/legal_collapse/
+# regulatory_capture get included — they already have law dynamics, and
+# the fold-feedback compounds the law-capture loop in a thematically
+# correct way.
+_ENDOGENOUS_SCENARIOS = {
+    "compute_famine",
+    "nimby_cascade",
+    "matryoshka_collapse",
+    "legal_collapse",
+    "equilibrium_drift",
+    "agentic_disconnect",
+    "hemispherical_schism",
+    "derivatives_revolution",
+    "regulatory_capture",
+    "synthetic_consumers",
+    "synthetic_consumers_v2",
+    "pigouvian_light",
+    "pigouvian_heavy",
+    "pigouvian_friction",
+    "slop_market",
+    "productive_baroque",
+    "casino_collapse",
+    "pigouvian_baroque",
+    "baroque_cathedral",
+    "baroque_cathedral_networked",
+    "baroque_with_high_welfare",
+    "exo_baroque_singularity",
+}
+
+
+def _wrap_with_dynamics(factory: Callable[[], WorldConfig]) -> Callable[[], WorldConfig]:
+    def _wrapped() -> WorldConfig:
+        return _enable_endogenous_dynamics(factory())
+    _wrapped.__name__ = factory.__name__
+    _wrapped.__doc__ = factory.__doc__
+    return _wrapped
+
+
+SCENARIOS = {
+    name: (_wrap_with_dynamics(fn) if name in _ENDOGENOUS_SCENARIOS else fn)
+    for name, fn in SCENARIOS.items()
 }
 
 

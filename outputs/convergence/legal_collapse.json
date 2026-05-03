@@ -1,0 +1,250 @@
+{
+  "small": {
+    "scale": "small",
+    "n_total": 88000,
+    "n_pairs": 200000,
+    "n_steps": 60,
+    "seeds": [
+      {
+        "seed": 0,
+        "elapsed_sec": 1.5447527920186985,
+        "final": {
+          "exo_baroque_index": 4.267487692075679,
+          "gini_wealth": 0.4993776531748984,
+          "a2a_share": 0.9986400459855569,
+          "real_per_capita_welfare": 0.008737921162701001,
+          "human_legibility_index": 0.23432990840416612,
+          "fold_max_depth": 6.0,
+          "governance_overhead_fraction": 0.13753926352348017
+        }
+      },
+      {
+        "seed": 1,
+        "elapsed_sec": 1.496961500000907,
+        "final": {
+          "exo_baroque_index": 4.2802190924923496,
+          "gini_wealth": 0.4926324249142399,
+          "a2a_share": 0.9986527560645512,
+          "real_per_capita_welfare": 0.008649377872919186,
+          "human_legibility_index": 0.23363290018355232,
+          "fold_max_depth": 6.0,
+          "governance_overhead_fraction": 0.13925873464211544
+        }
+      },
+      {
+        "seed": 2,
+        "elapsed_sec": 1.445460249989992,
+        "final": {
+          "exo_baroque_index": 4.2284940936078295,
+          "gini_wealth": 0.4946525202058607,
+          "a2a_share": 0.998675089676317,
+          "real_per_capita_welfare": 0.008950046426928752,
+          "human_legibility_index": 0.23649081158980206,
+          "fold_max_depth": 6.0,
+          "governance_overhead_fraction": 0.13772205080058228
+        }
+      },
+      {
+        "seed": 3,
+        "elapsed_sec": 1.4483508340199478,
+        "final": {
+          "exo_baroque_index": 4.296945348809917,
+          "gini_wealth": 0.5051252560035625,
+          "a2a_share": 0.9986270282855892,
+          "real_per_capita_welfare": 0.00864043068750665,
+          "human_legibility_index": 0.2327234625585732,
+          "fold_max_depth": 6.0,
+          "governance_overhead_fraction": 0.1375764998490312
+        }
+      },
+      {
+        "seed": 4,
+        "elapsed_sec": 1.4695122920093127,
+        "final": {
+          "exo_baroque_index": 4.270514765145782,
+          "gini_wealth": 0.5003325477407348,
+          "a2a_share": 0.99862308526794,
+          "real_per_capita_welfare": 0.008626845357263034,
+          "human_legibility_index": 0.23416380811081522,
+          "fold_max_depth": 6.0,
+          "governance_overhead_fraction": 0.13900738785599945
+        }
+      }
+    ],
+    "summary": {
+      "exo_baroque_index": {
+        "mean": 4.268732198426311,
+        "std": 0.025257484085917947,
+        "lo": 4.247243227692324,
+        "hi": 4.286909595019376,
+        "n": 5
+      },
+      "gini_wealth": {
+        "mean": 0.4984240804078593,
+        "std": 0.004930143067427427,
+        "lo": 0.4947860839710909,
+        "hi": 0.5020721671914565,
+        "n": 5
+      },
+      "a2a_share": {
+        "mean": 0.9986436010559908,
+        "std": 2.1115990361030215e-05,
+        "lo": 0.9986288432220528,
+        "hi": 0.9986602220722884,
+        "n": 5
+      },
+      "real_per_capita_welfare": {
+        "mean": 0.008720924301463725,
+        "std": 0.00013530964741731931,
+        "lo": 0.008636785992491711,
+        "hi": 0.008842981160150058,
+        "n": 5
+      },
+      "human_legibility_index": {
+        "mean": 0.23426817816938178,
+        "std": 0.001391449558027179,
+        "lo": 0.2332691251335607,
+        "hi": 0.23545382861275477,
+        "n": 5
+      },
+      "fold_max_depth": {
+        "mean": 6.0,
+        "std": 0.0,
+        "lo": 6.0,
+        "hi": 6.0,
+        "n": 5
+      },
+      "governance_overhead_fraction": {
+        "mean": 0.1382207873342417,
+        "std": 0.0008402967025093441,
+        "lo": 0.13759071550912103,
+        "hi": 0.1388720183262754,
+        "n": 5
+      }
+    }
+  },
+  "medium": {
+    "scale": "medium",
+    "n_total": 880000,
+    "n_pairs": 2000000,
+    "n_steps": 60,
+    "seeds": [
+      {
+        "seed": 0,
+        "elapsed_sec": 15.844857999996748,
+        "final": {
+          "exo_baroque_index": 4.321542873275797,
+          "gini_wealth": 0.5007946987040017,
+          "a2a_share": 0.9986502127169896,
+          "real_per_capita_welfare": 0.000835407995603687,
+          "human_legibility_index": 0.2313988381751225,
+          "fold_max_depth": 6.0,
+          "governance_overhead_fraction": 0.13995181028367978
+        }
+      },
+      {
+        "seed": 1,
+        "elapsed_sec": 15.693831167009193,
+        "final": {
+          "exo_baroque_index": 4.262760736459363,
+          "gini_wealth": 0.49674766045256885,
+          "a2a_share": 0.9986771102908376,
+          "real_per_capita_welfare": 0.0008728907948840766,
+          "human_legibility_index": 0.2345897557531219,
+          "fold_max_depth": 6.0,
+          "governance_overhead_fraction": 0.13867881693991366
+        }
+      },
+      {
+        "seed": 2,
+        "elapsed_sec": 15.771386666980106,
+        "final": {
+          "exo_baroque_index": 4.291106744736336,
+          "gini_wealth": 0.5295145867104474,
+          "a2a_share": 0.9986776122694461,
+          "real_per_capita_welfare": 0.0008618487596912133,
+          "human_legibility_index": 0.23304011283957102,
+          "fold_max_depth": 6.0,
+          "governance_overhead_fraction": 0.1390493162988732
+        }
+      },
+      {
+        "seed": 3,
+        "elapsed_sec": 15.858132708002813,
+        "final": {
+          "exo_baroque_index": 4.325293175951645,
+          "gini_wealth": 0.5013096684896806,
+          "a2a_share": 0.9986847283243836,
+          "real_per_capita_welfare": 0.0008361170046877546,
+          "human_legibility_index": 0.2311982007508616,
+          "fold_max_depth": 6.0,
+          "governance_overhead_fraction": 0.13976161603390783
+        }
+      },
+      {
+        "seed": 4,
+        "elapsed_sec": 16.15901537501486,
+        "final": {
+          "exo_baroque_index": 4.322811230278142,
+          "gini_wealth": 0.4949622401018939,
+          "a2a_share": 0.9986795737470375,
+          "real_per_capita_welfare": 0.0008399875824829562,
+          "human_legibility_index": 0.23133094339066412,
+          "fold_max_depth": 6.0,
+          "governance_overhead_fraction": 0.13976769155296156
+        }
+      }
+    ],
+    "summary": {
+      "exo_baroque_index": {
+        "mean": 4.304702952140256,
+        "std": 0.027292198104798698,
+        "lo": 4.280440036878513,
+        "hi": 4.323296665746605,
+        "n": 5
+      },
+      "gini_wealth": {
+        "mean": 0.5046657708917185,
+        "std": 0.014147148595425813,
+        "lo": 0.4965888098495862,
+        "hi": 0.5172172238575825,
+        "n": 5
+      },
+      "a2a_share": {
+        "mean": 0.998673847469739,
+        "std": 1.3551794211255894e-05,
+        "lo": 0.9986614644377688,
+        "hi": 0.998681781506687,
+        "n": 5
+      },
+      "real_per_capita_welfare": {
+        "mean": 0.0008492504274699376,
+        "std": 1.7084239501901446e-05,
+        "lo": 0.0008367493184299813,
+        "hi": 0.000863185827989426,
+        "n": 5
+      },
+      "human_legibility_index": {
+        "mean": 0.23231157018186824,
+        "std": 0.0014794596995885445,
+        "lo": 0.23130500424852643,
+        "hi": 0.23362806469792016,
+        "n": 5
+      },
+      "fold_max_depth": {
+        "mean": 6.0,
+        "std": 0.0,
+        "lo": 6.0,
+        "hi": 6.0,
+        "n": 5
+      },
+      "governance_overhead_fraction": {
+        "mean": 0.1394418502218672,
+        "std": 0.0005488134205522604,
+        "lo": 0.1390075154804588,
+        "hi": 0.1398401239414381,
+        "n": 5
+      }
+    }
+  }
+}

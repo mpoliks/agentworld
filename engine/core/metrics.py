@@ -12,7 +12,7 @@ Also tracked:
     - real_per_capita_welfare      : the only thing that matters to a human
     - gini_wealth                  : how concentrated wealth is
     - fold_depth                   : how deep the recursive intermediation goes
-    - human_legibility_index       : fraction of GDP a human can in principle audit
+    - human_legibility_index       : share of executed activity with at least one human in the loop (h2h + h2a)
     - agent_to_human_interaction   : ratio of A2A vs H2A vs H2H interactions
     - governance_overhead          : fraction of surplus consumed by Matryoshka layers
     - rejected_fraction            : how much potential trade was filtered out
@@ -254,9 +254,6 @@ class Metrics:
         real_humans = float((pop.weight * pop.is_human).sum())
         per_cap = (self._cum_real / real_humans) if real_humans > 0 else 0.0
 
-        # Human legibility: 1/EBI capped at 1.
-        leg = 1.0 / max(ebi, 1.0)
-
         total_attempted = (
             n_tx_real + rejected_law + rejected_market + rejected_align + rejected_cost
         )
@@ -278,6 +275,15 @@ class Metrics:
             a2a, h2a, h2h = interaction_shares(pop)
         else:
             a2a, h2a, h2h = a2a_share, h2a_share, h2h_share
+
+        # Human legibility: share of executed activity with at least one
+        # human in the loop — i.e. transactions a human can in principle
+        # audit. Equivalent to 1 - a2a_share. This deliberately replaces
+        # the old definition (1/EBI), which was a pure algebraic inversion
+        # of EBI and conveyed no independent information. The new
+        # definition tracks human presence in the transaction graph,
+        # which moves on a different axis from nominal/real divergence.
+        leg = float(min(1.0, max(0.0, h2h + h2a)))
 
         productive_yield = float(min(1.0, max(0.0, productive_welfare_yield)))
         parasitic_residual = float(1.0 - productive_yield)

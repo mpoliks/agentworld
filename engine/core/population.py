@@ -78,6 +78,17 @@ class PopulationConfig:
     human_autonomy_mean: float = 0.55  # how much humans delegate to agents on avg
     agent_autonomy_mean: float = 0.85  # how independently agents act on avg
 
+    # Per-class trade-rate multipliers. Real-time per entity: a human might
+    # attempt a trade per day, an agent might attempt thousands per second.
+    # The model's pair-sampling probability is `weight × rate`, so a higher
+    # agent multiplier means agents are over-represented in the sampled
+    # trades for the same step. Both default to 1.0, which keeps the
+    # back-compat assumption that every real entity has the same per-tick
+    # trade probability. Setting `agent_trade_rate_multiplier = 100` says
+    # "agents attempt trades 100× more often than humans."
+    human_trade_rate_multiplier: float = 1.0
+    agent_trade_rate_multiplier: float = 1.0
+
     # Sector concentration: Dirichlet alpha for sector shares (lower = more uneven).
     sector_dirichlet_alpha: float = 1.5
 
@@ -280,18 +291,44 @@ class Population:
     def _build_sampling_structures(self) -> None:
         """Pre-compute uniform-class sampling structures.
 
-        Exploits the fact that PopulationConfig assigns one weight per
-        prototype-class (human/agent). Within (class, stack) the weight is
-        uniform, so weighted sampling = Bernoulli(class) + uniform integer.
+        Two distinct quantities live side by side:
+
+        * **mass weights** (``self.total_weight`` and per-stack
+          ``real_weight_in_stack``) — ``N_class_real / n_class_proto``.
+          These are mass-only and are the denominator of
+          ``pair_real_count = w_a * w_b / total_weight``: how many real
+          pair-events does a single sampled prototype-pair stand for.
+
+        * **sampling probabilities** (``self.p_human_global`` and
+          per-stack ``p_human_in_stack``) — derived from
+          ``mass × trade_rate_multiplier``. These bias which prototypes
+          get drawn each step. An agent rate of 100× says agents attempt
+          trades 100 times more often than humans per unit of real time,
+          so the sampler picks them 100× more often *relative to* their
+          mass weight.
+
+        The two are kept separate because rate-rescaled sampling shifts
+        the *mix* of trades the engine sees, but does not change how many
+        real entities each prototype represents.
         """
         n_h = self.config.n_human_prototypes
         n_a = self.config.n_agent_prototypes
         K = self.config.n_stacks
 
+        # Mass weights (rate-independent — used for pair_real_count).
         w_h = self.config.n_humans_real / n_h
         w_a = self.config.n_agents_real / n_a
         self.total_weight = float(n_h * w_h + n_a * w_a)
-        self.p_human_global = float(n_h * w_h / self.total_weight)
+
+        # Sampling weights (mass × per-entity trade rate).
+        rate_h = float(self.config.human_trade_rate_multiplier)
+        rate_a = float(self.config.agent_trade_rate_multiplier)
+        sw_h = w_h * rate_h
+        sw_a = w_a * rate_a
+        sample_total = n_h * sw_h + n_a * sw_a
+        self.p_human_global = (
+            float(n_h * sw_h / sample_total) if sample_total > 0 else 0.0
+        )
 
         # Per-stack class splits.
         # stack indexing: 0..n_h-1 are humans, n_h..n_h+n_a-1 are agents.
@@ -306,13 +343,18 @@ class Population:
             a_idx = np.where(a_stack == k)[0].astype(np.int64) + n_h
             n_h_k = h_idx.shape[0]
             n_a_k = a_idx.shape[0]
+            # mass-based stack totals (used by external real-pair-count math).
             real_h_k = n_h_k * w_h
             real_a_k = n_a_k * w_a
             real_total_k = real_h_k + real_a_k
+            # rate-weighted stack sampling probabilities.
+            sample_h_k = n_h_k * sw_h
+            sample_a_k = n_a_k * sw_a
+            sample_total_k = sample_h_k + sample_a_k
             self.human_idx_in_stack.append(h_idx)
             self.agent_idx_in_stack.append(a_idx)
             self.p_human_in_stack.append(
-                float(real_h_k / real_total_k) if real_total_k > 0 else 0.0
+                float(sample_h_k / sample_total_k) if sample_total_k > 0 else 0.0
             )
             self.real_weight_in_stack.append(float(real_total_k))
 

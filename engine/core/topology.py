@@ -230,6 +230,22 @@ class TopologyConfig:
     fold_real_efficiency: float = 0.92  # 8% real surplus loss per fold layer
     fold_nominal_multiplier: float = 1.85  # each fold adds 85% to nominal GDP
 
+    # Cumulative-fold-pressure feedback. Off by default to preserve the
+    # frozen baselines. The brief's central claim is that fractal folding
+    # accumulates: each layer of intermediation makes the next more
+    # likely, so EBI should rise over a run rather than sit at a
+    # cross-sectional steady state. When enabled, propensity is multiplied
+    # by `1 + strength * max(0, pressure - anchor)`, capped at
+    # `max_multiplier`. The pressure signal is supplied by the World as
+    # `cumulative_fold_nominal / max(cumulative_real_welfare, 1)` — the
+    # running EBI excess. (Gini was tried first as the signal but in
+    # practice initial Pareto wealth dwarfs per-step flow, so gini is
+    # near-stationary and the gini-feedback never fires.)
+    folding_pressure_feedback: bool = False
+    folding_pressure_anchor: float = 0.05
+    folding_pressure_strength: float = 0.30
+    folding_pressure_max_multiplier: float = 3.0
+
     # ---- Calibrated noise structure (see docs/concepts/epistemic_status.md) --
     # Noise model for per-pair surplus shocks. The Gaussian default preserves
     # historical scenario behaviour; t_copula injects heavy tails (Cont 2001)
@@ -357,10 +373,35 @@ class Topology:
 
         return floor + coase_term + striation_term + cross_term
 
-    def folding_propensity(self, realized_alpha: float | None = None) -> float:
-        """How likely a positive-surplus market is to spawn sub-markets this step."""
-        alpha = self.cfg.alpha if realized_alpha is None else realized_alpha
-        return self.cfg.folding_propensity * (alpha ** 1.4)
+    def folding_propensity(
+        self,
+        realized_alpha: float | None = None,
+        fold_pressure: float | None = None,
+    ) -> float:
+        """How likely a positive-surplus market is to spawn sub-markets this step.
+
+        With `folding_pressure_feedback` enabled, the alpha-driven base
+        propensity is amplified by accumulated fold-pressure above the
+        anchor, capped at `folding_pressure_max_multiplier`. The
+        `fold_pressure` argument is supplied by the World as
+        `cumulative_fold_nominal / max(cumulative_real_welfare, 1)`. This
+        produces a positive-feedback loop: each step's folding raises the
+        signal that drives next step's folding propensity, so EBI becomes
+        a trajectory rather than a steady-state ratio.
+        """
+        cfg = self.cfg
+        alpha = cfg.alpha if realized_alpha is None else realized_alpha
+        base = cfg.folding_propensity * (alpha ** 1.4)
+        if (
+            cfg.folding_pressure_feedback
+            and fold_pressure is not None
+            and fold_pressure > cfg.folding_pressure_anchor
+        ):
+            excess = fold_pressure - cfg.folding_pressure_anchor
+            mult = 1.0 + cfg.folding_pressure_strength * excess
+            mult = min(mult, cfg.folding_pressure_max_multiplier)
+            base = base * mult
+        return min(base, 1.0)
 
     def matryoshka_real_tax(self) -> float:
         """Fraction of real surplus consumed by market+individual layers."""
@@ -371,11 +412,11 @@ class Topology:
     def label(self) -> str:
         a = self.cfg.alpha
         if a < 0.15:
-            return "Smoothworld"
+            return "direct-trade"
         if a > 0.85:
-            return "Baroqueworld"
+            return "fractal-trade"
         if a < 0.45:
-            return "smooth-tilted"
+            return "mostly direct"
         if a > 0.55:
-            return "striated-tilted"
+            return "mostly fractal"
         return "balanced"

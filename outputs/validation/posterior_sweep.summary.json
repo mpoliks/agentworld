@@ -2,7 +2,7 @@
   "n_samples": 2000,
   "seed": 0,
   "n_steps": 20,
-  "elapsed_sec": 46.40533399581909,
+  "elapsed_sec": 67.10907888412476,
   "p_smooth": 0.0185,
   "p_baroque": 0.321,
   "p_mixed": 0.6605,

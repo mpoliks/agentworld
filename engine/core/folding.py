@@ -114,6 +114,7 @@ def fold_surplus(
     current_max_depth: int = 0,
     cap_intermediating: float = 0.0,
     realized_alpha: float | None = None,
+    fold_pressure: float | None = None,
 ) -> FoldingResult:
     """
     Apply the folding operator to this step's surplus.
@@ -125,9 +126,14 @@ def fold_surplus(
     agents — used for the productive-vs-parasitic split. Until per-mode
     intermediation lands, callers pass the population-mean agent
     capability.
+
+    `fold_pressure` is the running cumulative-fold-nominal / cumulative-real
+    ratio supplied by the World; when `folding_pressure_feedback` is enabled,
+    propensity rises with this signal so EBI becomes a trajectory, not a
+    steady-state ratio.
     """
     cfg = topo.cfg
-    propensity = topo.folding_propensity(realized_alpha)
+    propensity = topo.folding_propensity(realized_alpha, fold_pressure)
 
     if propensity <= 0 or base_real_surplus <= 0 or current_max_depth >= cfg.folding_max_depth:
         return FoldingResult(0.0, 0.0, 0.0, current_max_depth, per_depth_contribution=[])
@@ -135,11 +141,11 @@ def fold_surplus(
     if cfg.folding_model == "hawkes":
         return _fold_surplus_hawkes(
             base_real_surplus, base_nominal_volume, topo, rng,
-            current_max_depth, cap_intermediating, realized_alpha,
+            current_max_depth, cap_intermediating, realized_alpha, fold_pressure,
         )
     return _fold_surplus_geometric(
         base_real_surplus, base_nominal_volume, topo,
-        current_max_depth, cap_intermediating, realized_alpha,
+        current_max_depth, cap_intermediating, realized_alpha, fold_pressure,
     )
 
 
@@ -150,10 +156,11 @@ def _fold_surplus_geometric(
     current_max_depth: int,
     cap_intermediating: float,
     realized_alpha: float | None = None,
+    fold_pressure: float | None = None,
 ) -> FoldingResult:
     """Original closed-form cascade. Deterministic in the noise dimension."""
     cfg = topo.cfg
-    propensity = topo.folding_propensity(realized_alpha)
+    propensity = topo.folding_propensity(realized_alpha, fold_pressure)
     alpha = cfg.alpha if realized_alpha is None else realized_alpha
 
     nominal_added = 0.0
@@ -221,6 +228,7 @@ def _fold_surplus_hawkes(
     current_max_depth: int,
     cap_intermediating: float,
     realized_alpha: float | None = None,
+    fold_pressure: float | None = None,
 ) -> FoldingResult:
     """Self-exciting cascade with mean-equivalence to the geometric kernel.
 
@@ -247,7 +255,7 @@ def _fold_surplus_hawkes(
     (lower decay => heavier tail).
     """
     cfg = topo.cfg
-    propensity = topo.folding_propensity(realized_alpha)
+    propensity = topo.folding_propensity(realized_alpha, fold_pressure)
     alpha = cfg.alpha if realized_alpha is None else realized_alpha
     n_eff = float(np.clip(cfg.hawkes_branching_ratio, 0.0, 0.95))
     # Gamma shape parameter — k=hawkes_decay so larger decay = lighter tail.

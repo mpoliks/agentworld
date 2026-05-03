@@ -276,6 +276,17 @@ class World:
         # *fractally multiplies* it. Real surplus is reduced by the fold
         # overhead and (when productive folding is enabled) increased by
         # the welfare-creating share of the cascade.
+        # Cumulative-fold-pressure signal. Normalised step counter × alpha
+        # gives the propensity-feedback channel a monotonic input that
+        # actually moves over the course of a run (gini does not, since
+        # initial Pareto wealth dwarfs per-step flow). High-alpha
+        # scenarios accumulate pressure quickly; smooth scenarios never
+        # cross the anchor.
+        if self.topology.cfg.folding_pressure_feedback:
+            denom = max(self.cfg.n_steps - 1, 1)
+            fold_pressure = (self.step_idx / denom) * self.topology.cfg.alpha
+        else:
+            fold_pressure = None
         fold = fold_surplus(
             base_real_surplus=tx.real_surplus_added,
             base_nominal_volume=tx.nominal_volume,
@@ -283,6 +294,7 @@ class World:
             rng=self.rng,
             cap_intermediating=self._cap_intermediating_mean,
             realized_alpha=tx.realized_alpha if strategy_cfg.enabled else None,
+            fold_pressure=fold_pressure,
         )
         law_upkeep_cost = (
             self.topology.cfg.law.upkeep_investment * tx.real_surplus_added
