@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from engine.scenarios import SCENARIO_DESCRIPTIONS, SCENARIO_NARRATIVES
+from engine.scenarios import SCENARIO_DESCRIPTIONS
 
 SCENARIO_ORDER = [
     "smoothing_cascade",
@@ -151,7 +151,6 @@ def build_html(
             name: {
                 "label": SCENARIO_LABELS.get(name, name),
                 "description": SCENARIO_DESCRIPTIONS.get(name, ""),
-                "narrative": SCENARIO_NARRATIVES.get(name, ""),
                 "final_alpha": run["final_alpha"],
                 "final_label": run["final_label"],
                 "history": run["history"],
@@ -259,18 +258,7 @@ section .sub { font-family: var(--serif); font-size: 16px; color: var(--text-2);
 .scn-card .name { font-family: var(--serif); font-size: 17px; font-weight: 400; color: var(--text); }
 .scn-card .alpha { font-family: var(--mono); font-size: 11px; color: var(--text-3); display: flex; gap: 10px; white-space: nowrap; }
 .scn-card .alpha b { color: var(--accent); font-weight: 500; }
-.scn-card .desc { font-size: 12px; color: var(--text-2); line-height: 1.4; }
-.scn-narrative {
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 15px;
-  line-height: 1.65;
-  color: var(--text-2);
-  border-left: 2px solid var(--accent);
-  padding: 2px 0 2px 18px;
-  margin: 14px 0 22px;
-  max-width: 760px;
-}
+.scn-card .desc { font-size: 12px; color: var(--text-2); line-height: 1.45; }
 
 .phase-pane { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: stretch; margin-bottom: 24px; }
 .phase-pane .phase-map-box { display: flex; flex-direction: column; min-height: 0; }
@@ -777,7 +765,6 @@ $$</div>
   <div class="wrap">
     <h2><span class="marker">§4</span> Scenario detail · <span id="active-name" style="color:var(--accent);"></span></h2>
     <p class="sub" id="active-desc"></p>
-    <p class="scn-narrative" id="active-narrative"></p>
     <p class="sub" id="ensemble-status" style="color:var(--text-3); font-size:13px;"></p>
     <div class="detail-pane">
       <div class="detail-meta" id="active-meta"></div>
@@ -1799,13 +1786,6 @@ function loadDetail(name) {
   const s = SCN[name];
   document.getElementById('active-name').textContent = s.label;
   document.getElementById('active-desc').textContent = s.description;
-  const narrEl = document.getElementById('active-narrative');
-  if (s.narrative) {
-    narrEl.textContent = s.narrative;
-    narrEl.style.display = 'block';
-  } else {
-    narrEl.style.display = 'none';
-  }
 
   const ens = ENSEMBLES[name];
   const status = document.getElementById('ensemble-status');
