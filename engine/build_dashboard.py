@@ -554,7 +554,7 @@ footer p { max-width: 720px; line-height: 1.6; }
       <span>25 scenarios</span>
       <span>8 × 10⁹ humans + 8 × 10¹¹ agents · 6.6M importance-weighted prototypes</span>
       <span>200 steps · 20M pair-interactions per step</span>
-      <span>1 step ≈ 1 quarter · ≈ 50 model years per run</span>
+      <span>1 step ≈ 1 quarter · terminal numbers reported at year 50 (2026→2076 frame)</span>
     </div>
   </div>
 </header>
@@ -864,10 +864,11 @@ $$</div>
     <p class="sub">Click a card to load its detail pane below. Cards are ordered along α – <i>Coasean Paradise</i> on the far left, <i>Exo-Baroque Singularity</i> on the far right. Each card prints the scenario's terminal α, exo-baroque index, and per-capita welfare. The twenty-five scenarios fix different levers – alignment-layer rejection rate, agent autonomy, friction floor, capability variance, fold ceiling, the rate at which α responds to its own EBI, demand-side feedback, productive folding, and opt-in law dynamics – so that the rest of the system can be read as a response to that lever.</p>
     <div class="cs-panel" id="cs-panel">
       <div class="cs-panel-head">
-        <h3>Scale stability &amp; trajectory convergence</h3>
+        <h3>Scale stability &amp; trajectory convergence at the 50-year horizon</h3>
         <span class="cs-meta">via <code>agentworld convergence</code> / <code>agentworld stability</code></span>
       </div>
-      <p class="cs-panel-sub">For each scenario in scope, two empirical questions: <b>(scale)</b> does the small-scale terminal-EBI mean lie inside the medium-scale CI? <b>(trajectory)</b> does terminal EBI stop drifting between <code>n_steps=200</code> and <code>n_steps=400</code>? "Stable" / "steady" answers come from running the new sweeps; scenarios outside the curated subset show as <i>unknown</i>. See <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/convergence.md">docs/concepts/convergence.md</a> for method and slack thresholds.</p>
+      <p class="cs-panel-sub" style="border-left: 2px solid var(--accent); padding-left: 12px; color: var(--text);"><b>Reading the flags.</b> The numbers this dashboard reports are <b>50-year-horizon values</b> — one step is one quarter, so <code>n_steps=200</code> ≈ the brief's 2026→2076 frame. <b>T✗ does not mean broken.</b> It means EBI is still climbing at year 50, which is <i>itself</i> the empirical claim of those scenarios: the regime change is in progress, not finished. Steady-state EBI for the transient scenarios would require multi-century extrapolation past the point where the speculative load-bearing parameters can carry; the artifact deliberately quotes the 50-year value instead.</p>
+      <p class="cs-panel-sub">Two diagnostic questions per scenario: <b>(scale)</b> is the small-scale terminal-EBI mean inside the medium-scale CI? <b>(trajectory)</b> has the drift between <code>n_steps=200</code> and <code>n_steps=400</code> dropped below 1% — i.e. has the trajectory <i>almost</i> saturated within the horizon? Scenarios outside the curated subset show as <i>unknown</i> until their sweeps land. See <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/convergence.md">convergence.md</a> and <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/time_discretization.md">time_discretization.md</a> for method and the dt anchor.</p>
       <div id="cs-table-host"></div>
     </div>
     <div class="scenario-strip" id="scn-strip"></div>
