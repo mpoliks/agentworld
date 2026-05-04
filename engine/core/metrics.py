@@ -132,6 +132,30 @@ class StepMetrics:
     wealth_imbalance_relative: float = 0.0
     welfare_imbalance_abs: float = 0.0
 
+    # ---- Flow-sensitive inequality metrics ------------------------------------
+    # Terminal `gini_wealth` is dominated by the initial wealth distribution
+    # (lognormal humans, Pareto agents) and barely moves under topology
+    # parameters within typical run lengths (variance of (gini_T - gini_0) is
+    # ~7e-11 across Sobol samples at n_steps=18). The metrics below isolate
+    # what the topology *does* by referencing the wealth state at step 0.
+    #
+    #   `top_decile_wealth_share` — fraction of total wealth held by the top
+    #     10% (weighted). Snapshot, not stock-derived; varies more than gini
+    #     over short horizons.
+    #
+    #   `top_decile_share_change` — `top_decile_wealth_share` at step t minus
+    #     its value at step 0. Negative under redistributive topologies,
+    #     positive under concentrating ones. Designed to be parameter-
+    #     discriminative under Sobol.
+    #
+    #   `gini_wealth_change_abs` — gini coefficient of |wealth_t - wealth_0|.
+    #     Captures *churn* (how much each agent's wealth shifted, signed
+    #     direction discarded), regardless of whether the population-level
+    #     distribution moved. Also Sobol-friendly.
+    top_decile_wealth_share: float = 0.0
+    top_decile_share_change: float = 0.0
+    gini_wealth_change_abs: float = 0.0
+
 
 def gini_coefficient(x: np.ndarray, weights: Optional[np.ndarray] = None) -> float:
     """Weighted Gini coefficient. O(n log n)."""
@@ -156,6 +180,47 @@ def gini_coefficient(x: np.ndarray, weights: Optional[np.ndarray] = None) -> flo
     )
     # Clamp to [0, 1].
     return float(max(0.0, min(1.0, g)))
+
+
+def top_decile_wealth_share(
+    wealth: np.ndarray,
+    weights: Optional[np.ndarray] = None,
+) -> float:
+    """Wealth-weighted share of total wealth held by the top 10% by weight.
+
+    Returns 0 if total wealth is non-positive. Sorts descending by per-unit
+    wealth, takes the top weight-decile of the population, returns that
+    bucket's wealth share. O(n log n).
+    """
+    x = np.asarray(wealth, dtype=np.float64)
+    if weights is None:
+        weights = np.ones_like(x)
+    w = np.asarray(weights, dtype=np.float64)
+    total_w = float(w.sum())
+    total_wx = float((w * x).sum())
+    if total_w <= 0 or total_wx <= 0:
+        return 0.0
+    # Sort descending by per-unit wealth.
+    order = np.argsort(-x)
+    w_sorted = w[order]
+    x_sorted = x[order]
+    cum_w = np.cumsum(w_sorted)
+    # Find the index where cumulative weight crosses 10% of total.
+    cutoff = 0.10 * total_w
+    idx = int(np.searchsorted(cum_w, cutoff, side="left"))
+    idx = min(idx, len(cum_w) - 1)
+    # Fully-included entries: 0..idx-1. Partial entry at idx contributes
+    # the leftover weight to hit exactly 10%.
+    if idx == 0:
+        # First entry already exceeds the decile; pro-rate it.
+        frac = cutoff / w_sorted[0] if w_sorted[0] > 0 else 0.0
+        wealth_in_decile = frac * w_sorted[0] * x_sorted[0]
+    else:
+        full_part = float((w_sorted[:idx] * x_sorted[:idx]).sum())
+        residual_w = cutoff - float(cum_w[idx - 1])
+        residual_w = max(0.0, residual_w)
+        wealth_in_decile = full_part + residual_w * x_sorted[idx]
+    return float(min(1.0, max(0.0, wealth_in_decile / total_wx)))
 
 
 def interaction_shares(pop: Population) -> tuple[float, float, float]:
@@ -203,6 +268,15 @@ class Metrics:
         self._cum_real_from_intermediation = 0.0
         self._cum_pigouvian_revenue = 0.0
         self._last_gini = 0.0
+        # Snapshot of per-prototype wealth at step 0; used to compute the
+        # flow-sensitive inequality metrics. Set on the first call to
+        # `step_metrics`. Stored as float64 so the (wealth - wealth_initial)
+        # difference doesn't lose precision at xlarge scales.
+        self._wealth_initial: Optional[np.ndarray] = None
+        self._initial_top_decile_share: float = 0.0
+        self._last_top_decile_share: float = 0.0
+        self._last_top_decile_share_change: float = 0.0
+        self._last_gini_change_abs: float = 0.0
 
     def step_metrics(
         self,
@@ -262,11 +336,44 @@ class Metrics:
 
         # Gini is O(n log n) — a 88M sort costs ~1.2s per call. Recompute
         # every K steps and carry forward in between (caller controls K).
-        if step == 0 or (gini_every_k_steps > 1 and step % gini_every_k_steps == 0) or gini_every_k_steps <= 1:
+        # Top-decile share and the flow-sensitive inequality metrics share
+        # the same recompute schedule.
+        recompute = (
+            step == 0
+            or (gini_every_k_steps > 1 and step % gini_every_k_steps == 0)
+            or gini_every_k_steps <= 1
+        )
+        if recompute:
             gini = gini_coefficient(pop.wealth, pop.weight)
             self._last_gini = gini
+
+            # Capture the initial wealth state on the first call so the
+            # flow-sensitive metrics can reference it on every subsequent
+            # step. Cast to float64 because per-prototype wealth is float32
+            # and the differences need full precision.
+            if self._wealth_initial is None:
+                self._wealth_initial = np.asarray(
+                    pop.wealth, dtype=np.float64
+                ).copy()
+                self._initial_top_decile_share = top_decile_wealth_share(
+                    self._wealth_initial, pop.weight
+                )
+
+            top_dec = top_decile_wealth_share(pop.wealth, pop.weight)
+            top_dec_change = top_dec - self._initial_top_decile_share
+            wealth_delta_abs = np.abs(
+                np.asarray(pop.wealth, dtype=np.float64) - self._wealth_initial
+            )
+            gini_change_abs = gini_coefficient(wealth_delta_abs, pop.weight)
+            self._last_top_decile_share = top_dec
+            self._last_top_decile_share_change = top_dec_change
+            self._last_gini_change_abs = gini_change_abs
         else:
             gini = self._last_gini
+
+        top_dec_share = self._last_top_decile_share
+        top_dec_share_change = self._last_top_decile_share_change
+        gini_change_abs = self._last_gini_change_abs
 
         real_humans = float((pop.weight * pop.is_human).sum())
         per_cap = (self._cum_real / real_humans) if real_humans > 0 else 0.0
@@ -421,6 +528,9 @@ class Metrics:
             wealth_imbalance_abs=float(wealth_imbalance_abs),
             wealth_imbalance_relative=float(wealth_imbalance_relative),
             welfare_imbalance_abs=float(welfare_imbalance_abs),
+            top_decile_wealth_share=float(top_dec_share),
+            top_decile_share_change=float(top_dec_share_change),
+            gini_wealth_change_abs=float(gini_change_abs),
         )
         self.history.append(m)
         return m

@@ -340,6 +340,14 @@ def _alpha_world_from_vector(
         n_steps=n_steps,
         pairs_per_step=pairs_per_step,
         seed=seed,
+        # The Sobol sweep uses small populations (default 6.6K prototypes),
+        # where the per-step gini cost is microseconds. Disabling the
+        # throttle ensures terminal flow-sensitive metrics
+        # (`gini_wealth_change_abs`, `top_decile_share_change`) are always
+        # fresh; otherwise they can be stale-by-(k-1) at terminal step or,
+        # for n_steps < k, identically zero across all sims (which then
+        # blows up the Saltelli/Sobol estimator).
+        gini_every_k_steps=1,
     )
 
 
@@ -355,7 +363,15 @@ def run_sobol_sensitivity(
     metrics: Sequence[str] = (
         "exo_baroque_index",
         "real_per_capita_welfare",
-        "gini_wealth",
+        # `gini_wealth` was here; removed because terminal gini at typical
+        # Sobol run lengths is ~100% determined by the initial wealth
+        # distribution (corr(gini_0, gini_T) = 1.0000, var(gini_T - gini_0)
+        # ~7e-11). The Saltelli/Sobol estimator broke down on it (ST > 1,
+        # negative S1 sums). `gini_wealth_change_abs` replaces it: gini of
+        # |wealth_t - wealth_0|, which captures topology-driven wealth
+        # churn rather than the initial-population baseline. See
+        # `engine/core/metrics.py` for the metric definition.
+        "gini_wealth_change_abs",
         "exo_baroque_authentic",
         "real_welfare_authentic_cumulative",
         "productive_welfare_yield",

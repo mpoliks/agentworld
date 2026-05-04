@@ -52,6 +52,9 @@ _BAND_METRIC_KEYS: tuple[str, ...] = (
     "a2a_share",
     "h2a_share",
     "h2h_share",
+    "top_decile_wealth_share",
+    "top_decile_share_change",
+    "gini_wealth_change_abs",
 )
 
 
