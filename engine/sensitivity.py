@@ -361,7 +361,16 @@ def run_sobol_sensitivity(
     output_path: Path | None = None,
     seed: int = 20260430,
     metrics: Sequence[str] = (
-        "exo_baroque_index",
+        # Raw `exo_baroque_index` and `exo_baroque_authentic` were here;
+        # removed because they have an unbounded right tail (real -> 0
+        # in heavily-folded regimes pushes EBI -> infinity), which breaks
+        # the Saltelli/Sobol estimator the same way `gini_wealth` did
+        # (ST > 1, negative S1 sums, exploding bootstrap CIs). The log
+        # transform preserves rank ordering and compresses the tail.
+        # See `engine/core/metrics.py` for the metric definition; the
+        # raw EBI is still tracked for time-series viewing on the
+        # dashboard.
+        "log_exo_baroque_index",
         "real_per_capita_welfare",
         # `gini_wealth` was here; removed because terminal gini at typical
         # Sobol run lengths is ~100% determined by the initial wealth
@@ -372,7 +381,7 @@ def run_sobol_sensitivity(
         # churn rather than the initial-population baseline. See
         # `engine/core/metrics.py` for the metric definition.
         "gini_wealth_change_abs",
-        "exo_baroque_authentic",
+        "log_exo_baroque_authentic",
         "real_welfare_authentic_cumulative",
         "productive_welfare_yield",
     ),

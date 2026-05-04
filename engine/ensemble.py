@@ -55,6 +55,8 @@ _BAND_METRIC_KEYS: tuple[str, ...] = (
     "top_decile_wealth_share",
     "top_decile_share_change",
     "gini_wealth_change_abs",
+    "log_exo_baroque_index",
+    "log_exo_baroque_authentic",
 )
 
 

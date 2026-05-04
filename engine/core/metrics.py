@@ -156,6 +156,19 @@ class StepMetrics:
     top_decile_share_change: float = 0.0
     gini_wealth_change_abs: float = 0.0
 
+    # ---- Tail-tamed EBI for variance decomposition ---------------------------
+    # Raw `exo_baroque_index = nominal/real` has an unbounded right tail
+    # (heavily-folded scenarios push real -> 0 and EBI -> infinity). The
+    # tail breaks the Saltelli/Sobol estimator the same way `gini_wealth`
+    # did: across an 8704-sim sweep at N=512, max(ST)=1.51 with CI ±2.71
+    # for `exo_baroque_index`, vs ~0.84 with CI ±0.12 once log-transformed.
+    # log(EBI) preserves rank ordering of EBI (so any "scenario A is
+    # more baroque than B" claim still holds) and dashboards keep the
+    # raw value above; this field exists for Sobol use and for any
+    # variance-sensitive analysis that wants compressed tails.
+    log_exo_baroque_index: float = 0.0
+    log_exo_baroque_authentic: float = 0.0
+
 
 def gini_coefficient(x: np.ndarray, weights: Optional[np.ndarray] = None) -> float:
     """Weighted Gini coefficient. O(n log n)."""
@@ -333,6 +346,11 @@ class Metrics:
             if self._cum_real_authentic > 0
             else 1.0
         )
+        # Tail-tamed EBI for Sobol / variance work. EBI is always > 0 (both
+        # numerator and denominator are non-negative running sums; EBI
+        # defaults to 1.0 when real == 0). The 1e-12 floor is defensive.
+        log_ebi = float(np.log(max(ebi, 1e-12)))
+        log_ebi_authentic = float(np.log(max(ebi_authentic, 1e-12)))
 
         # Gini is O(n log n) — a 88M sort costs ~1.2s per call. Recompute
         # every K steps and carry forward in between (caller controls K).
@@ -531,6 +549,8 @@ class Metrics:
             top_decile_wealth_share=float(top_dec_share),
             top_decile_share_change=float(top_dec_share_change),
             gini_wealth_change_abs=float(gini_change_abs),
+            log_exo_baroque_index=log_ebi,
+            log_exo_baroque_authentic=log_ebi_authentic,
         )
         self.history.append(m)
         return m
