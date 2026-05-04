@@ -49,8 +49,12 @@ class RunResult:
 
 def run_scenario(name: str, output_dir: Optional[Path] = None,
                  progress: bool = True,
-                 scale: Scale | str = Scale.SMALL) -> RunResult:
+                 scale: Scale | str = Scale.SMALL,
+                 seed: Optional[int] = None) -> RunResult:
     cfg = apply_scale(get_scenario(name), scale)
+    if seed is not None:
+        cfg.seed = int(seed)
+        cfg.population.seed = int(seed)
     t0 = time.perf_counter()
     world = World.build(cfg)
     world.run(progress=progress)

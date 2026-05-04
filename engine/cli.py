@@ -45,17 +45,47 @@ def list_cmd():
 @click.option("--scale", type=click.Choice(SCALE_CHOICES), default="small",
               show_default=True,
               help="Population scale (small=88K, medium=880K, large=8.8M, xlarge=88M).")
-def run_cmd(name, out, no_progress, scale):
+@click.option("--seed", default=None, type=int,
+              help="Override the scenario's seed (default: scenario default). "
+                   "Use to reproduce or perturb a specific run variant.")
+@click.option("--bands", "n_bands", default=None, type=int,
+              help="If set, also run an N-seed ensemble and write a "
+                   "<name>.bands.json alongside the single-trajectory JSON. "
+                   "Use this to see variance around the reported point estimate.")
+@click.option("--bands-base-seed", default=20260430, show_default=True, type=int,
+              help="Base seed for the variance ensemble (only used with --bands).")
+@click.option("--bands-workers", default=1, show_default=True, type=int,
+              help="Workers for the variance ensemble (only used with --bands).")
+def run_cmd(name, out, no_progress, scale, seed, n_bands, bands_base_seed, bands_workers):
     """Run a single scenario by name."""
     out_path = Path(out)
     res = run_scenario(
         name, output_dir=out_path, progress=not no_progress, scale=Scale(scale),
+        seed=seed,
     )
+    seed_str = f", seed={seed}" if seed is not None else ""
     click.echo(
         f"\n[agentworld] {name} done in {res.elapsed_sec:.1f}s "
-        f"(scale={scale}) alpha={res.final_alpha:.3f} "
+        f"(scale={scale}{seed_str}) alpha={res.final_alpha:.3f} "
         f"({res.final_label}) -- written to {out_path / (name + '.json')}"
     )
+    if n_bands is not None and n_bands > 1:
+        click.echo(
+            f"[agentworld] running {n_bands}-seed variance ensemble "
+            f"for {name} (base_seed={bands_base_seed})..."
+        )
+        run_ensemble(
+            name,
+            n_seeds=n_bands,
+            base_seed=bands_base_seed,
+            scale=Scale(scale),
+            n_workers=bands_workers,
+            output_dir=out_path,
+            progress=not no_progress,
+        )
+        click.echo(
+            f"[agentworld] bands -> {out_path / (name + '.bands.json')}"
+        )
 
 
 @main.command("run-all")
@@ -158,8 +188,10 @@ def sweep_cmd(out, steps, pairs, humans, agents):
 @main.command("sobol")
 @click.option("--out", default="outputs/sensitivity/sobol_indices.json",
               show_default=True)
-@click.option("--samples", "n_base_samples", default=64, show_default=True,
-              help="SALib base samples; total sims = samples * (D + 2).")
+@click.option("--samples", "n_base_samples", default=512, show_default=True,
+              help="SALib base samples; total sims = samples * (D + 2). "
+                   "Drop to 64 for a fast research-iteration sweep; "
+                   "raise above 512 for paper-grade Sobol CIs.")
 @click.option("--steps", default=18, show_default=True)
 @click.option("--pairs", default=20_000, show_default=True)
 @click.option("--humans", default=600, show_default=True)
@@ -280,7 +312,10 @@ def exo_sweep_cmd(out, steps, regions):
 @exo_group.command("sobol")
 @click.option("--out", default="outputs/sensitivity/exo_sobol_indices.json",
               show_default=True)
-@click.option("--samples", "n_base_samples", default=32, show_default=True)
+@click.option("--samples", "n_base_samples", default=128, show_default=True,
+              help="SALib base samples; raised from 32 to 128 so Sobol "
+                   "indices are not noise-dominated. Drop to 32 for a fast "
+                   "research-iteration sweep.")
 @click.option("--steps", default=40, show_default=True)
 @click.option("--regions", default=8, show_default=True)
 @click.option("--no-progress", is_flag=True)
@@ -413,8 +448,12 @@ def validate_priors_cmd(n_samples, seed, n_steps, out, no_progress):
               show_default=True)
 @click.option("--n-steps", default=30, show_default=True, type=int,
               help="Steps per evaluation.")
+@click.option("--n-replicate-seeds", default=5, show_default=True, type=int,
+              help="Re-evaluate the best candidate across K seeds; the "
+                   "verdict requires a >=50%% hit rate so a counter-example "
+                   "isn't single-seed brittle. Set to 1 to skip.")
 @click.option("--no-progress", is_flag=True)
-def validate_adversarial_cmd(n_evals, seed, out, n_steps, no_progress):
+def validate_adversarial_cmd(n_evals, seed, out, n_steps, n_replicate_seeds, no_progress):
     """Search for a parameter region where EBI > 10 AND welfare > paradise."""
     from engine.validation.adversarial import (
         adversarial_search, write_adversarial_summary,
@@ -422,6 +461,7 @@ def validate_adversarial_cmd(n_evals, seed, out, n_steps, no_progress):
     out_path = Path(out)
     res = adversarial_search(
         n_evals=n_evals, seed=seed, n_steps=n_steps, progress=not no_progress,
+        n_replicate_seeds=n_replicate_seeds,
     )
     write_adversarial_summary(res, out_path)
     verdict = "COUNTER-EXAMPLE FOUND" if res.found_counter_example else "INVARIANT (no counter-example)"
@@ -433,14 +473,23 @@ def validate_adversarial_cmd(n_evals, seed, out, n_steps, no_progress):
         f"             best_ebi={res.best_ebi:.3f} (target>{res.ebi_target}) "
         f"best_welfare={res.best_welfare:.4e} (paradise={res.paradise_welfare:.4e})"
     )
+    if res.n_replicate_seeds > 1:
+        click.echo(
+            f"             replicate hit-rate: "
+            f"{int(round(res.replicate_hit_rate * res.n_replicate_seeds))}/"
+            f"{res.n_replicate_seeds} seeds clear thresholds "
+            f"({res.replicate_hit_rate:.0%})"
+        )
 
 
 @main.command("convergence")
 @click.option("--scales", multiple=True, default=("small", "medium"),
               show_default=True, type=click.Choice(SCALE_CHOICES),
               help="Population scales to sweep. Repeat the flag for multiples.")
-@click.option("--seeds", "n_seeds", default=3, show_default=True, type=int,
-              help="Independent seeds per scale.")
+@click.option("--seeds", "n_seeds", default=15, show_default=True, type=int,
+              help="Independent seeds per scale. Raised from 3 to 15 so "
+                   "bootstrap CIs on the per-scale mean are not themselves "
+                   "noise-dominated; drop back to 3 for a fast iteration loop.")
 @click.option("--steps", "n_steps", default=None, type=int,
               help="Override n_steps (default: scenario default).")
 @click.option("--only", multiple=True, default=(),
@@ -471,7 +520,10 @@ def convergence_cmd(scales, n_seeds, n_steps, only, out):
 @click.option("--steps", "n_steps_grid", multiple=True, type=int,
               default=(100, 200, 400), show_default=True,
               help="n_steps values to sweep. Repeat the flag for multiples.")
-@click.option("--seeds", "n_seeds", default=3, show_default=True, type=int)
+@click.option("--seeds", "n_seeds", default=15, show_default=True, type=int,
+              help="Independent seeds per n_steps point. Raised from 3 to 15 "
+                   "so bootstrap CIs on the per-budget mean can resolve "
+                   "drift smaller than the seed-to-seed noise.")
 @click.option("--scale", type=click.Choice(SCALE_CHOICES), default="small",
               show_default=True)
 @click.option("--only", multiple=True, default=(),

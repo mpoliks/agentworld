@@ -15,7 +15,7 @@ scale, not step count). Together they answer two distinct questions:
 
 Usage:
     PYTHONPATH=. python engine/stability.py
-    PYTHONPATH=. python engine/stability.py --steps 100 200 400 --seeds 3
+    PYTHONPATH=. python engine/stability.py --steps 100 200 400 --seeds 15
     PYTHONPATH=. python engine/stability.py --only baroque_cathedral
 
 Writes outputs/stability/<scenario>.json plus outputs/stability/_summary.json.
@@ -175,7 +175,7 @@ def main() -> None:
         "--steps", nargs="+", type=int, default=[100, 200, 400],
         help="n_steps grid to sweep.",
     )
-    parser.add_argument("--seeds", type=int, default=3)
+    parser.add_argument("--seeds", type=int, default=15)
     parser.add_argument("--scale", default="small",
                         help="Population scale (small/medium/large/xlarge).")
     parser.add_argument("--only", nargs="*", default=None,

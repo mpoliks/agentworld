@@ -162,6 +162,17 @@ class AdversarialResult:
     elapsed_sec: float
     bounds: list[list]
     score_trajectory: list[float] = field(default_factory=list)
+    # Multi-seed replication of the best candidate. Populated when
+    # adversarial_search() is called with n_replicate_seeds > 1; lets the
+    # verdict be reported as "found a counter-example that holds in K/N
+    # seeds," not "found one in a single lucky draw."
+    n_replicate_seeds: int = 1
+    replicate_seeds: list[int] = field(default_factory=list)
+    replicate_ebi: list[float] = field(default_factory=list)
+    replicate_welfare: list[float] = field(default_factory=list)
+    # Fraction of replicate seeds in which the best point still satisfies
+    # both thresholds (EBI > target AND welfare > paradise_welfare).
+    replicate_hit_rate: float = 1.0
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -182,12 +193,20 @@ def adversarial_search(
     n_agent_prototypes: int = 6_000,
     pairs_per_step: int = 20_000,
     ebi_target: float = 10.0,
+    n_replicate_seeds: int = 1,
 ) -> AdversarialResult:
     """Custom simulated-annealing search over SEARCH_BOUNDS.
 
     Geometric temperature schedule from T0=1.0 → T1=1e-4. Step size shrinks
     linearly with temperature. RNG is seeded so refactors don't silently
     re-roll the result.
+
+    With `n_replicate_seeds > 1`, after the search finishes, the best point
+    is re-evaluated across K independent seeds. The verdict
+    (`found_counter_example`) flips to True only if BOTH the search seed
+    AND a strict majority of the replicate seeds clear the thresholds.
+    `replicate_hit_rate` reports the fraction of seeds that did, so the
+    user can see how brittle the verdict is.
     """
     if n_evals < 4:
         raise ValueError("n_evals must be >= 4 (init + at least a few proposals)")
@@ -247,6 +266,30 @@ def adversarial_search(
 
     found = best_ebi > ebi_target and best_welfare > paradise_welfare
 
+    # Replicate the best point across additional seeds so the verdict
+    # isn't single-seed brittle. The search seed counts as replicate #0.
+    replicate_seeds: list[int] = [seed]
+    replicate_ebi: list[float] = [float(best_ebi)]
+    replicate_welfare: list[float] = [float(best_welfare)]
+    if n_replicate_seeds > 1:
+        best_point = _to_point(best_x)
+        for k in range(1, n_replicate_seeds):
+            rep_seed = int(seed + 1_000_003 * k)  # large prime offset
+            rep_ebi, rep_welfare = _evaluate(best_point, run_spec, seed=rep_seed)
+            replicate_seeds.append(rep_seed)
+            replicate_ebi.append(float(rep_ebi))
+            replicate_welfare.append(float(rep_welfare))
+
+    hits = sum(
+        1
+        for ebi_k, welfare_k in zip(replicate_ebi, replicate_welfare)
+        if ebi_k > ebi_target and welfare_k > paradise_welfare
+    )
+    hit_rate = hits / max(1, len(replicate_seeds))
+    # Tighten the verdict: a counter-example must clear thresholds in the
+    # search seed AND in at least half the replicates.
+    found = bool(found) and (hit_rate >= 0.5)
+
     return AdversarialResult(
         n_evals=n_evals,
         seed=seed,
@@ -260,6 +303,11 @@ def adversarial_search(
         elapsed_sec=float(time.time() - started),
         bounds=[list(b) for b in SEARCH_BOUNDS],
         score_trajectory=[float(s) for s in score_traj],
+        n_replicate_seeds=int(len(replicate_seeds)),
+        replicate_seeds=replicate_seeds,
+        replicate_ebi=replicate_ebi,
+        replicate_welfare=replicate_welfare,
+        replicate_hit_rate=float(hit_rate),
     )
 
 

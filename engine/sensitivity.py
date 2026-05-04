@@ -345,7 +345,7 @@ def _alpha_world_from_vector(
 
 def run_sobol_sensitivity(
     *,
-    n_base_samples: int = 64,
+    n_base_samples: int = 512,
     n_steps: int = 18,
     pairs_per_step: int = 20_000,
     n_human_prototypes: int = 600,
@@ -365,8 +365,10 @@ def run_sobol_sensitivity(
     """Run a Saltelli/Sobol global sensitivity sweep on the alpha-engine.
 
     With `n_base_samples=N`, the SALib sampler produces `N * (D + 2)`
-    parameter vectors (D=15 here, so N=64 -> 1088 simulations). Increase
-    N for tighter Sobol-index confidence intervals; the cost scales linearly.
+    parameter vectors (D=15 here, so N=512 -> 8704 simulations). Default
+    raised from 64 to 512 because 64 leaves Sobol indices noise-dominated
+    on a 15-parameter problem. Override with `--samples` for cheaper runs;
+    cost scales linearly.
 
     Returns S1 and ST per (metric, parameter), plus the bounds we swept
     over so the dashboard can be honest about the conditional nature of

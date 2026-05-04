@@ -9,7 +9,7 @@ tighter than small.
 
 Usage:
     PYTHONPATH=. python engine/convergence.py
-    PYTHONPATH=. python engine/convergence.py --scales small medium --seeds 3
+    PYTHONPATH=. python engine/convergence.py --scales small medium --seeds 15
     PYTHONPATH=. python engine/convergence.py --only coasean_paradise baroque_cathedral
 
 Writes outputs/convergence/<scenario>.json plus outputs/convergence/_summary.json
@@ -190,7 +190,7 @@ def main() -> None:
     parser.add_argument(
         "--scales", nargs="+", default=["small", "medium", "large", "xlarge"]
     )
-    parser.add_argument("--seeds", type=int, default=5)
+    parser.add_argument("--seeds", type=int, default=15)
     parser.add_argument("--steps", type=int, default=None,
                         help="Override n_steps (default: scenario default).")
     parser.add_argument("--only", nargs="*", default=None,
