@@ -21,6 +21,7 @@ from typing import Callable, Optional
 import numpy as np
 
 from engine.core.folding import fold_surplus
+from engine.core.ledger import StepLedger
 from engine.core.metrics import Metrics, StepMetrics, gini_coefficient
 from engine.core.population import Population, PopulationConfig
 from engine.core.topology import Topology, TopologyConfig
@@ -59,6 +60,30 @@ class WorldConfig:
 
     # Friction-floor schedule (optional).
     friction_floor_schedule: Optional[list] = None
+
+    # Stock-flow accounting. When True (the default), every step the world
+    # records a categorised ledger of wealth and welfare flows and computes
+    # the residual against the observed totals. Reported via three new
+    # `StepMetrics` fields (`wealth_imbalance_abs`, `wealth_imbalance_relative`,
+    # `welfare_imbalance_abs`). Pure instrumentation — does not change
+    # engine math. Disable for max throughput on xlarge runs where the per-
+    # step `total_wealth()` reductions are noticeable.
+    track_ledger: bool = True
+
+    # Model time per simulator step. The default `dt = 1.0` reproduces all
+    # existing canonical scenario outputs bit-for-bit. Setting `dt != 1.0`
+    # rescales the explicit rate-like sub-processes (law evolution,
+    # capability drift, wealth depreciation) by `dt` so that the same
+    # *amount of model time* can be covered with different step counts.
+    # Discrete-event sub-processes (Coasean pair sampling, folding cascade,
+    # entry/exit, institutions) are calibrated per-step and are NOT
+    # rescaled — running with a non-default dt only respects continuous-
+    # time semantics for the rate processes. See
+    # `docs/concepts/time_discretization.md` for the convention and the
+    # caveats. `time_unit` is informational and only used in the
+    # dashboard.
+    dt: float = 1.0
+    time_unit: str = "step"
 
 
 @dataclass
@@ -149,22 +174,30 @@ class World:
         return float(np.clip(top_wealth / total_wealth, 0.0, 1.0))
 
     def _advance_law_state(self) -> None:
-        """Update dynamic law state for the next step."""
+        """Update dynamic law state for the next step.
+
+        All four rate parameters (`natural_decay`, `law_decay_recovery`,
+        `beta_capture_growth`, `gamma_civic_pushback * civic_pushback_default`)
+        are interpreted as *per unit of model time*. With `WorldConfig.dt`
+        defaulted to 1.0 the per-step deltas are unchanged; with `dt != 1.0`
+        the law-state evolution scales linearly with model time elapsed
+        per step.
+        """
         cfg = self.topology.cfg.law
         if not cfg.enabled:
             return
+        dt = float(self.cfg.dt)
         top_share = self._top_quantile_wealth_share()
         self.law_strength = float(np.clip(
             self.law_strength
-            + cfg.upkeep_investment * cfg.law_decay_recovery
-            - cfg.natural_decay,
+            + (cfg.upkeep_investment * cfg.law_decay_recovery - cfg.natural_decay) * dt,
             0.0,
             1.0,
         ))
         self.law_capture = float(np.clip(
             self.law_capture
-            + cfg.beta_capture_growth * top_share
-            - cfg.gamma_civic_pushback * cfg.civic_pushback_default,
+            + (cfg.beta_capture_growth * top_share
+               - cfg.gamma_civic_pushback * cfg.civic_pushback_default) * dt,
             0.0,
             1.0,
         ))
@@ -221,6 +254,23 @@ class World:
                 ]
             )
 
+        # Stock-flow ledger setup. Pure instrumentation; no math change.
+        track_ledger = self.cfg.track_ledger
+        ledger = StepLedger() if track_ledger else None
+        if track_ledger:
+            weight_f64 = self.population.weight.astype(np.float64, copy=False)
+            W_step_start = float(
+                (self.population.wealth.astype(np.float64, copy=False) * weight_f64).sum()
+            )
+        else:
+            weight_f64 = None
+            W_step_start = 0.0
+
+        def _total_wealth() -> float:
+            return float(
+                (self.population.wealth.astype(np.float64, copy=False) * weight_f64).sum()
+            )
+
         strategy_cfg = self.topology.cfg.strategy
         if strategy_cfg.enabled:
             from engine.core.strategy import apply_actions, select_actions
@@ -262,6 +312,14 @@ class World:
         if dyn_cfg.enabled:
             retained_delta = retained_delta * dyn_cfg.savings_rate
 
+        # Predict the population-level wealth contribution before the f32
+        # cast and clip, so the ledger entry reflects the operator's intent.
+        if track_ledger:
+            predicted_tx = float(
+                (retained_delta.astype(np.float64, copy=False) * weight_f64).sum()
+            )
+            ledger.add_wealth_in("transactions", predicted_tx)
+
         # Update wealth from transactions. With population dynamics enabled,
         # only saved surplus accumulates as wealth; the rest is consumed.
         self.population.wealth = np.clip(
@@ -269,7 +327,13 @@ class World:
             0.0, None,
         )
 
-        # Pigouvian revenue recycling.
+        # Pigouvian revenue recycling. Only the `human_wealth` mode adds
+        # to the wealth stock; `friction_subsidy` pools and `capability`
+        # adjusts capability, not wealth.
+        if track_ledger and tx.pigouvian_revenue > 0:
+            pig_cfg = self.topology.cfg.pigouvian
+            if pig_cfg.enabled and pig_cfg.recycling == "human_wealth":
+                ledger.add_wealth_in("pigouvian.recycle", float(tx.pigouvian_revenue))
         self._recycle_pigouvian_revenue(tx.pigouvian_revenue)
 
         # 2. Folding operator. Folding takes the step's nominal volume and
@@ -295,6 +359,7 @@ class World:
             cap_intermediating=self._cap_intermediating_mean,
             realized_alpha=tx.realized_alpha if strategy_cfg.enabled else None,
             fold_pressure=fold_pressure,
+            dt=float(self.cfg.dt),
         )
         law_upkeep_cost = (
             self.topology.cfg.law.upkeep_investment * tx.real_surplus_added
@@ -322,6 +387,24 @@ class World:
         )
         nominal_step = tx.nominal_volume + fold.nominal_added
 
+        # Welfare ledger: real-welfare per-step flow accounting. Sources are
+        # transactions and (when productive folding is on) the cascade's
+        # variance-absorption contribution. Sinks are law upkeep and fold
+        # overhead. The clip-to-zero happens when sinks exceed sources; we
+        # record the clipped portion so the ledger's clipped net matches
+        # `real_step` exactly.
+        if track_ledger:
+            ledger.add_welfare_in("transactions", float(tx.real_surplus_added))
+            if law_enabled and law_upkeep_cost > 0:
+                ledger.add_welfare_out("law.upkeep", float(law_upkeep_cost))
+            if fold.real_subtracted > 0:
+                ledger.add_welfare_out("fold.overhead", float(fold.real_subtracted))
+            if fold.real_added_productive > 0:
+                ledger.add_welfare_in("fold.productive", float(fold.real_added_productive))
+            unclipped_welfare = ledger.welfare_net()
+            if unclipped_welfare < 0:
+                ledger.add_welfare_out("clip_floor", -unclipped_welfare)
+
         inst_cfg = self.topology.cfg.institutions
         if (
             inst_cfg.enabled
@@ -335,10 +418,18 @@ class World:
                 merge_step,
             )
 
+            W_pre_inst = _total_wealth() if track_ledger else 0.0
             dissolution_step(self.population, inst_cfg)
             formation_step(self.population, inst_cfg, self.rng, surplus_per_proto=tx.wealth_delta)
             merge_step(self.population, inst_cfg, self.rng)
             firm_overhead_step(self.population, inst_cfg)
+            if track_ledger:
+                W_post_inst = _total_wealth()
+                inst_delta = W_post_inst - W_pre_inst
+                if inst_delta != 0.0:
+                    # firm_overhead_step is the only wealth-touching call;
+                    # delta should always be ≤ 0 (overhead deduction).
+                    ledger.add_wealth_out("institutions.firm_overhead", -inst_delta)
 
         if strategy_cfg.enabled:
             from engine.core.strategy import update_rewards
@@ -355,9 +446,36 @@ class World:
         if dyn_cfg.enabled:
             from engine.core.dynamics import capability_update, entry_exit, wealth_depreciation
 
-            capability_update(self.population, tx.wealth_delta, dyn_cfg)
-            wealth_depreciation(self.population, dyn_cfg)
+            dt = float(self.cfg.dt)
+            capability_update(self.population, tx.wealth_delta, dyn_cfg, dt=dt)
+            W_pre_dep = _total_wealth() if track_ledger else 0.0
+            wealth_depreciation(self.population, dyn_cfg, dt=dt)
+            if track_ledger:
+                W_post_dep = _total_wealth()
+                ledger.add_wealth_out("dynamics.depreciation", W_pre_dep - W_post_dep)
             churn_count = entry_exit(self.population, dyn_cfg, self.rng)
+            if track_ledger:
+                W_post_ee = _total_wealth()
+                ee_delta = W_post_ee - W_post_dep
+                if ee_delta != 0.0:
+                    # Entry/exit recycles failed prototypes. Record the
+                    # observed signed delta — sign tells us whether the
+                    # cohort net brought wealth in or took it out.
+                    ledger.add_wealth_in("dynamics.entry_exit", ee_delta)
+
+        # End-of-step ledger residuals.
+        if track_ledger:
+            W_step_end = _total_wealth()
+            observed_dW = W_step_end - W_step_start
+            wealth_imbalance_abs = ledger.wealth_residual(observed_dW)
+            wealth_imbalance_relative = (
+                abs(wealth_imbalance_abs) / max(abs(W_step_end), 1.0)
+            )
+            welfare_imbalance_abs = ledger.welfare_residual(real_step)
+        else:
+            wealth_imbalance_abs = 0.0
+            wealth_imbalance_relative = 0.0
+            welfare_imbalance_abs = 0.0
 
         # 3. Record metrics.
         m = self.metrics.step_metrics(
@@ -389,7 +507,10 @@ class World:
             strategy_enabled=strategy_cfg.enabled,
             realized_alpha=tx.realized_alpha,
             realized_folding_ratio_value=(
-                self.topology.folding_propensity(tx.realized_alpha if strategy_cfg.enabled else None)
+                self.topology.folding_propensity(
+                    tx.realized_alpha if strategy_cfg.enabled else None,
+                    dt=float(self.cfg.dt),
+                )
                 / self.topology.cfg.folding_propensity
                 if self.topology.cfg.folding_propensity > 0
                 else 0.0
@@ -398,6 +519,9 @@ class World:
             dynamics_enabled=dyn_cfg.enabled,
             churn_count=churn_count,
             fold_per_depth_contribution=fold.per_depth_contribution,
+            wealth_imbalance_abs=wealth_imbalance_abs,
+            wealth_imbalance_relative=wealth_imbalance_relative,
+            welfare_imbalance_abs=welfare_imbalance_abs,
         )
 
         self._advance_law_state()

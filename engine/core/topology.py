@@ -377,6 +377,7 @@ class Topology:
         self,
         realized_alpha: float | None = None,
         fold_pressure: float | None = None,
+        dt: float = 1.0,
     ) -> float:
         """How likely a positive-surplus market is to spawn sub-markets this step.
 
@@ -388,6 +389,15 @@ class Topology:
         produces a positive-feedback loop: each step's folding raises the
         signal that drives next step's folding propensity, so EBI becomes
         a trajectory rather than a steady-state ratio.
+
+        The `dt` argument applies the discrete-time analog
+        `p_per_step = 1 − (1 − p_unit)^dt`, treating the existing default
+        propensity as the probability per unit of model time. With
+        `dt = 1.0` (the default and the calibration anchor) the math is
+        unchanged. Larger `dt` raises the per-step firing probability of
+        the cascade; the cascade *contents* (branching, depth-decay,
+        Hawkes self-excitation) are intra-cascade and remain
+        dt-invariant. See `docs/concepts/time_discretization.md`.
         """
         cfg = self.cfg
         alpha = cfg.alpha if realized_alpha is None else realized_alpha
@@ -401,6 +411,12 @@ class Topology:
             mult = 1.0 + cfg.folding_pressure_strength * excess
             mult = min(mult, cfg.folding_pressure_max_multiplier)
             base = base * mult
+        base = min(base, 1.0)
+        if dt != 1.0:
+            # Treat `base` as p_per_unit_model_time; the per-step
+            # probability over `dt` units is the discrete-time analog of
+            # an exponential rate.
+            base = 1.0 - (1.0 - base) ** float(dt)
         return min(base, 1.0)
 
     def matryoshka_real_tax(self) -> float:

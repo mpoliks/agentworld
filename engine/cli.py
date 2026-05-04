@@ -9,7 +9,7 @@ import click
 from engine.ensemble import run_ensemble, run_ensemble_all
 from engine.runner import run_all, run_scenario
 from engine.scale import Scale
-from engine.scenarios import list_scenarios
+from engine.scenarios import SCENARIOS, list_scenarios
 from engine.sensitivity import basin_counts, run_phase_space_sweep, run_sobol_sensitivity
 from engine.exo import scenarios as exo_scenarios
 from engine.exo.ensemble import run_ensemble as exo_run_ensemble
@@ -432,6 +432,69 @@ def validate_adversarial_cmd(n_evals, seed, out, n_steps, no_progress):
     click.echo(
         f"             best_ebi={res.best_ebi:.3f} (target>{res.ebi_target}) "
         f"best_welfare={res.best_welfare:.4e} (paradise={res.paradise_welfare:.4e})"
+    )
+
+
+@main.command("convergence")
+@click.option("--scales", multiple=True, default=("small", "medium"),
+              show_default=True, type=click.Choice(SCALE_CHOICES),
+              help="Population scales to sweep. Repeat the flag for multiples.")
+@click.option("--seeds", "n_seeds", default=3, show_default=True, type=int,
+              help="Independent seeds per scale.")
+@click.option("--steps", "n_steps", default=None, type=int,
+              help="Override n_steps (default: scenario default).")
+@click.option("--only", multiple=True, default=(),
+              help="Optional scenario allowlist (repeatable).")
+@click.option("--out", default="outputs/convergence", show_default=True)
+def convergence_cmd(scales, n_seeds, n_steps, only, out):
+    """Sweep population scale; report bootstrap CIs on terminal metrics.
+
+    Answers: is the population big enough that small-scale point estimates
+    sit inside the medium-scale (and larger) CIs? Where they don't, the
+    importance-weighting failure mode flagged in epistemic_status.md is
+    biting and the scenario should be flagged as scale-fragile.
+    """
+    from engine.convergence import run_convergence
+    out_path = Path(out)
+    scenarios = list(only) if only else list(SCENARIOS.keys())
+    scales_enum = [Scale(s) for s in scales]
+    run_convergence(
+        scenarios=scenarios,
+        scales=scales_enum,
+        n_seeds=n_seeds,
+        n_steps=n_steps,
+        output_dir=out_path,
+    )
+
+
+@main.command("stability")
+@click.option("--steps", "n_steps_grid", multiple=True, type=int,
+              default=(100, 200, 400), show_default=True,
+              help="n_steps values to sweep. Repeat the flag for multiples.")
+@click.option("--seeds", "n_seeds", default=3, show_default=True, type=int)
+@click.option("--scale", type=click.Choice(SCALE_CHOICES), default="small",
+              show_default=True)
+@click.option("--only", multiple=True, default=(),
+              help="Optional scenario allowlist (repeatable).")
+@click.option("--out", default="outputs/stability", show_default=True)
+def stability_cmd(n_steps_grid, n_seeds, scale, only, out):
+    """Sweep n_steps; report bootstrap CIs on terminal metrics.
+
+    Answers: has the trajectory finished moving? If terminal-metric
+    medians drift outside their bootstrap CIs as n_steps rises, the
+    scenario has not converged on its long-run regime within the smaller
+    step budget — interpret terminal numbers from those scenarios as
+    *transient*, not steady-state.
+    """
+    from engine.stability import run_stability
+    out_path = Path(out)
+    scenarios = list(only) if only else list(SCENARIOS.keys())
+    run_stability(
+        scenarios=scenarios,
+        n_steps_grid=list(n_steps_grid),
+        n_seeds=n_seeds,
+        scale=Scale(scale),
+        output_dir=out_path,
     )
 
 

@@ -118,6 +118,20 @@ class StepMetrics:
     # default factory so all serializers continue to round-trip cleanly.
     fold_per_depth_contribution: list = field(default_factory=list)
 
+    # ---- Stock-flow consistency (engine/core/ledger.py) ----------------------
+    # `wealth_imbalance_abs` is the residual between observed total
+    # population wealth change this step and the sum of *categorized*
+    # predicted flows the ledger recorded. Relative is normalised against
+    # end-of-step total wealth. `welfare_imbalance_abs` is the residual
+    # between observed `real_welfare_step` and the welfare ledger's clipped
+    # net. All three should be tiny (~ float32 quantization) when the
+    # engine respects its own accounting identity. See
+    # `docs/concepts/stock_flow_consistency.md` and
+    # `engine/tests/test_stock_flow.py`.
+    wealth_imbalance_abs: float = 0.0
+    wealth_imbalance_relative: float = 0.0
+    welfare_imbalance_abs: float = 0.0
+
 
 def gini_coefficient(x: np.ndarray, weights: Optional[np.ndarray] = None) -> float:
     """Weighted Gini coefficient. O(n log n)."""
@@ -224,6 +238,9 @@ class Metrics:
         dynamics_enabled: bool = False,
         churn_count: int = 0,
         fold_per_depth_contribution: Optional[list] = None,
+        wealth_imbalance_abs: float = 0.0,
+        wealth_imbalance_relative: float = 0.0,
+        welfare_imbalance_abs: float = 0.0,
     ) -> StepMetrics:
         self._cum_real += real_step
         self._cum_nominal += nominal_step
@@ -401,6 +418,9 @@ class Metrics:
                 if fold_per_depth_contribution
                 else []
             ),
+            wealth_imbalance_abs=float(wealth_imbalance_abs),
+            wealth_imbalance_relative=float(wealth_imbalance_relative),
+            welfare_imbalance_abs=float(welfare_imbalance_abs),
         )
         self.history.append(m)
         return m
