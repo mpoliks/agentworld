@@ -449,7 +449,7 @@ footer p { max-width: 720px; line-height: 1.6; }
     <div class="meta">
       <span>25 scenarios</span>
       <span>8 × 10⁹ humans + 8 × 10¹¹ agents · 6.6M importance-weighted prototypes</span>
-      <span>60 steps · 20M pair-interactions per step</span>
+      <span>200 steps · 20M pair-interactions per step</span>
     </div>
   </div>
 </header>
@@ -497,7 +497,7 @@ footer p { max-width: 720px; line-height: 1.6; }
 
       <h3><span class="num">1.2</span> What the simulator is</h3>
 
-      <p>The substrate is a population of $H = 8 \times 10^{9}$ humans and $A = 8 \times 10^{11}$ AI agents, represented through importance-weighted prototypes ($\approx 6.6\text{M}$ sampled prototypes carry the full population's mass). At every step of a sixty-step run, the engine draws on the order of $2 \times 10^{5}$ random pairs of trading partners. For each pair it asks four questions in sequence: would this trade create surplus; what would it cost; would any of the three governance filters block it; and, if it does execute, does it spawn a folding cascade of sub-trades on top of itself. Surviving trades transfer wealth between the parties and accumulate into the run-level aggregates that the rest of this dashboard plots.</p>
+      <p>The substrate is a population of $H = 8 \times 10^{9}$ humans and $A = 8 \times 10^{11}$ AI agents, represented through importance-weighted prototypes ($\approx 6.6\text{M}$ sampled prototypes carry the full population's mass). At every step of a two-hundred-step run, the engine draws on the order of $2 \times 10^{5}$ random pairs of trading partners. For each pair it asks four questions in sequence: would this trade create surplus; what would it cost; would any of the three governance filters block it; and, if it does execute, does it spawn a folding cascade of sub-trades on top of itself. Surviving trades transfer wealth between the parties and accumulate into the run-level aggregates that the rest of this dashboard plots.</p>
 
       <p>Humans and agents pass through the same trade engine — the matching, the surplus computation, the filters, and the fold rules are type-blind once a pair has been drawn. <em>Type</em> matters only at three points: which prototypes get drawn into pairs (population mass and the trade-rate multiplier discussed below), how the prototypes are seeded (capability, autonomy, alignment, wealth all sample from different distributions), and how their resulting surplus maps to welfare downstream (per-capita welfare divides by humans only, and a "demand-modulation" mode in some scenarios further discounts pure agent-to-agent surplus). The asymmetries we seed:</p>
 
