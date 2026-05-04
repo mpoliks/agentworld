@@ -7,7 +7,7 @@
     "seeds": [
       {
         "seed": 0,
-        "elapsed_sec": 3.891329334001057,
+        "elapsed_sec": 3.922507375013083,
         "final": {
           "exo_baroque_index": 16.696224483439288,
           "gini_wealth": 0.505637528048592,
@@ -20,7 +20,7 @@
       },
       {
         "seed": 1,
-        "elapsed_sec": 3.8196092500002123,
+        "elapsed_sec": 3.9001353749772534,
         "final": {
           "exo_baroque_index": 16.35430700214353,
           "gini_wealth": 0.494514507890586,
@@ -92,7 +92,7 @@
     "seeds": [
       {
         "seed": 0,
-        "elapsed_sec": 39.55720029200893,
+        "elapsed_sec": 41.00656249996973,
         "final": {
           "exo_baroque_index": 16.565679381878375,
           "gini_wealth": 0.5013207361110841,
@@ -105,7 +105,7 @@
       },
       {
         "seed": 1,
-        "elapsed_sec": 39.012314999999944,
+        "elapsed_sec": 40.28376383299474,
         "final": {
           "exo_baroque_index": 16.683693482047644,
           "gini_wealth": 0.49727811092878704,

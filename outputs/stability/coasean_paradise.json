@@ -4,7 +4,7 @@
     "seeds": [
       {
         "seed": 0,
-        "elapsed_sec": 1.6358835410210304,
+        "elapsed_sec": 1.723493250028696,
         "final": {
           "exo_baroque_index": 1.0558039220814615,
           "real_per_capita_welfare": 0.0856386712980858,
@@ -16,7 +16,7 @@
       },
       {
         "seed": 1,
-        "elapsed_sec": 1.6276925419806503,
+        "elapsed_sec": 1.744142124953214,
         "final": {
           "exo_baroque_index": 1.0543133961633948,
           "real_per_capita_welfare": 0.08921521949014022,
@@ -77,7 +77,7 @@
     "seeds": [
       {
         "seed": 0,
-        "elapsed_sec": 3.3019929159781896,
+        "elapsed_sec": 3.4754036660306156,
         "final": {
           "exo_baroque_index": 1.055797418873987,
           "real_per_capita_welfare": 0.17129957839994236,
@@ -89,7 +89,7 @@
       },
       {
         "seed": 1,
-        "elapsed_sec": 3.396951375005301,
+        "elapsed_sec": 3.4782732499879785,
         "final": {
           "exo_baroque_index": 1.0543159955112362,
           "real_per_capita_welfare": 0.1784228583372077,
@@ -150,7 +150,7 @@
     "seeds": [
       {
         "seed": 0,
-        "elapsed_sec": 6.850171666999813,
+        "elapsed_sec": 7.008692165953107,
         "final": {
           "exo_baroque_index": 1.0558008538561114,
           "real_per_capita_welfare": 0.3425805752926339,
@@ -162,7 +162,7 @@
       },
       {
         "seed": 1,
-        "elapsed_sec": 6.785735750047024,
+        "elapsed_sec": 7.090630499995314,
         "final": {
           "exo_baroque_index": 1.0543226750539678,
           "real_per_capita_welfare": 0.35677437835669334,

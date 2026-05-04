@@ -139,12 +139,84 @@ def _load_provenance() -> list[dict]:
         return []
 
 
+def _load_convergence_stability(outputs_dir: Path) -> dict:
+    """Read the convergence + stability summary JSONs and derive per-scenario
+    scale-stability and trajectory-convergence flags for the §3 panel.
+
+    Returns {scenario_name: {...}} where each entry may carry:
+
+        scale_status         : "stable" | "fragile" | None
+        scale_small_ebi      : terminal-EBI mean at small scale
+        scale_medium_ebi_*   : terminal-EBI mean / lo / hi at medium scale
+        traj_status          : "steady" | "transient" | None
+        traj_drift_pct       : |EBI(last) − EBI(prev)| / EBI(prev) × 100
+        traj_n_steps_*       : n_steps for the last two budgets
+        traj_ebi_*           : terminal EBI at those two budgets
+
+    Missing inputs are silently skipped — the dashboard panel renders
+    "no data" for scenarios without sweep coverage.
+    """
+    conv_path = outputs_dir / "convergence" / "_summary.json"
+    stab_path = outputs_dir / "stability" / "_summary.json"
+    conv = json.loads(conv_path.read_text()) if conv_path.exists() else {}
+    stab = json.loads(stab_path.read_text()) if stab_path.exists() else {}
+
+    out: dict[str, dict] = {}
+    for name in set(conv.keys()) | set(stab.keys()):
+        entry: dict = {}
+        c = conv.get(name, {})
+        if "small" in c and "medium" in c:
+            sm = c["small"].get("exo_baroque_index", {}) or {}
+            md = c["medium"].get("exo_baroque_index", {}) or {}
+            if sm and md:
+                small_mean = float(sm.get("mean", 0.0))
+                med_mean = float(md.get("mean", 0.0))
+                med_lo = float(md.get("lo", 0.0))
+                med_hi = float(md.get("hi", 0.0))
+                # Stable when small mean lies inside the medium CI plus a
+                # 25% slack on either side; fragile otherwise.
+                span = max(med_hi - med_lo, 0.05 * max(abs(med_mean), 1.0))
+                lo, hi = med_lo - 0.25 * span, med_hi + 0.25 * span
+                entry["scale_status"] = "stable" if lo <= small_mean <= hi else "fragile"
+                entry["scale_small_ebi"] = small_mean
+                entry["scale_medium_ebi_mean"] = med_mean
+                entry["scale_medium_ebi_lo"] = med_lo
+                entry["scale_medium_ebi_hi"] = med_hi
+
+        s = stab.get(name, {})
+        if s:
+            budgets = sorted(int(k) for k in s.keys())
+            if len(budgets) >= 2:
+                prev_n, last_n = budgets[-2], budgets[-1]
+                prev_mean = float(
+                    (s[str(prev_n)].get("exo_baroque_index", {}) or {}).get("mean", 0.0)
+                )
+                last_mean = float(
+                    (s[str(last_n)].get("exo_baroque_index", {}) or {}).get("mean", 0.0)
+                )
+                if abs(prev_mean) > 1e-9:
+                    drift_pct = abs(last_mean - prev_mean) / abs(prev_mean) * 100.0
+                else:
+                    drift_pct = 0.0
+                entry["traj_status"] = "steady" if drift_pct < 1.0 else "transient"
+                entry["traj_drift_pct"] = drift_pct
+                entry["traj_n_steps_prev"] = prev_n
+                entry["traj_n_steps_last"] = last_n
+                entry["traj_ebi_prev"] = prev_mean
+                entry["traj_ebi_last"] = last_mean
+
+        if entry:
+            out[name] = entry
+    return out
+
+
 def build_html(
     runs: dict,
     sensitivity: dict | None = None,
     ensembles: dict | None = None,
     sobol_alpha: dict | None = None,
     sobol_exo: dict | None = None,
+    convergence_stability: dict | None = None,
 ) -> str:
     payload = {
         "scenarios": {
@@ -165,6 +237,7 @@ def build_html(
         "sobol_alpha": sobol_alpha,
         "sobol_exo": sobol_exo,
         "provenance": _load_provenance(),
+        "convergence_stability": convergence_stability or {},
     }
     payload_json = json.dumps(payload)
 
@@ -259,6 +332,37 @@ section .sub { font-family: var(--serif); font-size: 16px; color: var(--text-2);
 .scn-card .alpha { font-family: var(--mono); font-size: 11px; color: var(--text-3); display: flex; gap: 10px; white-space: nowrap; }
 .scn-card .alpha b { color: var(--accent); font-weight: 500; }
 .scn-card .desc { font-size: 12px; color: var(--text-2); line-height: 1.45; }
+.scn-card .cs-badges { display: flex; gap: 6px; margin-top: 2px; }
+.cs-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid;
+  text-transform: uppercase;
+}
+.cs-badge.stable, .cs-badge.steady   { color: var(--green);   border-color: var(--green);   background: rgba(95,165,114,0.10); }
+.cs-badge.fragile, .cs-badge.transient { color: var(--accent); border-color: var(--accent); background: rgba(184,154,85,0.10); }
+.cs-badge.unknown                    { color: var(--text-3); border-color: var(--border); background: var(--panel-2); }
+
+.cs-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 18px 22px;
+  margin-bottom: 22px;
+}
+.cs-panel-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.cs-panel-head h3 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 18px; color: var(--text); }
+.cs-panel-head .cs-meta { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.cs-panel-sub { font-size: 13px; color: var(--text-2); line-height: 1.55; margin: 0 0 12px; }
+.cs-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono); }
+.cs-table th { text-align: left; color: var(--text-3); font-weight: 400; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.cs-table td { padding: 6px 8px; border-bottom: 1px solid rgba(42,45,51,0.4); color: var(--text-2); }
+.cs-table td.scen { color: var(--text); }
+.cs-table td.num { text-align: right; }
+.cs-empty { color: var(--text-3); font-size: 12px; padding: 12px 0; font-family: var(--mono); }
 
 .phase-pane { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: stretch; margin-bottom: 24px; }
 .phase-pane .phase-map-box { display: flex; flex-direction: column; min-height: 0; }
@@ -450,6 +554,7 @@ footer p { max-width: 720px; line-height: 1.6; }
       <span>25 scenarios</span>
       <span>8 × 10⁹ humans + 8 × 10¹¹ agents · 6.6M importance-weighted prototypes</span>
       <span>200 steps · 20M pair-interactions per step</span>
+      <span>1 step ≈ 1 quarter · ≈ 50 model years per run</span>
     </div>
   </div>
 </header>
@@ -757,6 +862,14 @@ $$</div>
   <div class="wrap">
     <h2><span class="marker">§3</span> The scenarios</h2>
     <p class="sub">Click a card to load its detail pane below. Cards are ordered along α – <i>Coasean Paradise</i> on the far left, <i>Exo-Baroque Singularity</i> on the far right. Each card prints the scenario's terminal α, exo-baroque index, and per-capita welfare. The twenty-five scenarios fix different levers – alignment-layer rejection rate, agent autonomy, friction floor, capability variance, fold ceiling, the rate at which α responds to its own EBI, demand-side feedback, productive folding, and opt-in law dynamics – so that the rest of the system can be read as a response to that lever.</p>
+    <div class="cs-panel" id="cs-panel">
+      <div class="cs-panel-head">
+        <h3>Scale stability &amp; trajectory convergence</h3>
+        <span class="cs-meta">via <code>agentworld convergence</code> / <code>agentworld stability</code></span>
+      </div>
+      <p class="cs-panel-sub">For each scenario in scope, two empirical questions: <b>(scale)</b> does the small-scale terminal-EBI mean lie inside the medium-scale CI? <b>(trajectory)</b> does terminal EBI stop drifting between <code>n_steps=200</code> and <code>n_steps=400</code>? "Stable" / "steady" answers come from running the new sweeps; scenarios outside the curated subset show as <i>unknown</i>. See <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/convergence.md">docs/concepts/convergence.md</a> for method and slack thresholds.</p>
+      <div id="cs-table-host"></div>
+    </div>
     <div class="scenario-strip" id="scn-strip"></div>
   </div>
 </section>
@@ -777,7 +890,7 @@ $$</div>
           <canvas id="anim-canvas" style="display:block; width:100%; height:100%;"></canvas>
             <div id="anim-stats" style="position:absolute; top:12px; right:12px; background:rgba(15,16,18,0.78); border:1px solid rgba(255,255,255,0.10); border-radius:5px; padding:10px 14px; font-family:var(--mono); font-size:11px; color:var(--text-2); pointer-events:none; min-width:180px;">
               <div style="font-size:10px; color:var(--text-3); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:6px;">live</div>
-              <div>step <span id="a-step" style="color:var(--accent);">0</span> / <span id="a-nsteps">60</span></div>
+              <div>step <span id="a-step" style="color:var(--accent);">0</span> / <span id="a-nsteps">200</span></div>
               <div>real welfare (cum) <span id="a-real" style="color:#5fa572;">0</span></div>
               <div>nominal GDP (cum) <span id="a-nom" style="color:#d49e5c;">0</span></div>
               <div>EBI <span id="a-ebi" style="color:#fff;">1.00</span></div>
@@ -1083,6 +1196,76 @@ window.addEventListener('resize', () => {
   }, 180);
 });
 
+// ---------- convergence/stability badges (per-scenario) ----------
+function _csBadgeHtml(name) {
+  const cs = (PAYLOAD.convergence_stability || {})[name];
+  if (!cs) return '';
+  const parts = [];
+  if (cs.scale_status) {
+    const cls = cs.scale_status;
+    const t = cs.scale_status === 'stable' ? 'S✓' : 'S✗';
+    const tip = `Scale ${cs.scale_status}: small EBI ${cs.scale_small_ebi?.toFixed(2)} vs medium [${cs.scale_medium_ebi_lo?.toFixed(2)}, ${cs.scale_medium_ebi_hi?.toFixed(2)}]`;
+    parts.push(`<span class="cs-badge ${cls}" title="${tip}">${t}</span>`);
+  }
+  if (cs.traj_status) {
+    const cls = cs.traj_status;
+    const t = cs.traj_status === 'steady' ? 'T✓' : 'T✗';
+    const tip = `Trajectory ${cs.traj_status}: EBI(${cs.traj_n_steps_prev})=${cs.traj_ebi_prev?.toFixed(2)} → EBI(${cs.traj_n_steps_last})=${cs.traj_ebi_last?.toFixed(2)} (${cs.traj_drift_pct?.toFixed(2)}% drift)`;
+    parts.push(`<span class="cs-badge ${cls}" title="${tip}">${t}</span>`);
+  }
+  return parts.length ? `<div class="cs-badges">${parts.join('')}</div>` : '';
+}
+
+function renderConvergenceStability() {
+  const host = document.getElementById('cs-table-host');
+  if (!host) return;
+  const cs = PAYLOAD.convergence_stability || {};
+  const rows = ORDER.map(name => {
+    const e = cs[name] || {};
+    return {name, label: SCN[name].label, ...e};
+  }).filter(r => r.scale_status || r.traj_status);
+  if (rows.length === 0) {
+    host.innerHTML = '<div class="cs-empty">No convergence/stability sweeps committed yet. Run <code>agentworld convergence</code> and <code>agentworld stability</code> to populate this panel.</div>';
+    return;
+  }
+  const nStable = rows.filter(r => r.scale_status === 'stable').length;
+  const nFragile = rows.filter(r => r.scale_status === 'fragile').length;
+  const nSteady = rows.filter(r => r.traj_status === 'steady').length;
+  const nTransient = rows.filter(r => r.traj_status === 'transient').length;
+  const summary = `<div class="cs-panel-sub" style="color:var(--text-3); font-family:var(--mono); font-size:11px; margin-bottom:6px;">scope: ${rows.length} scenarios · scale: <span style="color:var(--green);">${nStable} stable</span>, <span style="color:var(--accent);">${nFragile} fragile</span> · trajectory: <span style="color:var(--green);">${nSteady} steady</span>, <span style="color:var(--accent);">${nTransient} transient</span></div>`;
+  const fmtN = (x) => (x == null ? '—' : (Math.abs(x) < 100 ? x.toFixed(2) : x.toExponential(1)));
+  const fmtPct = (x) => (x == null ? '—' : `${x.toFixed(2)}%`);
+  const tr = rows.map(r => `
+    <tr>
+      <td class="scen">${r.label}</td>
+      <td>${r.scale_status ? `<span class="cs-badge ${r.scale_status}">${r.scale_status === 'stable' ? 'S✓' : 'S✗'}</span>` : '—'}</td>
+      <td class="num">${fmtN(r.scale_small_ebi)}</td>
+      <td class="num">${fmtN(r.scale_medium_ebi_mean)}</td>
+      <td class="num" style="color:var(--text-3);">[${fmtN(r.scale_medium_ebi_lo)}, ${fmtN(r.scale_medium_ebi_hi)}]</td>
+      <td>${r.traj_status ? `<span class="cs-badge ${r.traj_status}">${r.traj_status === 'steady' ? 'T✓' : 'T✗'}</span>` : '—'}</td>
+      <td class="num">${fmtN(r.traj_ebi_prev)}</td>
+      <td class="num">${fmtN(r.traj_ebi_last)}</td>
+      <td class="num">${fmtPct(r.traj_drift_pct)}</td>
+    </tr>`).join('');
+  host.innerHTML = summary + `
+    <table class="cs-table">
+      <thead>
+        <tr>
+          <th>scenario</th>
+          <th>scale</th>
+          <th class="num">EBI<sub>small</sub></th>
+          <th class="num">EBI<sub>medium</sub></th>
+          <th class="num">95% CI</th>
+          <th>trajectory</th>
+          <th class="num">EBI(200)</th>
+          <th class="num">EBI(400)</th>
+          <th class="num">drift</th>
+        </tr>
+      </thead>
+      <tbody>${tr}</tbody>
+    </table>`;
+}
+
 // ---------- scenario strip ----------
 function renderStrip(active) {
   const el = document.getElementById('scn-strip');
@@ -1097,6 +1280,7 @@ function renderStrip(active) {
     card.innerHTML = `
       <div class="name">${s.label}</div>
       <div class="alpha"><span>α=<b>${s.final_alpha.toFixed(2)}</b></span><span>EBI=<b>${ebi < 100 ? ebi.toFixed(2) : ebi.toExponential(1)}</b></span><span>w=<b>${fmtWcompact(pc)}</b></span></div>
+      ${_csBadgeHtml(name)}
       <div class="desc">${s.description}</div>`;
     card.addEventListener('click', () => loadDetail(name));
     el.appendChild(card);
@@ -2283,6 +2467,7 @@ function renderSobol() {
 
 // boot
 renderAtlas();
+renderConvergenceStability();
 renderStrip(ORDER[0]);
 loadDetail(ORDER[0]);
 renderCompareBar();
@@ -2313,6 +2498,7 @@ def main():
     sobol_alpha = _load_sobol(sobol_alpha_path)
     sobol_exo = _load_sobol(sobol_exo_path)
     sensitivity = _load_sensitivity(sensitivity_path)
+    convergence_stability = _load_convergence_stability(here / "outputs")
 
     html = build_html(
         runs,
@@ -2320,13 +2506,15 @@ def main():
         ensembles=ensembles,
         sobol_alpha=sobol_alpha,
         sobol_exo=sobol_exo,
+        convergence_stability=convergence_stability,
     )
     out.write_text(html)
     print(
         f"dashboard written: {out}  ({out.stat().st_size:,} bytes, "
         f"{len(runs)} scenarios, {len(ensembles)} ensembles, "
         f"sobol_alpha={'yes' if sobol_alpha else 'no'}, "
-        f"sobol_exo={'yes' if sobol_exo else 'no'})"
+        f"sobol_exo={'yes' if sobol_exo else 'no'}, "
+        f"cs_flags={len(convergence_stability)})"
     )
 
 
