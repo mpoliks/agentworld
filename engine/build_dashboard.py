@@ -1028,17 +1028,28 @@ $$</div>
 <section>
   <div class="wrap">
     <h2><span class="marker">§7</span> Global sensitivity · which knobs actually move what</h2>
-    <p class="sub">Saltelli/Sobol decomposition. <b>S1</b> is the share of output variance the parameter explains on its own; <b>ST</b> includes interactions with the other parameters. A bar where <b>ST &gt;&gt; S1</b> means the parameter mostly matters through interactions with other parameters. Parameters where both are near zero are cosmetic within the bounds we swept. Bounds for each parameter are listed alongside the chart — the indices are conditional on those bounds, so they tell you the variance structure inside the explored space, not outside it.</p>
+    <p class="sub">Saltelli/Sobol decomposition at N=2048 base samples (34,816 simulations, 15-parameter problem). <b>S1</b> is the share of output variance the parameter explains on its own; <b>ST</b> includes interactions with the other parameters. A bar where <b>ST &gt;&gt; S1</b> means the parameter mostly matters through interactions with other parameters. Parameters where both are near zero are cosmetic within the bounds we swept. Bounds for each parameter are listed alongside the chart — the indices are conditional on those bounds, so they tell you the variance structure inside the explored space, not outside it.</p>
+    <p class="sub">Two metrics are shown in transformed form so the Saltelli estimator stays inside its assumptions: <b>log(EBI)</b> instead of raw EBI (raw EBI's right tail is unbounded — real → 0 in baroque regimes pushes EBI → ∞, which breaks variance decomposition), and <b>gini of |Δwealth|</b> instead of terminal gini (terminal gini is ~100% determined by initial population synthesis; corr(gini₀, gini_T) = 1.0000 across the parameter space, so Sobol on it would attribute population-seed noise to topology parameters). Both transformed metrics preserve rank ordering of the originals and produce well-bounded indices (max ST ≤ 0.85, all sum(S1) ≤ 1.0). Raw EBI and gini_wealth time series are still on the dashboard above.</p>
     <div class="charts-grid" style="grid-template-columns: 1fr 1fr;">
       <div class="chart-box">
-        <div class="chart-title">α-engine · Sobol indices for terminal EBI</div>
-        <div class="chart-caption">First-order S1 (filled) and total-order ST (outlined) for terminal exo-baroque index. Tall S1 + short ST gap = the parameter acts independently. Tall ST with low S1 = the parameter only matters through interactions with others.</div>
+        <div class="chart-title">α-engine · Sobol indices for log(EBI)</div>
+        <div class="chart-caption">First-order S1 (filled) and total-order ST (outlined) for the log-transformed exo-baroque index. Tall S1 + short ST gap = the parameter acts independently. Tall ST with low S1 = the parameter only matters through interactions with others. Log transform tames the unbounded right tail of raw EBI so the variance decomposition stays valid.</div>
         <div id="sobol-alpha-ebi" style="height:340px;"></div>
       </div>
       <div class="chart-box">
         <div class="chart-title">α-engine · Sobol indices for terminal welfare</div>
         <div class="chart-caption">Same decomposition, target = real per-capita welfare. Compare to the EBI panel: knobs that dominate EBI may not dominate welfare, and vice versa.</div>
         <div id="sobol-alpha-welfare" style="height:340px;"></div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">α-engine · Sobol indices for wealth-change inequality</div>
+        <div class="chart-caption">Sensitivity for gini of |wealth_t − wealth_0| — captures topology-driven wealth churn rather than the initial-population baseline (terminal gini was ~100% determined by population synthesis, so was unusable for Sobol). Top driver is typically agent capability: more capable agents extract more surplus and shift the distribution further.</div>
+        <div id="sobol-alpha-gini" style="height:340px;"></div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">α-engine · Sobol indices for productive welfare yield</div>
+        <div class="chart-caption">Per-step share of fold-nominal volume that becomes real welfare. Distinguishes productive folding (real intermediation) from parasitic folding (markup-only). Top driver is the productive-vs-parasitic split parameter (base_variance_absorption); alpha and folding_propensity follow.</div>
+        <div id="sobol-alpha-prod" style="height:340px;"></div>
       </div>
       <div class="chart-box">
         <div class="chart-title">exo-engine · Sobol indices for circulation index</div>
@@ -2447,8 +2458,10 @@ function _sobolBarFigure(summary, metric, divId, paramBoundsLabel) {
 
 function renderSobol() {
   let any = false;
-  any = _sobolBarFigure(SOBOL_ALPHA, 'exo_baroque_index', 'sobol-alpha-ebi') || any;
+  any = _sobolBarFigure(SOBOL_ALPHA, 'log_exo_baroque_index', 'sobol-alpha-ebi') || any;
   any = _sobolBarFigure(SOBOL_ALPHA, 'real_per_capita_welfare', 'sobol-alpha-welfare') || any;
+  any = _sobolBarFigure(SOBOL_ALPHA, 'gini_wealth_change_abs', 'sobol-alpha-gini') || any;
+  any = _sobolBarFigure(SOBOL_ALPHA, 'productive_welfare_yield', 'sobol-alpha-prod') || any;
   any = _sobolBarFigure(SOBOL_EXO, 'exo_circulation_index', 'sobol-exo-circ') || any;
   any = _sobolBarFigure(SOBOL_EXO, 'imperial_extraction_share', 'sobol-exo-extraction') || any;
 
