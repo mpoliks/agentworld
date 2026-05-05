@@ -29,30 +29,30 @@ from pathlib import Path
 from engine.scenarios import SCENARIO_DESCRIPTIONS
 
 SCENARIO_ORDER = [
-    "smoothing_cascade",
     "coasean_paradise",
-    "coasean_paradise_networked",
     "universal_advocate",
     "public_defender",
     "civic_renaissance",
-    "compute_famine",
-    "nimby_cascade",
-    "matryoshka_collapse",
-    "legal_collapse",
-    "equilibrium_drift",
-    "agentic_disconnect",
-    "hemispherical_schism",
-    "derivatives_revolution",
-    "regulatory_capture",
-    "synthetic_consumers",
     "synthetic_consumers_v2",
+    "smoothing_cascade",
+    "equilibrium_drift",
+    "matryoshka_collapse",
+    "hemispherical_schism",
+    "compute_famine",
+    "derivatives_revolution",
+    "legal_collapse",
+    "regulatory_capture",
+    "endogenous_baroque",
+    "pigouvian_heavy",
+    "pigouvian_friction",
+    "full_emergence",
+    "recursive_simulation",
+    "fold_avalanche",
     "slop_market",
     "productive_baroque",
-    "casino_collapse",
-    "recursive_simulation",
+    "baroque_with_high_welfare",
     "baroque_cathedral",
     "baroque_cathedral_networked",
-    "fold_avalanche",
     "exo_baroque_singularity",
 ]
 
@@ -60,28 +60,29 @@ SCENARIO_LABELS = {
     "coasean_paradise": "Coasean Paradise",
     "universal_advocate": "Universal Advocate",
     "public_defender": "Public Defender",
+    "civic_renaissance": "Civic Renaissance",
+    "synthetic_consumers": "Synthetic Demand",
+    "synthetic_consumers_v2": "Synthetic Customers",
     "smoothing_cascade": "Smoothing Cascade",
     "equilibrium_drift": "Equilibrium Drift",
-    "compute_famine": "Compute Famine",
-    "hemispherical_schism": "Hemispherical Schism",
     "matryoshka_collapse": "Matryoshka Collapse",
-    "nimby_cascade": "NIMBY Cascade",
-    "synthetic_consumers": "Synthetic Consumers",
+    "hemispherical_schism": "Hemispherical Schism",
+    "compute_famine": "Compute Famine",
+    "derivatives_revolution": "Derivatives Revolution",
+    "legal_collapse": "Legal Collapse",
+    "regulatory_capture": "Regulatory Capture",
+    "endogenous_baroque": "Endogenous Baroque",
+    "pigouvian_heavy": "Pigouvian Heavy",
+    "pigouvian_friction": "Pigouvian Friction",
+    "full_emergence": "Full Emergence",
     "recursive_simulation": "Recursive Simulation",
     "fold_avalanche": "Fold Avalanche",
     "slop_market": "Slop Market",
-    "baroque_cathedral": "Baroque Cathedral",
-    "exo_baroque_singularity": "Exo-Baroque Singularity",
-    "coasean_paradise_networked": "Coasean Paradise (Networked)",
-    "baroque_cathedral_networked": "Baroque Cathedral (Networked)",
-    "synthetic_consumers_v2": "Synthetic Consumers v2",
-    "agentic_disconnect": "Agentic Disconnect",
     "productive_baroque": "Productive Baroque",
-    "derivatives_revolution": "Derivatives Revolution",
-    "casino_collapse": "Casino Collapse",
-    "legal_collapse": "Legal Collapse",
-    "regulatory_capture": "Regulatory Capture",
-    "civic_renaissance": "Civic Renaissance",
+    "baroque_with_high_welfare": "Baroque (High Welfare)",
+    "baroque_cathedral": "Baroque Cathedral",
+    "baroque_cathedral_networked": "Productive Cathedral",
+    "exo_baroque_singularity": "Exo-Baroque Singularity",
 }
 
 
@@ -343,7 +344,8 @@ section .sub { font-family: var(--serif); font-size: 16px; color: var(--text-2);
   text-transform: uppercase;
 }
 .cs-badge.stable, .cs-badge.steady   { color: var(--green);   border-color: var(--green);   background: rgba(95,165,114,0.10); }
-.cs-badge.fragile, .cs-badge.transient { color: var(--accent); border-color: var(--accent); background: rgba(184,154,85,0.10); }
+.cs-badge.drifting                   { color: #b89a55;        border-color: #b89a55;        background: rgba(184,154,85,0.10); }
+.cs-badge.fragile, .cs-badge.transient { color: #c25a5a;     border-color: #c25a5a;        background: rgba(194,90,90,0.10); }
 .cs-badge.unknown                    { color: var(--text-3); border-color: var(--border); background: var(--panel-2); }
 
 .cs-panel {
@@ -549,11 +551,11 @@ footer p { max-width: 720px; line-height: 1.6; }
   <div class="wrap">
     <div class="super">Antikythera × Disintegrator · companion artifact</div>
     <h1>Agentworld<br><em>An atlas of the smooth-striated continuum</em></h1>
-    <p class="lead">A computational sandbox for the planetary economy when society is composed of <b>8 billion humans</b> and <b>800 billion to 1 trillion AI agents</b>. We look at one variable through twenty-five scenarios that range from agents <em>dissolving</em> economic intermediation (e.g. removing transaction barriers) or <em>fractally multiplying</em> it (introducing new, recursive transaction barriers)? Both are stable equilibria of the same underlying technology, and which one materializes is an open question. What we offer here is a few distributions of possible scenarios.</p>
+    <p class="lead">A computational sandbox for the planetary economy when society is composed of <b>8 billion humans</b> and <b>800 billion to 1 trillion AI agents</b>. We look at one variable through twenty-five scenarios. At one limit, agents <em>dissolve</em> economic intermediation — transaction barriers fall and middle layers thin out. At the other, agents <em>fractally multiply</em> it — every trade spawns sub-trades on top of itself. Both limits are stable equilibria of the same underlying technology, and which one materializes is an open question. What this dashboard offers is a sample of distributions across the variable space between them.</p>
     <div class="meta">
       <span>25 scenarios</span>
-      <span>8 × 10⁹ humans + 8 × 10¹¹ agents · 6.6M importance-weighted prototypes</span>
-      <span>200 steps · 20M pair-interactions per step</span>
+      <span>8 × 10⁹ humans + 8 × 10¹¹ agents · 66K importance-weighted prototypes per scenario</span>
+      <span>200 steps · 200K prototype pairs sampled per step</span>
       <span>1 step ≈ 1 quarter · terminal numbers reported at year 50 (2026→2076 frame)</span>
     </div>
   </div>
@@ -818,7 +820,7 @@ $$</div>
 
       <p>$\ell$ is a measure of how much of the economy a human can in principle observe, contest, or audit at last-mile resolution; it sits around $\ell \in [10^{-3},\,3 \times 10^{-2}]$ in smooth scenarios and falls to $\ell \in [10^{-5},\,10^{-4}]$ in fractal scenarios with the $\rho_{\text{agent}} = 100$ multiplier on. <b>Wealth Gini</b> is the standard $[0, 1]$ inequality measure across the combined human-and-agent population. The <b>three filters</b> — law, market, alignment (eq.&nbsp;3) — are reported in §4 as rejection-rate decompositions, so the reader can see which institutional layer is doing the most blocking under each scenario.</p>
 
-      <p>Every chart from §2 onward is drawn as a <em>solid line</em> at the median across $N = 64$ random seeds with a <em>shaded band</em> covering the $[P_{5},\, P_{95}]$ envelope. The band reflects how much randomness within a fixed scenario configuration could shift the result. A wide band means the scenario is sensitive to noise; a tight band means the outcome is robust under fixed assumptions. <em>The band is not a probability that the world will land in this range</em> — it is a sensitivity reading on the simulation under fixed parameters, which is a strictly smaller claim.</p>
+      <p>Every chart from §2 onward is drawn as a <em>solid line</em> at the median across $N = 64$ random seeds with a <em>shaded band</em> covering the $[P_{5},\, P_{95}]$ envelope. The band shows how much randomness within a fixed scenario configuration could shift the result. A wide band means the scenario is sensitive to noise; a tight band means the outcome is robust under fixed assumptions. <em>The band is not a probability that the world will land in this range</em> — it is a sensitivity reading on the simulation under fixed parameters, which is a strictly smaller claim.</p>
 
       <h3><span class="num">1.6</span> What we are trying to settle</h3>
 
@@ -848,7 +850,7 @@ $$</div>
           The right-hand limit — the <b>fractal-trade economy</b>, where every base trade spawns layers of derivative sub-trades — is at least as plausible as the left-hand limit, and is where the on-paper GDP gains in the late 2020s and 2030s will plausibly come from. <i>Coasean Paradise</i> sits in the bottom-left (everything is a direct trade). <i>Exo-Baroque Singularity</i> sits in the top-right (everything is folded into towers of sub-trades). Real economies are a weighted blend of the two, varying by sector and jurisdiction. <em>The atlas does not predict where any given regime lands. It clarifies what landing somewhere costs.</em>
         </p>
         <p style="margin: 0 0 14px;">
-          <b>What the atlas does not show.</b> These terminal-step snapshots basically compress fifteen trajectories into fifteen dots. Two scenarios can land at the same coordinate by very different routes – a slow drift through the mid-α basin reads identically to a fast climb that overshoots and falls back. §4 unfolds each path as a six-chart panel; §5 stacks any subset of paths on a shared time axis so the route, not just the destination, becomes clear.
+          <b>What the atlas does not show.</b> These terminal-step snapshots compress twenty-five trajectories into twenty-five dots. Two scenarios can land at the same coordinate by very different routes – a slow drift through the mid-α basin reads identically to a fast climb that overshoots and falls back. §4 unfolds each path as a six-chart panel; §5 stacks any subset of paths on a shared time axis so the route, not just the destination, becomes clear.
         </p>
         <p style="margin: 0;">
           <b>What this means for decisions.</b> Five points fall out of this simulation. <b>(1)</b> What really moves outcomes is <b>α — how complicated trades are allowed to get</b> — not the capability of the agents involved. Smarter agents make a given α-regime more productive, but they don't move the regime itself. A "smarter agents" policy without an α policy still ends in a fractal-trade economy if α was high. <b>(2)</b> High nominal GDP is not a win condition. Once EBI is above 1, the marginal unit of measured economic activity is accounting that no human ever consumed. The right metric for policy decisions is per-capita real welfare; EBI is a diagnostic, not a goal. Optimizing for nominal GDP under high α funds the <i>Slop Market</i>. <b>(3)</b> The middle of the α range is the default landing spot. Without active mechanism design, a population drifts toward more complicated trades rather than toward direct ones. Landing in the bottom-left of the atlas is a deliberate act, sustained by concrete choices about platform fees, ceilings on fold depth, alignment-layer veto rights, and the friction floor. <b>(4)</b> The low-α corner is not a free lunch. It requires near-zero transaction cost <i>and</i> contract enforcement that scales to 8 × 10⁹ humans plus 8 × 10¹¹ agents — a heavier institutional ask than the "shrunken state" framing suggests. <b>(5)</b> Two scenarios at the same atlas coordinate are not the same policy. <i>Recursive Simulation</i> and <i>Baroque Cathedral</i> both end at high α and high EBI, but one got there via positive-feedback drift (no one chose it) and the other via deliberate construction. Use §4 and §5 to see the specific routes taken.
@@ -861,17 +863,17 @@ $$</div>
 <section>
   <div class="wrap">
     <h2><span class="marker">§3</span> The scenarios</h2>
-    <p class="sub">Click a card to load its detail pane below. Cards are ordered along α – <i>Coasean Paradise</i> on the far left, <i>Exo-Baroque Singularity</i> on the far right. Each card prints the scenario's terminal α, exo-baroque index, and per-capita welfare. The twenty-five scenarios fix different levers – alignment-layer rejection rate, agent autonomy, friction floor, capability variance, fold ceiling, the rate at which α responds to its own EBI, demand-side feedback, productive folding, and opt-in law dynamics – so that the rest of the system can be read as a response to that lever.</p>
+    <p class="sub">Click a card to load its detail pane below. Cards are ordered along α – <i>Coasean Paradise</i> on the far left, <i>Exo-Baroque Singularity</i> on the far right. Each card prints the scenario's terminal α, exo-baroque index, and per-capita welfare. The twenty-five scenarios fix different levers – alignment-layer rejection rate, agent autonomy, friction floor, capability variance, fold ceiling, the rate at which α responds to its own EBI, demand-side feedback, productive folding, and opt-in time-varying law schedules – so that the rest of the system can be read as a response to that lever.</p>
+    <div class="scenario-strip" id="scn-strip"></div>
     <div class="cs-panel" id="cs-panel">
       <div class="cs-panel-head">
         <h3>Scale stability &amp; trajectory convergence at the 50-year horizon</h3>
         <span class="cs-meta">via <code>agentworld convergence</code> / <code>agentworld stability</code></span>
       </div>
-      <p class="cs-panel-sub" style="border-left: 2px solid var(--accent); padding-left: 12px; color: var(--text);"><b>Reading the flags.</b> The numbers this dashboard reports are <b>50-year-horizon values</b> — one step is one quarter, so <code>n_steps=200</code> ≈ the brief's 2026→2076 frame. <b>T✗ does not mean broken.</b> It means EBI is still climbing at year 50, which is <i>itself</i> the empirical claim of those scenarios: the regime change is in progress, not finished. Steady-state EBI for the transient scenarios would require multi-century extrapolation past the point where the speculative load-bearing parameters can carry; the artifact deliberately quotes the 50-year value instead.</p>
-      <p class="cs-panel-sub">Two diagnostic questions per scenario: <b>(scale)</b> is the small-scale terminal-EBI mean inside the medium-scale CI? <b>(trajectory)</b> has the drift between <code>n_steps=200</code> and <code>n_steps=400</code> dropped below 1% — i.e. has the trajectory <i>almost</i> saturated within the horizon? Scenarios outside the curated subset show as <i>unknown</i> until their sweeps land. See <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/convergence.md">convergence.md</a> and <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/time_discretization.md">time_discretization.md</a> for method and the dt anchor.</p>
+      <p class="cs-panel-sub" style="border-left: 2px solid var(--accent); padding-left: 12px; color: var(--text);"><b>Reading the panel.</b> The numbers everywhere else on this dashboard are <b>50-year-horizon values</b> — one step is one quarter, so <code>n_steps=200</code> ≈ the brief's 2026→2076 frame. The <b>drift column</b> shows how much each scenario's terminal EBI moves if you double the horizon to <code>n_steps=400</code> (year 100): a continuous quantity, not a pass/fail. Low drift (&lt;1%) means the trajectory has effectively saturated within the brief's window — what you see is the answer. High drift means EBI is still climbing past year 50, which is <i>itself</i> the empirical claim of those scenarios: the regime change is in progress, not finished. Steady-state values would require multi-century extrapolation past the point where the speculative load-bearing parameters can carry honesty, so the dashboard quotes the 50-year value alongside the drift, not in place of it.</p>
+      <p class="cs-panel-sub">Two diagnostics per scenario: <b>(scale)</b> is the small-scale terminal-EBI mean inside the medium-scale CI? <b>(drift)</b> what is the percentage shift in terminal EBI between <code>n_steps=200</code> and <code>n_steps=400</code>? Twenty of the twenty-five scenarios on this atlas currently carry committed values; the remaining five (<i>Smoothing Cascade</i>, <i>Fold Avalanche</i>, <i>Recursive Simulation</i>, <i>Endogenous Baroque</i>, <i>Full Emergence</i>) are scheduled-α or endogenous-α scenarios where the trajectory-convergence question doesn't apply — they're transient by construction, and a pass/fail flag would be a category error. See <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/convergence.md">convergence.md</a> and <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/time_discretization.md">time_discretization.md</a> for method and the dt anchor.</p>
       <div id="cs-table-host"></div>
     </div>
-    <div class="scenario-strip" id="scn-strip"></div>
   </div>
 </section>
 
@@ -948,7 +950,7 @@ $$</div>
       </div>
       <div class="chart-box">
         <div class="chart-title">authentic vs un-modulated real welfare (cumulative, log)</div>
-        <div class="chart-caption"><b>Authentic</b> real welfare is the share that ultimately reaches a human consumer (or a human-controlled agent acting on a principal's behalf). The <b>un-modulated</b> trace is the legacy aggregate. The two coincide when <code>DemandConfig.enabled = False</code> (the default) — one curve is drawn on top of the other. When demand-side feedback is on, the gap between the curves is the surplus that A2A activity printed but no person consumed.</div>
+        <div class="chart-caption"><b>Authentic</b> real welfare is the share that reaches a human consumer (or a human-controlled agent acting on a principal's behalf). The <b>un-modulated</b> trace is the legacy aggregate. The two coincide when <code>DemandConfig.enabled = False</code> (the default) — one curve is drawn on top of the other. When demand-side feedback is on, the gap between the curves is the surplus that A2A activity printed but no person consumed.</div>
         <div id="d-authentic" style="height:240px;"></div>
       </div>
       <div class="chart-box">
@@ -1180,6 +1182,10 @@ function renderAtlas() {
       title: { text: 'exo-baroque index (log)', font: { size: mobile ? 11 : 13 } },
       tickfont: { size: mobile ? 9 : 11 },
       type: 'log', gridcolor: '#2a2d33', zerolinecolor: '#2a2d33',
+      // Explicit log range. Without this, Plotly's autorange interacts badly
+      // with the mobile horizontal colorbar at y=-0.28 over a 7-decade EBI
+      // span and throws "Something went wrong with axis scaling".
+      range: [-0.1, 7.7], autorange: false,
     },
     margin: mobile
       ? { l: 46, r: 14, t: 14, b: 110 }
@@ -1219,11 +1225,14 @@ function _csBadgeHtml(name) {
     const tip = `Scale ${cs.scale_status}: small EBI ${cs.scale_small_ebi?.toFixed(2)} vs medium [${cs.scale_medium_ebi_lo?.toFixed(2)}, ${cs.scale_medium_ebi_hi?.toFixed(2)}]`;
     parts.push(`<span class="cs-badge ${cls}" title="${tip}">${t}</span>`);
   }
-  if (cs.traj_status) {
-    const cls = cs.traj_status;
-    const t = cs.traj_status === 'steady' ? 'T✓' : 'T✗';
-    const tip = `Trajectory ${cs.traj_status}: EBI(${cs.traj_n_steps_prev})=${cs.traj_ebi_prev?.toFixed(2)} → EBI(${cs.traj_n_steps_last})=${cs.traj_ebi_last?.toFixed(2)} (${cs.traj_drift_pct?.toFixed(2)}% drift)`;
-    parts.push(`<span class="cs-badge ${cls}" title="${tip}">${t}</span>`);
+  if (cs.traj_drift_pct != null) {
+    const drift = cs.traj_drift_pct;
+    const sign = drift >= 0 ? '+' : '';
+    const absD = Math.abs(drift);
+    // Tier purely cosmetic — actual quantity is the magnitude in the badge text.
+    const cls = absD < 1 ? 'steady' : (absD < 5 ? 'drifting' : 'transient');
+    const tip = `EBI drift over n_steps=${cs.traj_n_steps_prev}→${cs.traj_n_steps_last}: ${cs.traj_ebi_prev?.toFixed(2)} → ${cs.traj_ebi_last?.toFixed(2)} (${sign}${drift.toFixed(2)}%)`;
+    parts.push(`<span class="cs-badge ${cls}" title="${tip}">drift ${sign}${drift.toFixed(1)}%</span>`);
   }
   return parts.length ? `<div class="cs-badges">${parts.join('')}</div>` : '';
 }
@@ -1235,18 +1244,31 @@ function renderConvergenceStability() {
   const rows = ORDER.map(name => {
     const e = cs[name] || {};
     return {name, label: SCN[name].label, ...e};
-  }).filter(r => r.scale_status || r.traj_status);
+  }).filter(r => r.scale_status || r.traj_drift_pct != null);
   if (rows.length === 0) {
     host.innerHTML = '<div class="cs-empty">No convergence/stability sweeps committed yet. Run <code>agentworld convergence</code> and <code>agentworld stability</code> to populate this panel.</div>';
     return;
   }
+  const driftClass = (d) => (d == null ? '' : (Math.abs(d) < 1 ? 'steady' : (Math.abs(d) < 5 ? 'drifting' : 'transient')));
   const nStable = rows.filter(r => r.scale_status === 'stable').length;
   const nFragile = rows.filter(r => r.scale_status === 'fragile').length;
-  const nSteady = rows.filter(r => r.traj_status === 'steady').length;
-  const nTransient = rows.filter(r => r.traj_status === 'transient').length;
-  const summary = `<div class="cs-panel-sub" style="color:var(--text-3); font-family:var(--mono); font-size:11px; margin-bottom:6px;">scope: ${rows.length} scenarios · scale: <span style="color:var(--green);">${nStable} stable</span>, <span style="color:var(--accent);">${nFragile} fragile</span> · trajectory: <span style="color:var(--green);">${nSteady} steady</span>, <span style="color:var(--accent);">${nTransient} transient</span></div>`;
+  const nSettled = rows.filter(r => r.traj_drift_pct != null && Math.abs(r.traj_drift_pct) < 1).length;
+  const nDrifting = rows.filter(r => r.traj_drift_pct != null && Math.abs(r.traj_drift_pct) >= 1 && Math.abs(r.traj_drift_pct) < 5).length;
+  const nTransient = rows.filter(r => r.traj_drift_pct != null && Math.abs(r.traj_drift_pct) >= 5).length;
+  const summary = `<div class="cs-panel-sub" style="color:var(--text-3); font-family:var(--mono); font-size:11px; margin-bottom:6px;">scope: ${rows.length} scenarios · scale: <span style="color:var(--green);">${nStable} stable</span>, <span style="color:#c25a5a;">${nFragile} fragile</span> · 50→100y drift: <span style="color:var(--green);">${nSettled} &lt;1%</span>, <span style="color:#b89a55;">${nDrifting} 1–5%</span>, <span style="color:#c25a5a;">${nTransient} ≥5%</span></div>`;
   const fmtN = (x) => (x == null ? '—' : (Math.abs(x) < 100 ? x.toFixed(2) : x.toExponential(1)));
-  const fmtPct = (x) => (x == null ? '—' : `${x.toFixed(2)}%`);
+  const fmtPct = (x) => {
+    if (x == null) return '—';
+    const sign = x >= 0 ? '+' : '';
+    return `${sign}${x.toFixed(2)}%`;
+  };
+  const driftColor = (d) => {
+    if (d == null) return 'var(--text-3)';
+    const a = Math.abs(d);
+    if (a < 1) return 'var(--green)';
+    if (a < 5) return '#b89a55';
+    return '#c25a5a';
+  };
   const tr = rows.map(r => `
     <tr>
       <td class="scen">${r.label}</td>
@@ -1254,10 +1276,9 @@ function renderConvergenceStability() {
       <td class="num">${fmtN(r.scale_small_ebi)}</td>
       <td class="num">${fmtN(r.scale_medium_ebi_mean)}</td>
       <td class="num" style="color:var(--text-3);">[${fmtN(r.scale_medium_ebi_lo)}, ${fmtN(r.scale_medium_ebi_hi)}]</td>
-      <td>${r.traj_status ? `<span class="cs-badge ${r.traj_status}">${r.traj_status === 'steady' ? 'T✓' : 'T✗'}</span>` : '—'}</td>
       <td class="num">${fmtN(r.traj_ebi_prev)}</td>
       <td class="num">${fmtN(r.traj_ebi_last)}</td>
-      <td class="num">${fmtPct(r.traj_drift_pct)}</td>
+      <td class="num" style="color:${driftColor(r.traj_drift_pct)}; font-weight:500;">${fmtPct(r.traj_drift_pct)}</td>
     </tr>`).join('');
   host.innerHTML = summary + `
     <table class="cs-table">
@@ -1268,10 +1289,9 @@ function renderConvergenceStability() {
           <th class="num">EBI<sub>small</sub></th>
           <th class="num">EBI<sub>medium</sub></th>
           <th class="num">95% CI</th>
-          <th>trajectory</th>
           <th class="num">EBI(200)</th>
           <th class="num">EBI(400)</th>
-          <th class="num">drift</th>
+          <th class="num">drift 50→100y</th>
         </tr>
       </thead>
       <tbody>${tr}</tbody>
@@ -2361,7 +2381,7 @@ function renderWelfareFlow(name) {
       '<b>Coasean Paradise</b> ≈ 95% humans / 5% parasitic; ' +
       '<b>Baroque Cathedral</b> &lt; 0.05% humans / ≈ 99.96% parasitic; ' +
       '<b>Legal Collapse</b> ≈ 65% lost to the law system; ' +
-      '<b>Pigouvian Heavy</b> recycles ≈ 8.3% via the tax (vs 4% in <i>Synthetic Consumers v2</i> with the same demand modulation but no tax). ' +
+      '<b>Pigouvian Heavy</b> recycles ≈ 8.3% via the tax (vs 4% in <i>Synthetic Customers</i> with the same demand modulation but no tax). ' +
       'Same engine, same population scale, different destinations.';
   }
 }
@@ -2389,7 +2409,7 @@ function renderProvenance() {
       <p style="font-family:var(--serif);font-size:13px;line-height:1.55;color:var(--text-2);margin-top:4px;">
         Every constant below is calibrated against a public source. Anchors govern noise structure
         (heavy-tail shape, sectoral / regional co-movement, network degree, cascade branching),
-        not load-bearing dynamics. Re-anchor on source updates and rerun the dashboard.
+        not load-bearing model behavior. Re-anchor on source updates and rerun the dashboard.
       </p>
       <table style="width:100%; border-collapse:collapse; margin-top:8px;">
         <thead>

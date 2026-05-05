@@ -361,6 +361,32 @@ class World:
             fold_pressure=fold_pressure,
             dt=float(self.cfg.dt),
         )
+
+        # Pigouvian tax on fold-cascade nominal. The base-trade tax (in
+        # transactions.step) targets only the per-pair welfare surplus,
+        # which is small relative to the fractal accounting that the fold
+        # operator generates. Taxing fold.nominal_added at the configured
+        # rate (weighted by automation gap, approximated as a2a_share +
+        # ½·h2a_share) moves the tax base from welfare surplus to
+        # parasitic accounting — the philosophically correct Pigouvian
+        # target. Two effects:
+        #   1. Deterrence: fold.nominal_added is reduced by the tax
+        #      fraction, lowering nominal-GDP growth and EBI.
+        #   2. Revenue: the tax amount is recycled through the existing
+        #      pigouvian channel (human_wealth / friction_subsidy /
+        #      capability), reaching humans as wealth.
+        # This is what makes pigouvian_heavy/light/friction/baroque
+        # behave distinctly from synthetic_consumers_v2 on the atlas.
+        pig_cfg = self.topology.cfg.pigouvian
+        if pig_cfg.enabled and pig_cfg.tax_rate > 0 and fold.nominal_added > 0:
+            avg_gap = tx.a2a_share + 0.5 * tx.h2a_share
+            fold_tax_rate = pig_cfg.tax_rate * avg_gap
+            fold_tax = fold_tax_rate * fold.nominal_added
+            fold.nominal_added *= (1.0 - fold_tax_rate)
+            tx.pigouvian_revenue += fold_tax
+            if track_ledger and pig_cfg.recycling == "human_wealth":
+                ledger.add_wealth_in("pigouvian.recycle.fold", float(fold_tax))
+            self._recycle_pigouvian_revenue(fold_tax)
         law_upkeep_cost = (
             self.topology.cfg.law.upkeep_investment * tx.real_surplus_added
             if law_enabled
