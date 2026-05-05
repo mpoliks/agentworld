@@ -66,7 +66,7 @@ These are not opposites. They are the same machine, run at two different setting
 Three deliverables, in increasing order of fidelity:
 
 ### 1. The Brief (this document + `docs/concepts/`)
-A conceptual map of the variable space, glossary, bibliography, and 15 scenario sketches. Designed to be readable as a standalone research note, citable in Bratton's *Agentworld* brief.
+A conceptual map of the variable space, glossary, bibliography, and 34 scenario sketches. Designed to be readable as a standalone research note, citable in Bratton's *Agentworld* brief.
 
 ### 2. The Engines (`engine/` and `engine/exo/`)
 
@@ -99,7 +99,7 @@ A second simulator written from scratch in dialogue with Poliks & Trillo's *Exoc
 3. **Last mile** (`engine/exo/last_mile.py`) — bounded material throughput, *not privileged* as more real than the lifted layers; only more bounded.
 4. **Differential** (`engine/exo/differential.py`) — endogenous market creation from ontological variance, with convex-cost suppression toward the "Combine state" limit.
 
-It runs eight scenarios — `fold_cathedral`, `pure_lift`, `combine_state`, `drag_saturation`, `last_mile_revolt`, `scavenger_republic`, `anxiety_dampener`, `hemispherical_split` — and a drag × suppression phase-space sweep. Detailed comparison: `docs/concepts/exocapitalism.md`.
+It runs eleven scenarios — `fold_cathedral`, `pure_lift`, `combine_state`, `drag_saturation`, `last_mile_revolt`, `scavenger_republic`, `anxiety_dampener`, `hemispherical_split`, `imperial_inheritance`, `last_mile_extracted`, `tract_realignment` — and a drag × suppression phase-space sweep. Detailed comparison: `docs/concepts/exocapitalism.md`.
 
 ```bash
 agentworld exo list
@@ -239,11 +239,11 @@ the engine still runs without it.
 ### 2. Verify (the floor)
 
 ```bash
-python -m pytest engine/tests/ -v        # ~30s, expect 142/142
+python -m pytest engine/tests/ -v        # ~30s, expect 176/176
 ```
 
 The test that matters most for trust is `test_regression_canonical.py` —
-it asserts the 33 canonical scenarios reproduce their saved
+it asserts the 34 canonical scenarios reproduce their saved
 `outputs/runs/*.json` baselines to within float noise. If anything else
 fails, stop and investigate before running anything heavier.
 
@@ -295,11 +295,12 @@ agentworld run-all --scale large --workers 2              # ~3-5 hr
 agentworld run baroque_cathedral --scale xlarge
 
 # Sobol global sensitivity sweep on the alpha-engine
-# (samples × (D+2) actual sims, e.g. 64 base = 576 sims):
-agentworld sobol --samples 64                             # ~5-15 min
+# (samples × (D+2) actual sims; N=2048 is the dashboard-canonical run):
+agentworld sobol --samples 512                            # ~5-15 min
+agentworld sobol --samples 2048                           # canonical; ~30-60 min
 
 # Sobol on the exo-engine:
-agentworld exo sobol --samples 32                         # ~3-8 min
+agentworld exo sobol --samples 128                        # ~3-8 min
 
 # Ensemble bands across seeds for one scenario:
 agentworld ensemble baroque_cathedral --seeds 64 --workers 4   # ~5-15 min
@@ -314,7 +315,7 @@ python -m pytest engine/tests/ \
   && agentworld validate adversarial --n-evals 1000 --no-progress \
   && agentworld validate priors --samples 2000 --no-progress \
   && agentworld run-all --scale small --workers 4 --no-progress \
-  && agentworld sobol --samples 32 --no-progress
+  && agentworld sobol --samples 512 --no-progress
 ```
 
 Wall-clock: ~25–45 min on a modern Linux laptop. Exits non-zero on first
@@ -346,11 +347,11 @@ proxies strip SSE.
 
 | Check | Expected | Where it lives |
 | --- | --- | --- |
-| `pytest engine/tests/` | 142/142 | — |
+| `pytest engine/tests/` | 176/176 | — |
 | `outputs/validation/historical_anchor.json` | `rmse ≈ 0.063`, `bias ≈ -0.061` | A1 |
 | `outputs/validation/adversarial_search.json` | `"found_counter_example": true` | A3 |
 | `outputs/validation/posterior_sweep.summary.json` | `p_baroque > p_smooth × 10` | A2 |
-| `agentworld run-all` | 33 scenario JSONs in `outputs/runs/` | regenerated baselines |
+| `agentworld run-all` | 34 scenario JSONs in `outputs/runs/` | regenerated baselines |
 | Live page | `hello → step×N → done` events visible in DevTools → Network | B2/B3/B4 |
 
 ### 7. Hardware notes
