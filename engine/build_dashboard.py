@@ -358,6 +358,24 @@ section .sub { font-family: var(--serif); font-size: 16px; color: var(--text-2);
 .cs-panel-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
 .cs-panel-head h3 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 18px; color: var(--text); }
 .cs-panel-head .cs-meta { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+
+/* Click-to-expand: wrap the panel body in <details> with the heading as <summary>. */
+.cs-details > summary { cursor: pointer; list-style: none; outline: none; }
+.cs-details > summary::-webkit-details-marker { display: none; }
+.cs-details > summary::marker { content: ''; }
+.cs-details > summary.cs-panel-head { margin-bottom: 0; }
+.cs-details[open] > summary.cs-panel-head { margin-bottom: 10px; }
+.cs-summary-left { display: flex; align-items: baseline; gap: 10px; }
+.cs-toggle {
+  color: var(--accent);
+  font-size: 12px;
+  font-family: var(--mono);
+  display: inline-block;
+  transition: transform 0.15s ease;
+  user-select: none;
+}
+.cs-details[open] .cs-toggle { transform: rotate(90deg); }
+.cs-details > summary:hover h3 { color: var(--accent); }
 .cs-panel-sub { font-size: 13px; color: var(--text-2); line-height: 1.55; margin: 0 0 12px; }
 .cs-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono); }
 .cs-table th { text-align: left; color: var(--text-3); font-weight: 400; padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -887,13 +905,18 @@ $$</div>
     <p class="sub">Click a card to load its detail pane below. Cards are ordered along α – <i>Coasean Paradise</i> on the far left, <i>Exo-Baroque Singularity</i> on the far right. Each card prints the scenario's terminal α, exo-baroque index, and per-capita welfare. The twenty-five scenarios fix different levers – alignment-layer rejection rate, agent autonomy, friction floor, capability variance, fold ceiling, the rate at which α responds to its own EBI, demand-side feedback, productive folding, and opt-in time-varying law schedules – so that the rest of the system can be read as a response to that lever.</p>
     <div class="scenario-strip" id="scn-strip"></div>
     <div class="cs-panel" id="cs-panel">
-      <div class="cs-panel-head">
-        <h3>Scale stability &amp; trajectory convergence at the 50-year horizon</h3>
+      <details class="cs-details">
+      <summary class="cs-panel-head">
+        <span class="cs-summary-left">
+          <span class="cs-toggle">▸</span>
+          <h3>Scale stability &amp; trajectory convergence at the 50-year horizon</h3>
+        </span>
         <span class="cs-meta">via <code>agentworld convergence</code> / <code>agentworld stability</code></span>
-      </div>
+      </summary>
       <p class="cs-panel-sub" style="border-left: 2px solid var(--accent); padding-left: 12px; color: var(--text);"><b>Reading the panel.</b> The numbers everywhere else on this dashboard are <b>50-year-horizon values</b> — one step is one quarter, so <code>n_steps=200</code> ≈ the brief's 2026→2076 frame. This <b>drift column</b> shows how much each scenario's terminal EBI moves if you double the horizon to <code>n_steps=400</code> (year 100): a continuous quantity, not a pass/fail. Low drift (&lt;1%) means the trajectory has effectively saturated within the brief's window — what you see is the answer. High drift means EBI is still climbing past year 50. Steady-state values would require multi-century extrapolation past the point where the speculative load-bearing parameters really make sense for a simulation of this size, so the dashboard quotes the 50-year value alongside that drift marker, not in place of it.</p>
       <p class="cs-panel-sub">One diagnostic per scenario: <b>(drift)</b> what is the percentage shift in terminal EBI between <code>n_steps=200</code> and <code>n_steps=400</code>? The earlier scale-stability flag (small-vs-medium-population EBI consistency) is currently small-only because the empirical SBM substrate exceeds the network-node ceiling at medium scale and would fall back to well-mixed sampling, contaminating the comparison. The drift column comes from a 4-seed stability sweep on the substrate at the small population. See <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/convergence.md">convergence.md</a> and <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/time_discretization.md">time_discretization.md</a> for method and the dt anchor.</p>
       <div id="cs-table-host"></div>
+      </details>
     </div>
   </div>
 </section>
