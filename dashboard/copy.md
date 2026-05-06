@@ -31,13 +31,6 @@ Agentworld
 
 A Monte Carlo sandbox for a planetary economy composed of **8 billion humans** and **800 billion AI agents** (it's worth 100xing that latter figure in future work). This atlas primarily isolates one variable through twenty-five scenarios: at one limit, agents *dissolve* economic intermediation (transaction barriers fall and middle layers thin out), and at the other, agents *fractally multiply* economic intermediation — every trade spawns sub-trades on top of itself. Both limits are stable equilibria of the same underlying technology, and which one materializes in reality is an open question. What this dashboard offers is a sample of distributions across the variable space between them.
 
-## Meta chips (one per line, four chips total)
-
-- 25 scenarios
-- 66K importance-weighted prototypes per scenario
-- 200 steps · 200K prototype pairs sampled per step
-- 1 step ≈ 1 quarter · e.g. 2026 → 2076
-
 ---
 
 # §1 INTRODUCTION

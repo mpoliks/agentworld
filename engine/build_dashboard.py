@@ -332,7 +332,37 @@ section .sub { font-family: var(--serif); font-size: 16px; color: var(--text-2);
 .scn-card .name { font-family: var(--serif); font-size: 17px; font-weight: 400; color: var(--text); }
 .scn-card .alpha { font-family: var(--mono); font-size: 11px; color: var(--text-3); display: flex; gap: 10px; white-space: nowrap; }
 .scn-card .alpha b { color: var(--accent); font-weight: 500; }
-.scn-card .desc { font-size: 12px; color: var(--text-2); line-height: 1.45; }
+.scn-card .card-desc { margin-top: auto; }
+.scn-card .card-desc summary {
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  user-select: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  outline: none;
+}
+.scn-card .card-desc summary::-webkit-details-marker { display: none; }
+.scn-card .card-desc summary::marker { content: ''; }
+.scn-card .card-desc .chev {
+  display: inline-block;
+  color: var(--accent);
+  transition: transform 0.15s ease;
+}
+.scn-card .card-desc[open] .chev { transform: rotate(90deg); }
+.scn-card .card-desc summary:hover { color: var(--accent); }
+.scn-card .desc-body {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
 .scn-card .cs-badges { display: flex; gap: 6px; margin-top: 2px; }
 .cs-badge {
   font-family: var(--mono);
@@ -570,12 +600,6 @@ footer p { max-width: 720px; line-height: 1.6; }
     <div class="super">Antikythera × Disintegrator · companion artifact</div>
     <h1>Agentworld<br><em>An atlas of agentic macroeconomics</em></h1>
     <p class="lead">A Monte Carlo sandbox for a planetary economy composed of <b>8 billion humans</b> and <b>800 billion AI agents</b> (it's worth 100xing that latter figure in future work). This atlas primarily isolates one variable through twenty-five scenarios: at one limit, agents <em>dissolve</em> economic intermediation (transaction barriers fall and middle layers thin out), and at the other, agents <em>fractally multiply</em> economic intermediation — every trade spawns sub-trades on top of itself. Both limits are stable equilibria of the same underlying technology, and which one materializes in reality is an open question. What this dashboard offers is a sample of distributions across the variable space between them.</p>
-    <div class="meta">
-      <span>25 scenarios</span>
-      <span>66K importance-weighted prototypes per scenario</span>
-      <span>200 steps · 200K prototype pairs sampled per step</span>
-      <span>1 step ≈ 1 quarter · e.g. 2026 → 2076</span>
-    </div>
   </div>
 </header>
 
@@ -1352,7 +1376,13 @@ function renderStrip(active) {
       <div class="name">${s.label}</div>
       <div class="alpha"><span>α=<b>${s.final_alpha.toFixed(2)}</b></span><span>EBI=<b>${ebi < 100 ? ebi.toFixed(2) : ebi.toExponential(1)}</b></span><span>w=<b>${fmtWcompact(pc)}</b></span></div>
       ${_csBadgeHtml(name)}
-      <div class="desc">${s.description}</div>`;
+      <details class="card-desc">
+        <summary><span class="chev">▸</span><span>description</span></summary>
+        <div class="desc-body">${s.description}</div>
+      </details>`;
+    // Clicking the disclosure shouldn't bubble to the card-load handler.
+    const summary = card.querySelector('.card-desc summary');
+    if (summary) summary.addEventListener('click', (e) => e.stopPropagation());
     card.addEventListener('click', () => loadDetail(name));
     el.appendChild(card);
   });
