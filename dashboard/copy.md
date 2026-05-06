@@ -384,7 +384,7 @@ One diagnostic per scenario: **(drift)** what is the percentage shift in termina
 
 **Label:** Regulatory Capture
 
-**Description:** Wealth concentrates over the run and the law layer is gradually captured: the cross-stack compatibility falls and the captured law preferentially blocks trades against the captured group's interest. The welfare loss is paid disproportionately by the unconcentrated population. Read alongside legal_collapse and civic_renaissance as the three-way test on the law layer's stability.
+**Description:** Stigler's nightmare scenario. Wealth concentrates over the run and the law layer is gradually captured: the cross-stack compatibility falls and the captured law preferentially blocks trades against the captured group's interest. The welfare loss is paid disproportionately by the unconcentrated population. Read alongside legal_collapse and civic_renaissance as the three-way test on the law layer's stability.
 
 ## endogenous_baroque
 
