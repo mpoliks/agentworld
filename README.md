@@ -1,11 +1,5 @@
 # AGENTWORLD
 
-### A computational research artifact for Antikythera's *100:1 Parasociety* brief
-
-> *"Instead of removing friction, labor and people from supply and demand, there is equal potential for the fractal multiplication of folded surfaces."* — Benjamin Bratton, April 2026
-
----
-
 ## What this is
 
 **Agentworld** is a research artifact — a conceptual brief, a vectorized simulation engine, a scenario atlas, and a dashboard — for thinking about the planetary economy when society is composed of **8 billion humans and 800 billion to 1 trillion AI agents**.
@@ -73,7 +67,7 @@ A conceptual map of the variable space, glossary, bibliography, and 34 scenario 
 This artifact carries **two engines** rather than one. They model the same underlying situation through deliberately different ontologies, and the disagreement between them is part of the deliverable.
 
 #### α-engine (`engine/`)
-A vectorized agent-economy simulator written in Python + NumPy. Sample size: 10⁶ agents per run, statistically representing the 800B-agent population through importance-weighted sampling across the smooth-striated continuum.
+A vectorized agent-economy simulator written in Python + NumPy. Sample size: ~66K importance-weighted prototypes per run, representing the 800B-agent population through importance-weighted sampling across the smooth-striated continuum (or ~6.6M at medium scale, see the runbook below).
 
 It models, at minimum:
 
@@ -87,7 +81,7 @@ Outputs: time-series of GDP (real and nominal), Gini, surplus per capita, market
 
 The engine now has two modes:
 
-- **Scenario mode** runs the 15 named narrative attractors.
+- **Scenario mode** runs the 25 named narrative attractors that the dashboard surfaces (with another 9 in-tree but not on the atlas).
 - **Phase-space mode** (`engine/sensitivity.py` / `agentworld sweep`) sweeps `α × capability` and classifies each grid point as smooth, mixed, striated, baroque, or slop. This is the sanity check that the named scenarios are samples from a wider basin structure, not just hand-picked stories.
 
 #### exo-engine (`engine/exo/`)
@@ -119,9 +113,9 @@ A Cursor canvas (`review/`) provides the executive-summary view for in-IDE revie
 
 - **Not a forecast.** It is a tool for thinking. The numbers are stylized. The dynamics are real.
 - **Not a normative argument.** Both attractors are plausible. The artifact tries to be agnostic between them and instead clarify the variable-space.
-- **Not complete.** It is built to be extended. The scenarios are 15 of an obviously infinite set.
+- **Not complete.** It is built to be extended. The 25 scenarios on the dashboard are samples from an obviously infinite set; the engine carries 9 more in-tree.
 
-For the rules of what is and isn't claimed — which parameters are calibrated to public empirical data, which are stipulated for face validity, and which are deliberately speculative — see [`docs/concepts/epistemic_status.md`](docs/concepts/epistemic_status.md). The dashboard's §0 panel surfaces the same taxonomy.
+For the rules of what is and isn't claimed — which parameters are calibrated to public empirical data, which are stipulated for face validity, and which are deliberately speculative — see [`docs/concepts/epistemic_status.md`](docs/concepts/epistemic_status.md). The dashboard's §1.6 aside surfaces the same taxonomy in-page.
 
 ---
 
@@ -151,9 +145,9 @@ The 2026-Q2 upgrade pass added a "calibrated noise" layer to both engines withou
 
    The legacy phase-space basin map is kept as `agentworld sweep` for backward compatibility.
 
-5. **Network-structured partner sampling.** `PopulationConfig` gains `network_model="scale_free"` (Barabási-Albert with the Atalay et al. 2011 degree exponent) and `"sbm"` (sector-block stochastic block model). Two new scenarios, `coasean_paradise_networked` and `baroque_cathedral_networked`, exercise the new sampler combined with the t-copula and Hawkes upgrades.
+5. **Network-structured partner sampling, default-on for 21 of 25 dashboard scenarios.** `PopulationConfig` carries `network_model="scale_free"` (Barabási-Albert with the Atalay et al. 2011 degree exponent) and `"sbm"` (sector-block stochastic block model). The 2026-Q3 substrate switch puts 21 of the 25 dashboard scenarios on the SBM network + t-copula correlated noise + Hawkes folding kernel by default; the four exclusions are the productive-folding scenarios (`baroque_cathedral_networked`, `productive_baroque`, `derivatives_revolution`) and the adversarial-search variant `baroque_with_high_welfare`. Two diagnostic experiments (`engine/substrate_sweep.py`, `engine/absorption_sweep.py`) isolate the substrate's welfare contribution from the productive-folding faucet's; both write `comparison.md` / `grid.md` to `outputs/`.
 
-The empirical anchors live in [`engine/data/empirical_anchors.py`](engine/data/empirical_anchors.py); each constant cites its source, vintage, and scope. The dashboard's §0 epistemic-status panel reads them directly so the provenance table is visible in-page.
+The empirical anchors live in [`engine/data/empirical_anchors.py`](engine/data/empirical_anchors.py); each constant cites its source, vintage, and scope. They are surfaced in the dashboard's §1.6 aside so the provenance is visible in-page.
 
 ---
 
@@ -181,7 +175,7 @@ For the conceptual reader:
 5. `docs/concepts/matryoshkan_alignment.md` — the nested governance
 6. `docs/concepts/parasociety.md` — the demographic substrate
 7. `docs/concepts/epistemic_status.md` — what is and isn't claimed
-8. `docs/scenarios/` — the 15 scenarios
+8. `docs/scenarios/` — the 25 scenarios
 
 For the technical reader:
 1. This file
@@ -351,7 +345,7 @@ proxies strip SSE.
 | `outputs/validation/historical_anchor.json` | `rmse ≈ 0.063`, `bias ≈ -0.061` | A1 |
 | `outputs/validation/adversarial_search.json` | `"found_counter_example": true` | A3 |
 | `outputs/validation/posterior_sweep.summary.json` | `p_baroque > p_smooth × 10` | A2 |
-| `agentworld run-all` | 34 scenario JSONs in `outputs/runs/` | regenerated baselines |
+| `agentworld run-all` | 67 scenario JSONs in `outputs/runs/` (34 originals + 33 `*_anchored` variants) | regenerated baselines |
 | Live page | `hello → step×N → done` events visible in DevTools → Network | B2/B3/B4 |
 
 ### 7. Hardware notes
@@ -376,8 +370,6 @@ trust the artifact's claims.
 ---
 
 ## Citing
-
-This artifact is a companion to Antikythera's *Agentworld* research brief by Benjamin Bratton. It is not a substitute for that brief; it is a sandbox for the brief's hypotheses.
 
 Built April 2026, in conversation between Marek Poliks and Benjamin Bratton, with Sébastien Krier's *Coasean Bargaining at Scale* (Sept 2025) and Tomašev et al's *Virtual Agent Economy* (Sept 2025) as immediate intellectual neighbors.
 
