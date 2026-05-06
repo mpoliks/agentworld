@@ -548,13 +548,13 @@ authentic vs un-modulated real welfare (cumulative, log)
 ### Caption
 **Authentic** real welfare is the share that reaches a human consumer (or a human-controlled agent acting on a principal's behalf). The **un-modulated** trace is the legacy aggregate. The two coincide when <code>DemandConfig.enabled = False</code> (the default) — one curve is drawn on top of the other. When demand-side feedback is on, the gap between the curves is the surplus that A2A activity printed but no person consumed.
 
-## Chart — max fold depth per step
+## Chart — per-step ledger pulse
 
 ### Title
-max fold depth per step
+per-step ledger pulse (log)
 
 ### Caption
-The deepest derivative tower observed in any single base trade per step — an integer count of how many sub-markets stacked on top of the deepest cleared trade. Climbs stair-step in the scheduled-α scenarios (*Smoothing Cascade*, *Fold Avalanche*) where α moves over the run, and in the endogenous-α scenarios (*Recursive Simulation*, *Endogenous Baroque*) where α reacts to its own EBI. Saturates at the per-scenario cap (typically 6 or 7) in static high-α scenarios. Sits at zero in direct-trade regimes. Read as a snapshot of where the cascade ceiling is at each moment.
+Two traces, both on a log y-axis: <span style="color:#5fa572;">**real welfare per step**</span> (the human-bounded surplus the run produces each step, smooth) and <span style="color:#c25a5a;">**nominal GDP per step**</span> (the on-paper economic activity each step, including everything the fold cascade adds). They start coincident in direct-trade regimes. In fractal regimes the nominal trace fires Hawkes-cascade spikes 4–6 orders of magnitude above real welfare — each spike is a moment when the cascade detonated. Quiet stretches between spikes are when the cascade is dormant. In *Smoothing Cascade* watch the spike train die out as α decays; in *Fold Avalanche* watch it ramp up.
 
 ---
 

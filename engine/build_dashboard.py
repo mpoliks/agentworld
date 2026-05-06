@@ -1022,9 +1022,9 @@ $$</div>
         <div id="d-authentic" style="height:240px;"></div>
       </div>
       <div class="chart-box">
-        <div class="chart-title">max fold depth per step</div>
-        <div class="chart-caption">The deepest derivative tower observed in any single base trade per step — an integer count of how many sub-markets stacked on top of the deepest cleared trade. Climbs stair-step in the scheduled-α scenarios (<i>Smoothing Cascade</i>, <i>Fold Avalanche</i>) where α moves over the run, and in the endogenous-α scenarios (<i>Recursive Simulation</i>, <i>Endogenous Baroque</i>) where α reacts to its own EBI. Saturates at the per-scenario cap (typically 6 or 7) in static high-α scenarios. Sits at zero in direct-trade regimes. Read as a snapshot of where the cascade ceiling is at each moment.</div>
-        <div id="d-fold-depth" style="height:240px;"></div>
+        <div class="chart-title">per-step ledger pulse (log)</div>
+        <div class="chart-caption">Two traces, both on a log y-axis: <span style="color:#5fa572;"><b>real welfare per step</b></span> (the human-bounded surplus the run produces each step, smooth) and <span style="color:#c25a5a;"><b>nominal GDP per step</b></span> (the on-paper economic activity each step, including everything the fold cascade adds). They start coincident in direct-trade regimes. In fractal regimes the nominal trace fires Hawkes-cascade spikes 4–6 orders of magnitude above real welfare — each spike is a moment when the cascade detonated. Quiet stretches between spikes are when the cascade is dormant. In <i>Smoothing Cascade</i> watch the spike train die out as α decays; in <i>Fold Avalanche</i> watch it ramp up.</div>
+        <div id="d-step-pulse" style="height:240px;"></div>
       </div>
     </div>
   </div>
@@ -2189,22 +2189,23 @@ function loadDetail(name) {
       showlegend: true, legend: { orientation: 'h', y: 1.15, font: { size: 9 } } },
     { displayModeBar: false, responsive: true });
 
-  // Max fold depth per step — integer count of the deepest derivative
-  // tower observed in any single base trade. Stair-step plot for visual
-  // honesty: the value is discrete. Y-axis fixed to [0, 8] so static
-  // high-α scenarios pinned at 6 or 7 are visually comparable to dynamic
-  // scenarios that climb. Direct-trade regimes sit at zero.
-  const depthMax = Math.max(...(h.fold_max_depth || [0]), 0);
-  const yTopDepth = Math.max(8, Math.ceil(depthMax) + 1);
-  Plotly.react('d-fold-depth',
+  // Per-step ledger pulse — real welfare per step (smooth, bounded) and
+  // nominal GDP per step (Hawkes-cascade spike train) on the same log y.
+  // The drama: real welfare floats around its scenario-typical level
+  // while nominal GDP fires bursts 4–6 orders of magnitude above it
+  // every time the fold cascade detonates. Each spike = one cascade
+  // event in this seed's run.
+  Plotly.react('d-step-pulse',
     [
-      ..._bandTraces(name, 'fold_max_depth', 'rgba(184,154,85,0.2)'),
-      { x: h.step, y: h.fold_max_depth || h.step.map(() => 0),
-        mode: 'lines',
-        line: { color: '#b89a55', width: 2, shape: 'hv' },
-        fill: 'tozeroy', fillcolor: 'rgba(184,154,85,0.08)' },
+      ..._bandTraces(name, 'real_welfare_step', 'rgba(95,165,114,0.2)'),
+      ..._bandTraces(name, 'nominal_gdp_step', 'rgba(194,90,90,0.2)'),
+      { x: h.step, y: h.real_welfare_step, name: 'real welfare / step',
+        mode: 'lines', line: { color: '#5fa572', width: 1.5 } },
+      { x: h.step, y: h.nominal_gdp_step, name: 'nominal GDP / step',
+        mode: 'lines', line: { color: '#c25a5a', width: 1.5 } },
     ],
-    { ...baseLayout, yaxis: { ...baseLayout.yaxis, range: [0, yTopDepth], dtick: 1 } },
+    { ...baseLayout, yaxis: { ...baseLayout.yaxis, type: 'log' },
+      showlegend: true, legend: { orientation: 'h', y: 1.15, font: { size: 9 } } },
     { displayModeBar: false, responsive: true });
 
   // Initialize the transaction-space animation for this scenario.
