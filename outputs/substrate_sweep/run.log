@@ -1,0 +1,28 @@
+[substrate-sweep] 24 scenarios × 32 seeds, 3 workers, scale=small. starting at 11:39:59.
+[substrate-sweep] [1/24] coasean_paradise_anchored done in 70s (total 1.2 min)
+[substrate-sweep] [2/24] universal_advocate_anchored done in 72s (total 2.4 min)
+[substrate-sweep] [3/24] public_defender_anchored done in 72s (total 3.6 min)
+[substrate-sweep] [4/24] civic_renaissance_anchored done in 89s (total 5.1 min)
+[substrate-sweep] [5/24] synthetic_consumers_v2_anchored done in 114s (total 7.0 min)
+[substrate-sweep] [6/24] smoothing_cascade_anchored done in 72s (total 8.1 min)
+[substrate-sweep] [7/24] equilibrium_drift_anchored done in 34s (total 8.7 min)
+[substrate-sweep] [8/24] matryoshka_collapse_anchored done in 75s (total 10.0 min)
+[substrate-sweep] [9/24] hemispherical_schism_anchored done in 76s (total 11.2 min)
+[substrate-sweep] [10/24] compute_famine_anchored done in 75s (total 12.5 min)
+[substrate-sweep] [11/24] derivatives_revolution_anchored done in 68s (total 13.6 min)
+[substrate-sweep] [12/24] legal_collapse_anchored done in 92s (total 15.2 min)
+[substrate-sweep] [13/24] regulatory_capture_anchored done in 92s (total 16.7 min)
+[substrate-sweep] [14/24] endogenous_baroque_anchored done in 80s (total 18.0 min)
+[substrate-sweep] [15/24] pigouvian_heavy_anchored done in 118s (total 20.0 min)
+[substrate-sweep] [16/24] pigouvian_friction_anchored done in 116s (total 21.9 min)
+[substrate-sweep] [17/24] full_emergence_anchored done in 81s (total 23.3 min)
+[substrate-sweep] [18/24] recursive_simulation_anchored done in 70s (total 24.5 min)
+[substrate-sweep] [19/24] fold_avalanche_anchored done in 70s (total 25.6 min)
+[substrate-sweep] [20/24] slop_market_anchored done in 77s (total 26.9 min)
+[substrate-sweep] [21/24] productive_baroque_anchored done in 69s (total 28.1 min)
+[substrate-sweep] [22/24] baroque_with_high_welfare_anchored done in 2s (total 28.1 min)
+[substrate-sweep] [23/24] baroque_cathedral_anchored done in 68s (total 29.2 min)
+[substrate-sweep] [24/24] exo_baroque_singularity_anchored done in 73s (total 30.5 min)
+[substrate-sweep] comparison json -> outputs/substrate_sweep/comparison.json
+[substrate-sweep] comparison md -> outputs/substrate_sweep/comparison.md
+[substrate-sweep] all done in 30.5 min

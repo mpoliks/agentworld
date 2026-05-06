@@ -307,8 +307,9 @@ def _alpha_world_from_vector(
     seed: int,
 ) -> WorldConfig:
     from engine.core.topology import DemandConfig
+    from engine.scenarios import _apply_empirical_topology
 
-    return WorldConfig(
+    cfg = WorldConfig(
         population=PopulationConfig(
             n_human_prototypes=n_human_prototypes,
             n_agent_prototypes=n_agent_prototypes,
@@ -349,6 +350,13 @@ def _alpha_world_from_vector(
         # blows up the Saltelli/Sobol estimator).
         gini_every_k_steps=1,
     )
+    # Put the Sobol sweep on the same empirical substrate as the dashboard's
+    # 21 substrate-anchored scenarios — sector-block network + t-copula noise
+    # + Hawkes folding. Productive-lever parameters (base_variance_absorption,
+    # demand, etc.) remain swept; only the topology/noise/kernel layer is
+    # forced. Without this, the Sobol indices were on a well-mixed substrate
+    # while the rest of the dashboard ran on the empirical one — a confound.
+    return _apply_empirical_topology(cfg)
 
 
 def run_sobol_sensitivity(

@@ -250,7 +250,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Agentworld – A computational atlas of the smooth-striated continuum</title>
+<title>Agentworld – An atlas of agentic macroeconomics</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -550,13 +550,13 @@ footer p { max-width: 720px; line-height: 1.6; }
 <header>
   <div class="wrap">
     <div class="super">Antikythera × Disintegrator · companion artifact</div>
-    <h1>Agentworld<br><em>An atlas of the smooth-striated continuum</em></h1>
-    <p class="lead">A computational sandbox for the planetary economy when society is composed of <b>8 billion humans</b> and <b>800 billion to 1 trillion AI agents</b>. We look at one variable through twenty-five scenarios. At one limit, agents <em>dissolve</em> economic intermediation — transaction barriers fall and middle layers thin out. At the other, agents <em>fractally multiply</em> it — every trade spawns sub-trades on top of itself. Both limits are stable equilibria of the same underlying technology, and which one materializes is an open question. What this dashboard offers is a sample of distributions across the variable space between them.</p>
+    <h1>Agentworld<br><em>An atlas of agentic macroeconomics</em></h1>
+    <p class="lead">A Monte Carlo sandbox for a planetary economy composed of <b>8 billion humans</b> and <b>800 billion AI agents</b> (it's worth 100xing that latter figure in future work). This atlas primarily isolates one variable through twenty-five scenarios: at one limit, agents <em>dissolve</em> economic intermediation (transaction barriers fall and middle layers thin out), and at the other, agents <em>fractally multiply</em> economic intermediation — every trade spawns sub-trades on top of itself. Both limits are stable equilibria of the same underlying technology, and which one materializes in reality is an open question. What this dashboard offers is a sample of distributions across the variable space between them.</p>
     <div class="meta">
       <span>25 scenarios</span>
-      <span>8 × 10⁹ humans + 8 × 10¹¹ agents · 66K importance-weighted prototypes per scenario</span>
+      <span>66K importance-weighted prototypes per scenario</span>
       <span>200 steps · 200K prototype pairs sampled per step</span>
-      <span>1 step ≈ 1 quarter · terminal numbers reported at year 50 (2026→2076 frame)</span>
+      <span>1 step ≈ 1 quarter · e.g. 2026 → 2076</span>
     </div>
   </div>
 </header>
@@ -564,17 +564,17 @@ footer p { max-width: 720px; line-height: 1.6; }
 <section>
   <div class="wrap">
     <h2><span class="marker">§1</span> Introduction</h2>
-    <p class="sub">A working-paper exposition of what this dashboard is, what is being computed, and what the project is trying to settle. Every chart from §2 onward presupposes the definitions developed here.</p>
+    <p class="sub">A working-paper exposition of what this dashboard is and what is being computed. Every chart from §2 onward presupposes the definitions developed here.</p>
 
     <div class="essay">
 
-      <p>This dashboard is a sandbox for a question that has no settled empirical answer because the conditions that would generate the answer have not yet arrived: <b>what does the planetary economy do when the population of economic actors expands, within a few years, from roughly eight billion humans to roughly eight billion humans plus eight hundred billion to a trillion AI agents?</b> The question is not whether agents will be present — the inference cost of a capable agent is now within an order of magnitude of the cost of the electricity that runs it, and the rails for high-frequency, sub-cent, autonomous payments are being laid as this is written — but what regime of <em>intermediation</em> a hundred-to-one ratio of agents to humans selects for. Two regimes are equally consistent with the underlying technology. In the first, agents act as a universal solvent: they evaporate transaction costs, dissolve middle-layer firms whose entire value-add was coordination, and flatten the economy into a continuous bilateral surface. In the second, agents act as a fractal cell-divider: every existing market spawns sub-markets, every sub-market spawns sub-sub-markets, and a single delivery to a human's door eventually involves thousands of priced micro-transactions that no human ever sees. We do not know, in 2026, which of these will materialize, in what proportion, in what sectors. We do know that the <em>same</em> stack of capabilities supports both. The artifact you are reading is an attempt to clarify what each regime would cost, and what diagnostics one would need to tell which regime one is in before it is too late to choose.</p>
+      <p><b>What does the planetary economy do when the population of economic actors expands, within a few years, from roughly eight billion humans to roughly eight billion humans plus eight hundred billion AI agents?</b> If anything, eight hundred billion is an underestimation: the inference cost of a capable agent is now within an order of magnitude of the cost of the electricity that runs it, and the rails for high-frequency, sub-cent, autonomous payments are being laid as this is written — but it's a nice starting point. The real question is what regime of <em>intermediation</em> a hundred-to-one ratio of agents to humans selects for. Two regimes are equally consistent with the underlying technology. In the first, agents act as a kind of economic solvent: they evaporate transaction costs, dissolve middle-layer firms whose entire value-add was coordination, and flatten the economy into a continuous bilateral surface. In the second, agents act according to exocapitalist principles: every existing market spawns sub-markets, every sub-market spawns sub-sub-markets, and a single delivery to a human's door eventually involves thousands of priced micro-transactions that no human ever sees. We do not know, in 2026, which of these will materialize, in what proportion, in what sectors. The artifact you are reading is an attempt to clarify what each regime would cost, and what diagnostics one would need to tell which regime one is in before it is too late to intervene (good luck).</p>
 
-      <p>The work is methodologically modest. It does not predict. It runs a vectorized agent-economy simulator across twenty-five named scenarios that bracket the variable space, and reports a small set of summary statistics in a way that is honest about the speculative load each parameter carries. Nothing here is a forecast. Everything here is a controlled exercise in <em>what would have to be true</em> for this metric to behave that way under that regime. The hope is that a reader can sit with the atlas in §2, scrub through the scenarios in §3, and develop intuitions about a parameter space that is otherwise too large and too unfamiliar to reason about by hand.</p>
+      <p>The work is pretty modest. It runs a vectorized agent-economy simulator across twenty-five named scenarios that bracket the variable space, and reports a small set of summary statistics in a way that is pretty honest about the speculative load each parameter carries. It's best to think of this as less of a forecast and more of a controlled exercise in <em>what would have to be true</em> for this metric to behave that way under that regime. The hope is that a reader can sit with the atlas in §2, scrub through the scenarios in §3, and develop intuitions about a parameter space that is otherwise too large and too unfamiliar to reason about by hand.</p>
 
       <h3><span class="num">1.1</span> The question we are asking the simulator</h3>
 
-      <p>The single dial we turn, across the twenty-five scenarios, is a scalar $\alpha \in [0, 1]$. $\alpha$ is a deliberately compressed proxy for the degree to which trades in the economy are allowed to spawn further trades on top of themselves. At $\alpha = 0$ every exchange is one direct exchange — a buyer and a seller meet, agree, and the value moves; nothing intermediates. At $\alpha = 1$ every base exchange routes through layers of derivative sub-trades, fees, repackaged rights, attention markets, and metadata markets, each one adding overhead and each one (potentially) priced as a "real" economic event by national-accounts standards. Real economies sit somewhere in the middle, varying by sector and jurisdiction. The continuum on which $\alpha$ moves is the smooth-striated continuum of <em>A Thousand Plateaus</em>, transposed onto an economic substrate.</p>
+      <p>The single dial we turn, across the twenty-five scenarios, is a scalar $\alpha \in [0, 1]$. $\alpha$ is a proxy for the degree to which trades in the economy are allowed to spawn further trades on top of themselves. At $\alpha = 0$ every exchange is one direct exchange — a buyer and a seller meet, agree, and the value moves; nothing intermediates. At $\alpha = 1$ every base exchange routes through layers of derivative sub-trades, fees, repackaged rights, attention markets, and metadata markets, each one adding overhead and each one (potentially) priced as a "real" economic event by national-accounts standards. Our current economic world sits somewhere in the middle, varying by sector and jurisdiction.</p>
 
       <figure class="fig">
         <svg class="fig-body" viewBox="0 0 720 130" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The smooth-striated continuum from alpha = 0 (Smoothworld) to alpha = 1 (Baroqueworld)">
@@ -599,18 +599,18 @@ footer p { max-width: 720px; line-height: 1.6; }
           <text x="40"  y="112" fill="#e7e8ea" font-family="Iowan Old Style, Georgia, serif" font-size="13">direct trade · no folding</text>
           <text x="680" y="112" fill="#e7e8ea" font-family="Iowan Old Style, Georgia, serif" font-size="13" text-anchor="end">recursive sub-markets · deep folding</text>
         </svg>
-        <figcaption><span class="figlabel">Figure 1</span><b>The smooth-striated continuum.</b> The single parameter $\alpha$ is a compressed proxy for the depth and rate at which a base trade is allowed to spawn derivative sub-trades. $\alpha$ enters the engine in two places: it raises the per-trade transaction cost by a small additive term (so highly striated economies are also slightly more expensive per base trade), and it raises folding propensity as $\alpha^{1.4}$, so the cascade depth grows super-linearly as $\alpha \to 1$.</figcaption>
+        <figcaption><span class="figlabel">Figure 1</span><b>The smooth-striated continuum.</b> The single parameter $\alpha$ is a proxy for the depth and rate at which a base trade is allowed to spawn derivative sub-trades. $\alpha$ enters the engine in two places: it raises the per-trade transaction cost by a small additive term (so highly striated economies are also slightly more expensive per base trade), and it raises folding propensity as $\alpha^{1.4}$, so the cascade depth grows super-linearly as $\alpha \to 1$.</figcaption>
       </figure>
 
       <h3><span class="num">1.2</span> What the simulator is</h3>
 
-      <p>The substrate is a population of $H = 8 \times 10^{9}$ humans and $A = 8 \times 10^{11}$ AI agents, represented through importance-weighted prototypes ($\approx 6.6\text{M}$ sampled prototypes carry the full population's mass). At every step of a two-hundred-step run, the engine draws on the order of $2 \times 10^{5}$ random pairs of trading partners. For each pair it asks four questions in sequence: would this trade create surplus; what would it cost; would any of the three governance filters block it; and, if it does execute, does it spawn a folding cascade of sub-trades on top of itself. Surviving trades transfer wealth between the parties and accumulate into the run-level aggregates that the rest of this dashboard plots.</p>
+      <p>We are modeling off of a population of $H = 8 \times 10^{9}$ humans and $A = 8 \times 10^{11}$ AI agents, represented through importance-weighted prototypes ($\approx 6.6\text{M}$ sampled prototypes carry the full population's mass). At every step of a two-hundred-step run, the engine draws on the order of $2 \times 10^{5}$ random pairs of trading partners. For each pair it asks four questions in sequence: would this trade create surplus; what would it cost; would any of the three governance filters block it; and, if it does execute, does it spawn a folding cascade of sub-trades on top of itself. Surviving trades transfer wealth between the parties and accumulate into the run-level aggregates that the rest of this dashboard plots.</p>
 
-      <p>Humans and agents pass through the same trade engine — the matching, the surplus computation, the filters, and the fold rules are type-blind once a pair has been drawn. <em>Type</em> matters only at three points: which prototypes get drawn into pairs (population mass and the trade-rate multiplier discussed below), how the prototypes are seeded (capability, autonomy, alignment, wealth all sample from different distributions), and how their resulting surplus maps to welfare downstream (per-capita welfare divides by humans only, and a "demand-modulation" mode in some scenarios further discounts pure agent-to-agent surplus). The asymmetries we seed:</p>
+      <p>Human and agentic activities are processed through the same trade engine — the matching, the surplus computation, the filters, and the fold rules are type-blind once a pair has been drawn. <em>Type</em> matters only at three points: which prototypes get drawn into pairs (population mass and the trade-rate multiplier discussed below), how the prototypes are seeded (capability, autonomy, alignment, wealth all sample from different distributions), and how their resulting surplus maps to welfare downstream (per-capita welfare divides by humans only, and a "demand-modulation" mode in some scenarios further discounts pure agent-to-agent surplus). That being said, agents and humans do not behave the same (further work can be done here to turn this work into its own set of modulable variables):</p>
 
       <ul>
-        <li><b>Population mass.</b> $A / H = 100$ agents per human at the demographic level. Most random pairs are agent-with-agent simply by counting.</li>
-        <li><b>Trade speed.</b> An AI agent can attempt thousands of trades in the time a human attempts one. In the fractal-trade scenarios we model this with a trade-rate multiplier $\rho_{\text{agent}} = 100$ on top of the demographic ratio, so humans appear in roughly $1$ in $10{,}000$ executed trades. In smooth-limit scenarios $\rho_{\text{agent}} = 1$ — the counterfactual world in which agents trade at human speed.</li>
+        <li><b>Population mass.</b> $A / H = 100$ agents per human at the demographic level. Most random pairings are A2A.</li>
+        <li><b>Trade speed.</b> An AI agent can attempt thousands of trades in the time a human attempts one. In the fractal-trade scenarios we model this with a trade-rate multiplier $\rho_{\text{agent}} = 100$ on top of the demographic ratio, so humans appear in roughly $1$ in $10{,}000$ executed trades. In smooth-limit scenarios $\rho_{\text{agent}} = 1$ — which proposes a counterfactual world in which agents trade at human speed.</li>
         <li><b>Wealth.</b> Human wealth is lognormal with $\bar{w}_H \approx 100$ per prototype; agent wealth is Pareto-tailed with $\bar{w}_A \approx 5$. Agents are individually poorer but collectively far wealthier.</li>
         <li><b>Capability.</b> Agent capability $c_A \sim \mathcal{N}(0.72,\, 0.20^{2})$; human capability $c_H \sim \mathcal{N}(0.45,\, 0.18^{2})$. Agents on average bring better matching, pricing, and execution to any trade they enter.</li>
         <li><b>Autonomy and alignment.</b> Agents act independently $\approx 85\%$ of the time on average, humans $\approx 55\%$; human alignment values are spread wider ($\sigma_{H} \approx 0.45$) than agent values ($\sigma_{A} \approx 0.25$), so a human-touching pair is more likely to fail the alignment filter than a pure agent-agent pair.</li>
@@ -634,7 +634,7 @@ C_{ab} \;=\; \varphi_{0}
 \;+\; 0.015\,(1 - \sigma_{ab}) \tag{2}
 $$</div>
 
-      <p>The trade clears iff $S_{ab} \geq C_{ab}$ <em>and</em> none of the three filters reject it. Each filter draws a Bernoulli with probability that scales with the relevant disagreement — cross-stack incompatibility for the law layer, sector mismatch and alignment distance for the market layer, alignment distance attenuated by autonomy for the individual layer. Writing $\Delta_{ab}$ for the alignment distance and $u_{ab}$ for the mean autonomy of the pair:</p>
+      <p>The trade clears iff $S_{ab} \geq C_{ab}$ <em>and</em> none of the three filters reject it. Each filter invokes a Bernoulli with probability that scales with relevant disagreement, like cross-stack incompatibility for the law layer, sector mismatch and alignment distance for the market layer, or alignment distance attenuated by autonomy for the individual layer. We use $\Delta_{ab}$ for the alignment distance and $u_{ab}$ for the mean autonomy of the pair:</p>
 
       <div class="eqn">$$
 \begin{aligned}
@@ -698,7 +698,7 @@ $$</div>
           <text x="684" y="20" fill="#9ea2a8" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">→ welfare ledger</text>
           <text x="684" y="240" fill="#9ea2a8" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle">→ nominal-GDP ledger</text>
         </svg>
-        <figcaption><span class="figlabel">Figure 2</span><b>The per-step trade pipeline.</b> A pair is drawn, surplus is compared against cost (eqs.&nbsp;1–2), three independent governance filters apply in sequence (eq.&nbsp;3), and the surviving trade contributes simultaneously to two ledgers — the welfare ledger ($S_{ab}$ only) and the nominal-GDP ledger ($S_{ab} + C_{ab}$, plus everything the folding cascade adds). The split between these two ledgers is the entire diagnostic story of this dashboard.</figcaption>
+        <figcaption><span class="figlabel">Figure 2</span><b>The per-step trade pipeline.</b> We pick a pair, compare surplus against cost (eqs.&nbsp;1–2), push through three independent governance filters in sequence (eq.&nbsp;3), and the surviving trade contributes simultaneously to two ledgers — the welfare ledger ($S_{ab}$ only) and the nominal-GDP ledger ($S_{ab} + C_{ab}$, plus everything the folding cascade adds).</figcaption>
       </figure>
 
       <h3><span class="num">1.4</span> The folding operator</h3>
@@ -710,7 +710,7 @@ p_{d} \;=\; p_{0}\;\cdot\;\alpha^{1.4}\;\cdot\;0.85^{\,d - 1},
 \qquad d = 1, 2, \ldots, D \tag{4}
 $$</div>
 
-      <p>At each depth, the cascade branches by a factor $\beta(\alpha) = \beta_{0}\,(0.6 + 0.4\,\alpha)$ that itself rises with $\alpha$ (deeper economies are also wider economies), each layer is amplified by a nominal multiplier $m$, and each layer adds to the nominal ledger while shaving a small fraction off the real ledger. The default kernel is geometric and deterministic at the layer level; an opt-in Hawkes self-exciting kernel preserves the same mean but injects realistic per-depth variance and self-excitation calibrated to the Bacry &amp; Muzy 2015 endogeneity ratio. Writing $N_{d}$ for the nominal contribution and $R$ for the base real surplus of the trade, with $\eta = $ <code>fold_real_efficiency</code> $&lt; 1$, the per-depth bookkeeping is:</p>
+      <p>At each depth, the cascade branches by a factor $\beta(\alpha) = \beta_{0}\,(0.6 + 0.4\,\alpha)$ that itself rises with $\alpha$ (deeper economies are also wider economies), each layer is amplified by a nominal multiplier $m$, and each layer adds to the nominal ledger while shaving a small fraction off the real ledger. The default kernel is geometric and deterministic at the layer level; we use an opt-in Hawkes self-exciting kernel to preserve the same mean but inject realistic per-depth variance and self-excitation calibrated to the Bacry &amp; Muzy 2015 endogeneity ratio. Writing $N_{d}$ for the nominal contribution and $R$ for the base real surplus of the trade, with $\eta = $ <code>fold_real_efficiency</code> $&lt; 1$, the per-depth bookkeeping is:</p>
 
       <div class="eqn">$$
 \begin{aligned}
@@ -798,18 +798,20 @@ G \;=\; \sum_{t}\,\sum_{(a,b)\in\mathcal{T}_{t}} \bigl( S_{ab} + C_{ab} + \Delta
 \tag{6}
 $$</div>
 
-      <p>The dashboard's central diagnostic is the <b>exo-baroque index</b>, defined as the ratio of these two ledgers:</p>
+      <p>The dashboard's central diagnostic is the <b>exo-baroque index</b> (exo from exocapitalism, baroque from Deleuze, basically just meaning how insane of a meta-meta-meta-deriviative stack exists on top of any given trade). It's defined as the ratio of these two ledgers:</p>
 
       <div class="eqn">$$
 \mathrm{EBI} \;=\; \frac{G}{W} \;=\; \frac{\sum_{t} \text{nominal\_GDP}_{t}}{\sum_{t} \text{real\_welfare}_{t}}. \tag{7}
 $$</div>
 
-      <p>$\mathrm{EBI} = 1$ is parity — every unit of measured economic activity reached a human as actual consumption. $\mathrm{EBI} = 100$ means $99\%$ of measured activity was trades-of-trades that never delivered anything to a human. $\mathrm{EBI}$ in the low millions, which a few of the high-$\alpha$ scenarios do reach, means the on-paper economy and the consumed economy live on different planets. $\mathrm{EBI}$ is plotted on a log scale because it ranges over six orders of magnitude across the scenario set. Because it is a ratio, $\mathrm{EBI}$ is dimensionless and scenario-comparable; absolute values of the underlying ledgers are not.</p>
+      <p>$\mathrm{EBI} = 1$ is the parity level (no ficticious capital), meaning that every unit of measured economic activity reached a human as actual consumption. $\mathrm{EBI} = 100$ means $99\%$ of measured activity was trades-of-trades that never delivered anything to a human. $\mathrm{EBI}$ in the low millions, which a few of the high-$\alpha$ scenarios do reach, means the on-paper economy and the consumed economy live on different planets. $\mathrm{EBI}$ is plotted on a log scale because it ranges over six orders of magnitude across the scenario set. Because it is a ratio, $\mathrm{EBI}$ is dimensionless and scenario-comparable; absolute values of the underlying ledgers are not.</p>
+
+      <p>A subtlety worth flagging here, because one of the conclusions in §2 turns on it: $\mathrm{EBI}$ and absolute per-capita welfare are not the same diagnostic and can move in different directions. A regime with $\mathrm{EBI} = 10^{6}$ — most of the on-paper economy is parasitic accounting that no human consumed — can still produce substantial per-capita welfare, because the on-paper economy being printed is enormous and even a tiny share of it reaching humans is a sizeable absolute amount. <i>Productive Cathedral</i> in the scenario set carries both attributes: high $\mathrm{EBI}$ (parasitic share dominant) and high per-capita welfare (the small productive share is large in absolute terms). Two readers asking different questions of the same economy — <em>are people materially better off?</em> and <em>is the economy connected to anything humans experience?</em> — can come to opposite conclusions and both be right. $\mathrm{EBI}$ is the diagnostic for the second question; per-capita welfare is the diagnostic for the first; neither subsumes the other.</p>
 
       <p>The other quantities the dashboard plots are downstream of the same ledgers, and are introduced briefly here so that the charts in §4–§7 read without reference back. <b>Real welfare</b> $W$ is the sum, across the run, of the surplus that survived the filters; <b>per-capita welfare</b> divides that by $H = 8 \times 10^{9}$ humans only, since agent surplus that never benefits a human does not count as welfare on this dashboard:</p>
 
       <div class="eqn">$$
-w \;=\; \frac{W}{H} \;\cdot\; 10^{6} \qquad \text{(unitless; scaled for legibility)}. \tag{8}
+w \;=\; \frac{W}{H} \;\cdot\; 10^{3} \qquad \text{(unitless; scaled for legibility)}. \tag{8}
 $$</div>
 
       <p><em>Compare scenarios by ratios, not absolute values.</em> <b>Nominal GDP</b> $G$ is the sum of cleared $(S + C)$ plus everything the folding cascade contributed. <b>Fold depth</b> is the height of the tallest derivative tower seen in any single base trade in a step — depth $0$ means no sub-trades happened, depth $7$ means a base trade had a seven-layer stack of derivatives wrapped around it. <b>Human legibility</b> $\ell$ is the share of executed trades in which at least one party is a human, equivalent to one minus the agent-to-agent share:</p>
@@ -820,15 +822,17 @@ $$</div>
 
       <p>$\ell$ is a measure of how much of the economy a human can in principle observe, contest, or audit at last-mile resolution; it sits around $\ell \in [10^{-3},\,3 \times 10^{-2}]$ in smooth scenarios and falls to $\ell \in [10^{-5},\,10^{-4}]$ in fractal scenarios with the $\rho_{\text{agent}} = 100$ multiplier on. <b>Wealth Gini</b> is the standard $[0, 1]$ inequality measure across the combined human-and-agent population. The <b>three filters</b> — law, market, alignment (eq.&nbsp;3) — are reported in §4 as rejection-rate decompositions, so the reader can see which institutional layer is doing the most blocking under each scenario.</p>
 
-      <p>Every chart from §2 onward is drawn as a <em>solid line</em> at the median across $N = 64$ random seeds with a <em>shaded band</em> covering the $[P_{5},\, P_{95}]$ envelope. The band shows how much randomness within a fixed scenario configuration could shift the result. A wide band means the scenario is sensitive to noise; a tight band means the outcome is robust under fixed assumptions. <em>The band is not a probability that the world will land in this range</em> — it is a sensitivity reading on the simulation under fixed parameters, which is a strictly smaller claim.</p>
+      <p>Every chart from §2 onward is drawn as a <em>solid line</em> at the median across $N = 64$ random seeds with a <em>shaded band</em> covering the $[P_{5},\, P_{95}]$ envelope. The band shows how much randomness within a fixed scenario configuration could shift the result. A wide band means the scenario is sensitive to noise; a tight band means the outcome is robust under fixed assumptions. <em>The band is not a probability that the world will land in this range</em> — it is just a sensitivity reading on the simulation under fixed parameters.</p>
 
       <h3><span class="num">1.6</span> What we are trying to settle</h3>
 
-      <p>The ambition of the artifact is narrow and specific: to produce a usable atlas of the parameter space inside which the next decade of mechanism-design choices about the agent economy will be made, and to do so in a way that is honest about the speculative load each parameter carries. We are not arguing that any one of the twenty-five scenarios is the world that will arrive. We are arguing that the <em>shape</em> of the trade-off — that high $\alpha$ produces high nominal GDP and low welfare, that the middle of the $\alpha$ range is the default landing spot in the absence of active mechanism design, that $\mathrm{EBI}$ is the diagnostic that distinguishes "the economy got bigger" from "the economy got more legible to itself and less to us" — is robust across plausible parameterizations of the model, and is therefore worth taking seriously as a frame for policy thinking.</p>
+      <p>Our goal is pretty narrow and specific: to produce a usable atlas of the parameter space inside which the next decade of mechanism-design choices about the agent economy will be made. We are not arguing that any one of the twenty-five scenarios is the world that will arrive, but we are arguing that the <em>shape</em> of the trade-off — that high $\alpha$ produces high nominal GDP and low welfare, that the middle of the $\alpha$ range is the default landing spot in the absence of active mechanism design, that $\mathrm{EBI}$ is the diagnostic that distinguishes "the economy got bigger" from "the economy got more legible to itself and less to us" — is robust across plausible parameterizations of the model, and is therefore worth taking seriously as a frame for policy thinking.</p>
 
-      <p>The five points the simulator keeps surfacing, across scenarios and seeds, will be developed in the callout in §2 once the atlas is in front of you. In short: <em>(i)</em> what really moves outcomes is $\alpha$ — how complicated trades are allowed to get — not the raw capability of the agents involved; <em>(ii)</em> high nominal GDP is not a win condition under any reading of welfare we are willing to defend; <em>(iii)</em> the middle of the $\alpha$ range is what populations drift toward without active design; <em>(iv)</em> the low-$\alpha$ corner is not a free lunch — it requires near-zero transaction cost <em>and</em> contract enforcement at planetary scale, which is a heavier institutional ask than the "shrunken state" framing suggests; and <em>(v)</em> two scenarios at the same atlas coordinate are not the same policy. The atlas in §2 makes the first of these five points visible at a glance. The detail panes in §4 and the time-series overlays in §5 make the rest legible.</p>
+      <p>A note on the substrate. Twenty-one of the twenty-five scenarios on this dashboard run on the empirical substrate by default — sector-block trading network calibrated to Atalay et al. 2011, t-copula correlated noise calibrated to the BEA 2022 input-output matrix, and a self-exciting Hawkes folding kernel calibrated to the Bacry &amp; Muzy 2015 endogeneity ratio. The four exclusions are the productive-folding scenarios (<i>Productive Cathedral</i>, <i>Productive Baroque</i>, <i>Derivatives Revolution</i>) and one adversarial-search variant (<i>Baroque (High Welfare)</i>) whose hand-tuned parameters do not survive the substrate switch. This means that when you compare <i>Slop Market</i> to <i>Productive Cathedral</i> across the high-$\alpha$ band, the only meaningful difference is productive folding — not the substrate stack. When you compare <i>Coasean Paradise</i> to <i>Baroque Cathedral</i>, both are on the same substrate. Welfare numbers on this dashboard are systematically higher than they would be on a well-mixed default — by roughly 60% across the board — because realistic trading networks pre-match compatible pairs, raising matching efficiency. Empirical anchoring changes the welfare height the basins can support, but not which basin the scenario is in. The conclusions in §2 are about the basins themselves.</p>
 
-      <div class="essay-aside">A note on what the artifact is not. This is not a forecast — the numbers are stylized and the parameters are explicitly bracketed, not estimated. It is not a normative argument; both poles are plausible and the artifact tries to be agnostic between them. It is not complete; the twenty-five scenarios are samples from an obviously infinite set, and the model itself privileges last-mile material consumption as the welfare denominator in a way that the companion exo-engine deliberately rejects. For the rules of what is and is not claimed — which parameters are calibrated to public empirical data, which are stipulated for face validity, and which are deliberately speculative — the epistemic-status panel in <code>docs/concepts/epistemic_status.md</code> and the empirical-anchor table at the foot of this page are the authoritative references.</div>
+      <p>The six conclusions the simulator keeps surfacing, across scenarios and seeds, are developed in the callout in §2 once the atlas is in front of you. In short: <em>(i)</em> the direct-trade regime is unstable on its own — staying there is an active engineering task, not a passive default; <em>(ii)</em> productive sub-markets raise welfare in absolute terms but do not move the share of measured activity that reaches humans, so $\mathrm{EBI}$ and welfare can both come out high in the same regime; <em>(iii)</em> a targeted tax on agent-to-agent transaction volume is the one corrective lever the simulator finds, and it is bounded by the share of nominal that would have produced welfare if not deterred; <em>(iv)</em> wealth inequality moves only when bargaining power is equalised before trades happen, not by post-trade redistribution; <em>(v)</em> the share of the economy that any human is party to collapses with $\alpha$ independently of welfare, raising a separate concern about democratic legibility; and <em>(vi)</em> even when agents are free to learn their own preferred $\alpha$, they settle at upper-mid $\alpha$ rather than at either extreme. The atlas in §2 makes (i) and (ii) visible at a glance. The detail panes in §4, the §5 Sankey, and the §6 overlays make the rest legible.</p>
+
+      <div class="essay-aside">Again, this is not a forecast — the numbers are stylized and the parameters are explicitly bracketed in the form of scenarios. This also isn't a normative argument; both poles are plausible and the artifact tries to be agnostic about them. This is also not complete; the twenty-five scenarios are samples from an obviously infinite set, and the model itself privileges last-mile material consumption as the welfare denominator in a way that the companion exo-engine deliberately rejects. For the rules of what is and is not claimed — which parameters are calibrated to public empirical data, which are stipulated for face validity, and which are deliberately speculative — the epistemic-status panel in <code>docs/concepts/epistemic_status.md</code> and the empirical-anchor table at the foot of this page are better authoritative references.</div>
 
     </div>
   </div>
@@ -837,12 +841,12 @@ $$</div>
 <section>
   <div class="wrap">
     <h2><span class="marker">§2</span> The atlas</h2>
-    <p class="sub">Each point is one scenario at its terminal step. The <b>x-axis</b> is α — how complicated trades are allowed to get, on [0, 1]. The <b>y-axis</b> is the exo-baroque index (EBI) — nominal GDP divided by real welfare, log-scaled. <b>Color</b> encodes per-capita real welfare; greener is better. The dashed line at EBI = 1 is the parity regime: every unit of measured economic activity matched a unit of human welfare. Anything sustained above that line is measured activity the human side of the economy never received — accounting that lives only in agent-to-agent ledgers.</p>
-    <p class="sub"><b>What to read off the chart.</b> Bottom-left: low α, no folding, accounting tracks welfare. Top-right: high α, recursive folding, accounting separates from welfare by orders of magnitude. A point that sits high on the y-axis <i>and</i> dim in color is the brief's failure case – a regime printing volume without producing anything humans consume. Every point is hover-only; identifying the cluster scenarios by name needs a mouse-over, which keeps the plotting region uncluttered and the y-axis range honest.</p>
+    <p class="sub">Each point is one scenario at its terminal step. The <b>x-axis</b> is α — how complicated trades are allowed to get, on [0, 1]. The <b>y-axis</b> is the exo-baroque index (EBI) — nominal GDP divided by real welfare, log-scaled. <b>Color</b> encodes per-capita real welfare; greener is better. The dashed line at EBI = 1 represents parity where every unit of measured economic activity matched a unit of human welfare. Anything sustained above that line is measured activity the human side of the economy never received — accounting that lives only in agent-to-agent ledgers.</p>
+    <p class="sub"><b>What to read off the chart.</b> Bottom-left: low α, no folding, accounting tracks welfare. Top-right: high α, recursive folding, accounting separates from welfare by orders of magnitude. A point that sits high on the y-axis <i>and</i> dim in color is a kind of failure case as far as human experience goes – a regime printing volume without producing anything humans consume.</p>
     <div class="atlas-grid">
       <div class="chart-box">
         <div class="chart-title">α × exo-baroque index · color = per-capita welfare</div>
-        <div class="chart-caption"><b>Dashed horizontal:</b> EBI = 1 – the parity line where welfare equals nominal GDP. <b>Color</b> is per-capita welfare scaled by 10⁶ (model state is unchanged; the scaling exists so values like Coasean Paradise ≈ 513 and Slop Market ≈ 57 are legible at a glance instead of collapsing into "0.0005" and "0.0001"). Hover any point for the scenario label, exact α, EBI, and welfare.</div>
+        <div class="chart-caption"><b>Dashed horizontal:</b> EBI = 1 – the parity line where welfare equals nominal GDP. <b>Color</b> is per-capita welfare scaled by 10³ (model state is unchanged; the scaling exists so values like Coasean Paradise ≈ 279 and Slop Market ≈ 25 are legible at a glance instead of collapsing into the raw per-capita figures around 0.28 and 0.025). Hover any point for the scenario label, exact α, EBI, and welfare.</div>
         <div id="atlas" style="height:520px;"></div>
       </div>
       <div class="callout">
@@ -853,7 +857,24 @@ $$</div>
           <b>What the atlas does not show.</b> These terminal-step snapshots compress twenty-five trajectories into twenty-five dots. Two scenarios can land at the same coordinate by very different routes – a slow drift through the mid-α basin reads identically to a fast climb that overshoots and falls back. §4 unfolds each path as a six-chart panel; §5 stacks any subset of paths on a shared time axis so the route, not just the destination, becomes clear.
         </p>
         <p style="margin: 0;">
-          <b>What this means for decisions.</b> Five points fall out of this simulation. <b>(1)</b> What really moves outcomes is <b>α — how complicated trades are allowed to get</b> — not the capability of the agents involved. Smarter agents make a given α-regime more productive, but they don't move the regime itself. A "smarter agents" policy without an α policy still ends in a fractal-trade economy if α was high. <b>(2)</b> High nominal GDP is not a win condition. Once EBI is above 1, the marginal unit of measured economic activity is accounting that no human ever consumed. The right metric for policy decisions is per-capita real welfare; EBI is a diagnostic, not a goal. Optimizing for nominal GDP under high α funds the <i>Slop Market</i>. <b>(3)</b> The middle of the α range is the default landing spot. Without active mechanism design, a population drifts toward more complicated trades rather than toward direct ones. Landing in the bottom-left of the atlas is a deliberate act, sustained by concrete choices about platform fees, ceilings on fold depth, alignment-layer veto rights, and the friction floor. <b>(4)</b> The low-α corner is not a free lunch. It requires near-zero transaction cost <i>and</i> contract enforcement that scales to 8 × 10⁹ humans plus 8 × 10¹¹ agents — a heavier institutional ask than the "shrunken state" framing suggests. <b>(5)</b> Two scenarios at the same atlas coordinate are not the same policy. <i>Recursive Simulation</i> and <i>Baroque Cathedral</i> both end at high α and high EBI, but one got there via positive-feedback drift (no one chose it) and the other via deliberate construction. Use §4 and §5 to see the specific routes taken.
+          <b>What this means for decisions.</b> Six conclusions fall out of the scenario set, in order of how load-bearing they are.</p>
+        <p style="margin: 0 0 14px;">
+          <b>(1) The direct-trade regime is unstable on its own.</b> The economy's direct-trade regime — where every transaction is a single observable exchange between two parties, with no derivatives or sub-markets stacked on top — does not hold itself in place. Whenever we let agents themselves decide how much to spawn sub-trades on the back of an existing trade, and we make that decision responsive to what they observe in the rest of the economy, the system collapses out of direct trade in roughly twenty steps (about five years on this clock). Two scenarios on the dashboard, <i>Recursive Simulation</i> and <i>Endogenous Baroque</i>, set this up explicitly: agents become more willing to spawn sub-markets the more sub-markets they see around them. Both slide into the layered, hard-to-audit regime quickly, regardless of where they start. The implication is that staying in the direct-trade regime requires active engineering, not just choosing not to intervene. Concretely: caps on how many derivative layers can stack on top of any base trade; a price floor on every transaction so the cheapest sub-trades can't exist; the right of individuals to veto trades on values grounds even when those trades would be profitable; a targeted tax on agent-to-agent transaction volume; <em>and</em> a contract-enforcement layer that can handle eight billion humans plus eight hundred billion agents at once. The popular reading of the direct-trade regime as a "shrunken state" — a libertarian default — has the institutional difficulty backwards. Direct trade is the harder thing to engineer, not the easier one.
+        </p>
+        <p style="margin: 0 0 14px;">
+          <b>(2) Making the sub-markets useful raises welfare in absolute terms but doesn't restore the human share of measured activity.</b> When sub-markets layered on top of a base trade do real economic work — a derivative that's a genuine risk-pooling mechanism, a sub-market that's a genuine price-discovery mechanism, a layered trade that's a genuine liquidity transfer between parties who both benefit — the dashboard calls this <i>productive folding</i>. When sub-markets are pure overhead — fees stacked on fees, attention markets feeding metadata markets feeding rights markets, with nothing being delivered to a person at the end — the dashboard calls this <i>parasitic folding</i>. Real economies have both, in some proportion, and one of the things the simulator tries to clarify is what happens when you tilt that mix toward productive. The finding is more split than first impression suggests: productive folding <em>does</em> raise welfare, meaningfully. <i>Productive Cathedral</i> — high-α with the productive setting turned all the way up, on a realistic trading network with calibrated noise from US input-output data and self-exciting cascade dynamics drawn from financial-market data — produces the highest per-capita welfare in the entire high-α band of the atlas. The on-paper economy it prints is enormous; even a tiny share of it reaching humans is a substantial absolute amount of welfare. So if the question you bring to the simulator is <em>are people materially better off?</em> — productive folding helps, even at high α. What it does not do is move the share of measured activity that reaches humans. Roughly 99.99% of nominal GDP in <i>Productive Cathedral</i> still goes to agent-to-agent ledgers that no human consumes (the §5 Sankey shows this directly). EBI stays in the high band. So if the question you bring is <em>is the economy connected to anything humans experience?</em> — productive folding doesn't fix that. The absolute volume reaching humans grows because the volume <em>being printed</em> is enormous; the <em>fraction</em> that reaches them stays microscopic. The deeper implication is that EBI and welfare are partially decoupled diagnostics. A regime can score well on welfare and poorly on EBI at the same time, because absolute welfare scales with the size of the on-paper economy while the share-of-GDP reaching humans is a separate quantity that depends on the cascade structure. Two readers asking different questions of the same economy — <em>are people better off?</em> vs <em>can the population see the economy that nominally runs on its behalf?</em> — can come to opposite conclusions about <i>Productive Cathedral</i> and both be right. That isn't a defect of either diagnostic. It's a real feature of high-α-plus-productive-folding regimes that a single headline metric would paper over.
+        </p>
+        <p style="margin: 0 0 14px;">
+          <b>(3) A targeted tax on agent-to-agent volume is the one corrective lever the simulator finds, and it's bounded by its own tax base.</b> A <i>Pigouvian tax</i> is a tax aimed at an activity that imposes a cost the rest of the economy pays for, but which doesn't show up in the activity's own price — the textbook example is a carbon tax. Here, the cost being paid is parasitic accounting: agent-to-agent transaction volume that no human ever consumes but which the rest of the economy's measurement systems treat as economic activity. Two scenarios run different versions of this lever. <i>Pigouvian Heavy</i> taxes 35% of all agent-to-agent transaction volume — both base trades and the volume the cascade spawns on top of them — and recycles the revenue back to humans, weighted toward the lower deciles. The result, at α≈0.6, is that EBI lands 25–30% below what it would be in the same configuration with no tax. Welfare doesn't crash. <i>Pigouvian Friction</i> is the same idea routed differently: a 15% tax recycled as a subsidy on the friction cost of any human-touching trade, which brings humans back into the economy through the supply side rather than as a cash transfer. The constraint that bounds them is sneaky and worth understanding directly. The tax is collected on volume, but its corrective effect — the part that lowers EBI rather than just transferring money around — depends on the share of that volume that <em>would have</em> become real surplus if the tax hadn't deterred it. In deep baroque regimes most of the activity being taxed wasn't going to produce welfare anyway, so the deterrence has nothing to grab onto. The parasitic ribbon dominates, the surplus-bearing share is small, and you can't compensate for that with a higher rate — past a certain point, raising the rate just stops the part of the activity that <em>would have</em> been productive, leaving the parasitic ribbon to fill the space. The §5 Sankey is the place to read this off: the ribbon labeled "recycled (Pigouvian)" can only get as thick as the surplus-bearing slice of the nominal flow, no matter how aggressively the rate is set.
+        </p>
+        <p style="margin: 0 0 14px;">
+          <b>(4) Wealth inequality moves at the source, not after the fact.</b> The wealth Gini — the standard 0-to-1 inequality measure (0 = perfectly equal, 1 = one party owns everything) — moves in this simulator only when the asymmetry that produced the inequality in the first place is removed before the trades happen. <i>Universal Advocate</i>, the only scenario in the set that meaningfully compresses the Gini, raises agent capability across the entire population: every household, regardless of starting wealth, gets the same level of representation in any trade negotiation. The wealth distribution flattens because the bargaining-power gap that previously compounded across deciles has been closed at the source. The two contrast scenarios fill in the picture. <i>Public Defender</i> runs a more politically tractable version of the same idea: capability uplift targeted only to the lower deciles, leaving the upper deciles where they were. The Gini compresses, but less than under universal access — targeted access doesn't reach the asymmetry that produces inequality in high-skill matchups. <i>Pigouvian Heavy</i> runs the opposite intervention: leave bargaining power where it was before any trades happened, and instead tax agent-to-agent volume after the fact, recycling the revenue to humans with progressivity baked into the recycling. The EBI moves. The Gini doesn't. Distributional outcomes in this model are determined by who has bargaining power <em>before</em> the trade engine runs, not by transfers <em>after</em> it has run. The implication for policy is the unfashionable one: post-trade redistribution can move how much money is in whose hands, but it does not move the shape of the distribution that comes out of the trade engine itself. Gini compression has to happen upstream.
+        </p>
+        <p style="margin: 0 0 14px;">
+          <b>(5) Even when welfare is high, the share of the economy any human is party to collapses with α.</b> The dashboard tracks a third diagnostic alongside EBI and welfare, called <i>human legibility</i>: the share of executed trades in which at least one party is a human. In direct-trade scenarios this sits between 0.1% and 3% — already small, because there are a hundred agents for every human just by counting. In fractal scenarios with realistic agent trade speed (one human-paced step for every hundred agent-paced trades), it falls another two orders of magnitude, to between one in a hundred thousand and one in ten thousand executed trades. Welfare and EBI tell you <em>whether</em> the economy is reaching humans. Legibility tells you whether humans can <em>see</em> the economy at all — whether there is any single trade that a specific person was party to and could in principle audit, contest, or remember happening. This number falls with α regardless of whether the cascade is productive or parasitic, and regardless of where welfare lands. <i>Productive Cathedral</i>, the scenario from conclusion 2 with high welfare and high EBI, has very low legibility — the high welfare reaches humans through statistical aggregates, not through trades that any specific person was on either side of. The implication for democratic accountability is direct: in the high-α scenarios, the economy is observable to itself — agents can audit agents, sub-markets can audit sub-markets — but it is no longer observable to the population on whose behalf it nominally runs. The legibility axis is what tells you whether the people supposedly being represented by the economic system can see the system that represents them.
+        </p>
+        <p style="margin: 0;">
+          <b>(6) When agents are free to choose how complicated trades get, they settle at upper-mid α — not at the extremes.</b> There is one scenario in the set, <i>Endogenous Baroque</i>, that gives every prototype a learning algorithm — a contextual bandit — on its own preferred α. Each agent can learn over the run what level of fractal trade it wants to participate in, given what it observes around it. The population's average α drifts to wherever this learning takes it. The empirical answer is robustly the upper-mid range — α settles somewhere around 0.7. Not the cathedral (α near 1). Not the direct-trade corner (α near 0). This says two things. First, the cathedral regime — α near 1, fold cascade everywhere, EBI in the millions — does not arise from agent preferences alone. Sustaining it takes external scaffolding: low platform fees, no ceiling on how deep the cascade can go, weak alignment vetoes, no friction floor. Without those institutional conditions in place, the cathedral evaporates back toward the upper-mid attractor. Second, and equally important, the direct-trade corner doesn't arise from agent preferences either. Agents free to choose any α don't choose direct trade. The gravitational pull of the population's own learning is mid-fractal, which reinforces the first conclusion — that staying in the direct-trade corner is an active engineering task, not a passive default. The simulator finds that even before any institutional pressure is applied, agents that can learn settle at α ≈ 0.7 because that's where their own incentives land.
         </p>
       </div>
     </div>
@@ -870,8 +891,8 @@ $$</div>
         <h3>Scale stability &amp; trajectory convergence at the 50-year horizon</h3>
         <span class="cs-meta">via <code>agentworld convergence</code> / <code>agentworld stability</code></span>
       </div>
-      <p class="cs-panel-sub" style="border-left: 2px solid var(--accent); padding-left: 12px; color: var(--text);"><b>Reading the panel.</b> The numbers everywhere else on this dashboard are <b>50-year-horizon values</b> — one step is one quarter, so <code>n_steps=200</code> ≈ the brief's 2026→2076 frame. The <b>drift column</b> shows how much each scenario's terminal EBI moves if you double the horizon to <code>n_steps=400</code> (year 100): a continuous quantity, not a pass/fail. Low drift (&lt;1%) means the trajectory has effectively saturated within the brief's window — what you see is the answer. High drift means EBI is still climbing past year 50, which is <i>itself</i> the empirical claim of those scenarios: the regime change is in progress, not finished. Steady-state values would require multi-century extrapolation past the point where the speculative load-bearing parameters can carry honesty, so the dashboard quotes the 50-year value alongside the drift, not in place of it.</p>
-      <p class="cs-panel-sub">Two diagnostics per scenario: <b>(scale)</b> is the small-scale terminal-EBI mean inside the medium-scale CI? <b>(drift)</b> what is the percentage shift in terminal EBI between <code>n_steps=200</code> and <code>n_steps=400</code>? Twenty of the twenty-five scenarios on this atlas currently carry committed values; the remaining five (<i>Smoothing Cascade</i>, <i>Fold Avalanche</i>, <i>Recursive Simulation</i>, <i>Endogenous Baroque</i>, <i>Full Emergence</i>) are scheduled-α or endogenous-α scenarios where the trajectory-convergence question doesn't apply — they're transient by construction, and a pass/fail flag would be a category error. See <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/convergence.md">convergence.md</a> and <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/time_discretization.md">time_discretization.md</a> for method and the dt anchor.</p>
+      <p class="cs-panel-sub" style="border-left: 2px solid var(--accent); padding-left: 12px; color: var(--text);"><b>Reading the panel.</b> The numbers everywhere else on this dashboard are <b>50-year-horizon values</b> — one step is one quarter, so <code>n_steps=200</code> ≈ the brief's 2026→2076 frame. This <b>drift column</b> shows how much each scenario's terminal EBI moves if you double the horizon to <code>n_steps=400</code> (year 100): a continuous quantity, not a pass/fail. Low drift (&lt;1%) means the trajectory has effectively saturated within the brief's window — what you see is the answer. High drift means EBI is still climbing past year 50. Steady-state values would require multi-century extrapolation past the point where the speculative load-bearing parameters really make sense for a simulation of this size, so the dashboard quotes the 50-year value alongside that drift marker, not in place of it.</p>
+      <p class="cs-panel-sub">One diagnostic per scenario: <b>(drift)</b> what is the percentage shift in terminal EBI between <code>n_steps=200</code> and <code>n_steps=400</code>? The earlier scale-stability flag (small-vs-medium-population EBI consistency) is currently small-only because the empirical SBM substrate exceeds the network-node ceiling at medium scale and would fall back to well-mixed sampling, contaminating the comparison. The drift column comes from a 4-seed stability sweep on the substrate at the small population. See <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/convergence.md">convergence.md</a> and <a href="https://github.com/mpoliks/agentworld/blob/main/docs/concepts/time_discretization.md">time_discretization.md</a> for method and the dt anchor.</p>
       <div id="cs-table-host"></div>
     </div>
   </div>
@@ -920,17 +941,17 @@ $$</div>
     <div class="charts-grid">
       <div class="chart-box">
         <div class="chart-title">α (smooth ↔ striated) over time</div>
-        <div class="chart-caption">The control schedule. A flat line means α was held constant; a ramp or decay means α was scheduled to move; a jagged trace means α responded to the run itself – <i>Recursive Simulation</i> is the canonical example, where α climbs whenever EBI climbs.</div>
+        <div class="chart-caption">The control schedule. A flat line means α was held constant; a ramp or decay means α was scheduled to move; a jagged trace means α responded to the run itself – <i>Recursive Simulation</i> is the easiest example, where α climbs whenever EBI climbs.</div>
         <div id="d-alpha" style="height:240px;"></div>
       </div>
       <div class="chart-box">
         <div class="chart-title">cumulative real welfare vs nominal GDP</div>
-        <div class="chart-caption">Two cumulative curves on a log y-axis. They start together. The vertical gap between them <i>is</i> the exo-baroque index – the wider it opens, the more measured economic activity has folded into accounting that no human ever consumes.</div>
+        <div class="chart-caption">Two cumulative curves on a log y-axis. They start together. Watch the vertical gap between them (that <i>is</i> the exo-baroque index) – the wider it opens, the more measured economic activity has folded into accounting that no human ever consumes.</div>
         <div id="d-realnom" style="height:240px;"></div>
       </div>
       <div class="chart-box">
         <div class="chart-title">exo-baroque index over time (log scale)</div>
-        <div class="chart-caption">The same gap, expressed as a single ratio. The dashed reference at EBI = 1 is the parity line. Anything sustained above it is GDP that the human side of the economy did not receive – folded surplus that exists only in agent-to-agent ledgers.</div>
+        <div class="chart-caption">The same gap, expressed as a single ratio. The dashed reference at EBI = 1 is the parity line. Anything sustained above it is GDP that the human side of the economy did not receive.</div>
         <div id="d-ebi" style="height:240px;"></div>
       </div>
       <div class="chart-box">
@@ -939,13 +960,13 @@ $$</div>
         <div id="d-fold" style="height:240px;"></div>
       </div>
       <div class="chart-box">
-        <div class="chart-title">per-capita welfare · ×10⁶ stylized units</div>
-        <div class="chart-caption">Real welfare divided across 8 × 10⁹ humans, step by step. The actual material outcome on the human side. Multiplied by 10⁶ for legibility – these are not dollars. Coasean Paradise tops out near 500; Slop Market near 60. Use this trace to compare scenarios on welfare alone, with α and EBI deliberately set aside.</div>
+        <div class="chart-title">per-capita welfare · ×10³ stylized units</div>
+        <div class="chart-caption">Real welfare divided across 8 × 10⁹ humans, step by step. The actual material outcome on the human side. These are not dollars, these are stylized units for comparison! Coasean Paradise tops out near 280; Slop Market near 25. Productive Cathedral (the high-α scenario with productive folding turned on) is the welfare leader at ≈ 620. Use this trace to compare scenarios on welfare alone, with α and EBI deliberately set aside.</div>
         <div id="d-pc" style="height:240px;"></div>
       </div>
       <div class="chart-box">
         <div class="chart-title">why trades got rejected — by filter</div>
-        <div class="chart-caption">Of the trades that did not complete, which filter killed them. <span style="color:#c25a5a;">law</span> = the trade was illegal. <span style="color:#5b8ec4;">market</span> = the platform blocked it or its fees made it uneconomic. <span style="color:#5fa572;">alignment</span> = one of the parties objected on values grounds. <span style="color:#b89a55;">cost</span> = the trade's underlying friction was higher than its surplus, so it wasn't worth doing. The dominant color names the binding constraint at each step.</div>
+        <div class="chart-caption">Of the trades that did not complete, which filter killed them. <span style="color:#c25a5a;">law</span> = the trade was illegal. <span style="color:#5b8ec4;">market</span> = the platform blocked it or its fees made it uneconomic. <span style="color:#5fa572;">alignment</span> = one of the parties objected on values grounds. <span style="color:#b89a55;">cost</span> = the trade's underlying friction was higher than its surplus, so it wasn't worth doing.</div>
         <div id="d-rej" style="height:240px;"></div>
       </div>
       <div class="chart-box">
@@ -997,7 +1018,7 @@ $$</div>
 <section>
   <div class="wrap">
     <h2><span class="marker">§6</span> Compare scenarios</h2>
-    <p class="sub">Pick any subset of scenarios and overlay them on a shared time axis. Useful for the question: <i>what do the Slop Market and the Baroque Cathedral share, and where do they diverge?</i> Both end at high α; only one converts that α into welfare. Stacking the EBI and per-capita-welfare curves makes the divergence step visible.</p>
+    <p class="sub">Pick any subset of scenarios and overlay them on a shared time axis. Useful for questions like:<i>what do the Slop Market and the Baroque Cathedral share, and where do they diverge?</i> Both end at high α; only one converts that α into welfare. Stacking the EBI and per-capita-welfare curves makes the divergence step visible.</p>
     <div class="compare-help">
       Click a chip to toggle it in or out of the overlay. <kbd>⌥ alt-click</kbd> a chip to <b>solo</b> it – keep just that one and clear the rest. The buttons at the right of the strip act on the whole set: <b>All</b> turns every scenario on, <b>Clear</b> removes everything, <b>Reset</b> restores the four corner-defining scenarios.
     </div>
@@ -1009,8 +1030,8 @@ $$</div>
         <div id="c-ebi" style="height:280px;"></div>
       </div>
       <div class="chart-box">
-        <div class="chart-title">per-capita welfare · ×10⁶ stylized units</div>
-        <div class="chart-caption">What households actually got at each step. Shape distinguishes cumulative growth from stagnation; height ranks the selected scenarios on welfare alone, regardless of how much GDP each printed. Y-axis is scaled by 10⁶ for legibility – model state is identical to the §1 definition.</div>
+        <div class="chart-title">per-capita welfare · ×10³ stylized units</div>
+        <div class="chart-caption">What households actually got at each step. Shape distinguishes cumulative growth from stagnation; height ranks the selected scenarios on welfare alone, regardless of how much GDP each printed. Y-axis is scaled by 10³ for legibility – model state is identical to the §1 definition.</div>
         <div id="c-pc" style="height:280px;"></div>
       </div>
       <div class="chart-box">
@@ -1055,12 +1076,12 @@ $$</div>
       </div>
       <div class="chart-box">
         <div class="chart-title">exo-engine · Sobol indices for circulation index</div>
-        <div class="chart-caption">Same decomposition for the exo-engine target (exo_circulation_index). The exo-engine refuses EBI as a load-bearing diagnostic; this chart says which exo-side knobs move the exo-side diagnostic.</div>
+        <div class="chart-caption">Same decomposition for the exo-engine target (exo_circulation_index). This chart says which exo-side knobs impact exo-side diagnostics.</div>
         <div id="sobol-exo-circ" style="height:340px;"></div>
       </div>
       <div class="chart-box">
         <div class="chart-title">exo-engine · Sobol indices for imperial extraction share</div>
-        <div class="chart-caption">Sensitivity of the imperial extraction-share metric. Useful for the question "is the extraction rate parameter the only thing that controls extraction share?" (Spoiler: it usually is, and that is itself a useful sanity check on the engine.)</div>
+        <div class="chart-caption">Sensitivity of the imperial extraction-share metric. Useful for the question "is the extraction rate parameter the only thing that controls extraction share?" (Spoiler: it usually is, and that is itself maybe an indictment of the engine.)</div>
         <div id="sobol-exo-extraction" style="height:340px;"></div>
       </div>
     </div>
@@ -1086,16 +1107,16 @@ const SOBOL_EXO = PAYLOAD.sobol_exo || null;
 const PROVENANCE = PAYLOAD.provenance || [];
 
 // ---------- welfare display scaling ----------
-// Real per-capita welfare lives in ~5.7e-5 to ~5.1e-4 (stylized units divided
+// Real per-capita welfare lives in ~2.5e-2 to ~6.2e-1 (stylized units divided
 // across 8e9 humans). At that magnitude .toFixed(4) collapses the whole range
-// into "0.0001" or "0.0005" and cross-scenario ranking is invisible. Scale
+// into the unscaled per-step values (~0.025 to ~0.62) and cross-scenario ranking is hard to read. Scale
 // by 10^6 for display only – model state is unchanged. Coasean Paradise reads
-// as ~513, Slop Market as ~57. Apply consistently everywhere welfare appears.
-const WELFARE_SCALE = 1e6;
-const WELFARE_LABEL_LONG  = 'welfare per capita · ×10⁶ stylized units';
-const WELFARE_LABEL_SHORT = 'w/cap (×10⁶)';
+// as ~279, Slop Market as ~25. Apply consistently everywhere welfare appears.
+const WELFARE_SCALE = 1e3;
+const WELFARE_LABEL_LONG  = 'welfare per capita · ×10³ stylized units';
+const WELFARE_LABEL_SHORT = 'w/cap (×10³)';
 const fmtW = (v) => (v * WELFARE_SCALE).toFixed(1);
-// Compact welfare formatter for the scenario cards – the full ×10⁶ figure
+// Compact welfare formatter for the scenario cards – the full ×10³ figure
 // like "173891.4" wraps at the card's 220px min-width, so card readouts use
 // k/M suffixes instead. The detail panes and chart axes still use fmtW.
 const fmtWcompact = (v) => {
@@ -1138,7 +1159,7 @@ function renderAtlas() {
   const colorbar = mobile
     ? {
         orientation: 'h',
-        title: { text: 'welfare per capita · ×10⁶', font: { color: '#9ea2a8', size: 10 } },
+        title: { text: 'welfare per capita · ×10³', font: { color: '#9ea2a8', size: 10 } },
         tickfont: { color: '#6a6d72', size: 9 },
         thickness: 10, len: 0.9,
         x: 0.5, xanchor: 'center',
@@ -1249,13 +1270,16 @@ function renderConvergenceStability() {
     host.innerHTML = '<div class="cs-empty">No convergence/stability sweeps committed yet. Run <code>agentworld convergence</code> and <code>agentworld stability</code> to populate this panel.</div>';
     return;
   }
-  const driftClass = (d) => (d == null ? '' : (Math.abs(d) < 1 ? 'steady' : (Math.abs(d) < 5 ? 'drifting' : 'transient')));
-  const nStable = rows.filter(r => r.scale_status === 'stable').length;
-  const nFragile = rows.filter(r => r.scale_status === 'fragile').length;
+  // Under the empirical substrate switch, scale-stability comparison is
+  // small-only (SBM exceeds MAX_NETWORK_NODES at medium population), so we
+  // drop the scale columns and surface drift alone. Scale data is still
+  // loaded via PAYLOAD if/when present (e.g., for diagnostic review), but
+  // the visible table is drift-focused.
+  const haveScaleData = rows.some(r => r.scale_status);
   const nSettled = rows.filter(r => r.traj_drift_pct != null && Math.abs(r.traj_drift_pct) < 1).length;
   const nDrifting = rows.filter(r => r.traj_drift_pct != null && Math.abs(r.traj_drift_pct) >= 1 && Math.abs(r.traj_drift_pct) < 5).length;
   const nTransient = rows.filter(r => r.traj_drift_pct != null && Math.abs(r.traj_drift_pct) >= 5).length;
-  const summary = `<div class="cs-panel-sub" style="color:var(--text-3); font-family:var(--mono); font-size:11px; margin-bottom:6px;">scope: ${rows.length} scenarios · scale: <span style="color:var(--green);">${nStable} stable</span>, <span style="color:#c25a5a;">${nFragile} fragile</span> · 50→100y drift: <span style="color:var(--green);">${nSettled} &lt;1%</span>, <span style="color:#b89a55;">${nDrifting} 1–5%</span>, <span style="color:#c25a5a;">${nTransient} ≥5%</span></div>`;
+  const summary = `<div class="cs-panel-sub" style="color:var(--text-3); font-family:var(--mono); font-size:11px; margin-bottom:6px;">scope: ${rows.length} scenarios · 50→100y drift: <span style="color:var(--green);">${nSettled} &lt;1%</span>, <span style="color:#b89a55;">${nDrifting} 1–5%</span>, <span style="color:#c25a5a;">${nTransient} ≥5%</span>${haveScaleData ? '' : ' · scale comparison unavailable (SBM at medium scale exceeds memory ceiling)'}</div>`;
   const fmtN = (x) => (x == null ? '—' : (Math.abs(x) < 100 ? x.toFixed(2) : x.toExponential(1)));
   const fmtPct = (x) => {
     if (x == null) return '—';
@@ -1272,10 +1296,6 @@ function renderConvergenceStability() {
   const tr = rows.map(r => `
     <tr>
       <td class="scen">${r.label}</td>
-      <td>${r.scale_status ? `<span class="cs-badge ${r.scale_status}">${r.scale_status === 'stable' ? 'S✓' : 'S✗'}</span>` : '—'}</td>
-      <td class="num">${fmtN(r.scale_small_ebi)}</td>
-      <td class="num">${fmtN(r.scale_medium_ebi_mean)}</td>
-      <td class="num" style="color:var(--text-3);">[${fmtN(r.scale_medium_ebi_lo)}, ${fmtN(r.scale_medium_ebi_hi)}]</td>
       <td class="num">${fmtN(r.traj_ebi_prev)}</td>
       <td class="num">${fmtN(r.traj_ebi_last)}</td>
       <td class="num" style="color:${driftColor(r.traj_drift_pct)}; font-weight:500;">${fmtPct(r.traj_drift_pct)}</td>
@@ -1285,12 +1305,8 @@ function renderConvergenceStability() {
       <thead>
         <tr>
           <th>scenario</th>
-          <th>scale</th>
-          <th class="num">EBI<sub>small</sub></th>
-          <th class="num">EBI<sub>medium</sub></th>
-          <th class="num">95% CI</th>
-          <th class="num">EBI(200)</th>
-          <th class="num">EBI(400)</th>
+          <th class="num">EBI(200 steps · year 50)</th>
+          <th class="num">EBI(400 steps · year 100)</th>
           <th class="num">drift 50→100y</th>
         </tr>
       </thead>
@@ -2023,7 +2039,7 @@ function loadDetail(name) {
   meta.innerHTML = `
     <div class="stat"><div class="label">Final α (regime label)</div><div class="value tinted">${s.final_alpha.toFixed(2)} <span style="font-size:13px; color:var(--text-3);">${s.final_label}</span></div></div>
     <div class="stat"><div class="label">Exo-baroque index</div><div class="value">${last(h.exo_baroque_index) < 100 ? last(h.exo_baroque_index).toFixed(2) : last(h.exo_baroque_index).toExponential(2)}</div><div class="sub">nominal / real, log-scale</div></div>
-    <div class="stat"><div class="label">Per-capita real welfare</div><div class="value">${fmtW(last(h.real_per_capita_welfare))}</div><div class="sub">cumulative · ×10⁶ stylized units</div></div>
+    <div class="stat"><div class="label">Per-capita real welfare</div><div class="value">${fmtW(last(h.real_per_capita_welfare))}</div><div class="sub">cumulative · ×10³ stylized units</div></div>
     <div class="stat"><div class="label">Wealth Gini</div><div class="value">${last(h.gini_wealth).toFixed(3)}</div></div>
     <div class="stat"><div class="label">Sub-markets created (peak)</div><div class="value">${_animFmtBig(Math.max(...h.n_sub_markets_added))}</div><div class="sub">peak step's fold-cascade output</div></div>
     <div class="stat"><div class="label">A2A interaction share</div><div class="value">${(last(h.a2a_share) * 100).toFixed(1)}%</div><div class="sub">vs H2A: ${(last(h.h2a_share) * 100).toFixed(2)}% · H2H: ${(last(h.h2h_share) * 100).toFixed(3)}%</div></div>
@@ -2095,8 +2111,19 @@ function loadDetail(name) {
     { ...baseLayout, yaxis: { ...baseLayout.yaxis, range: [0, 1] }, showlegend: true, legend: { orientation: 'h', y: 1.15, font: { size: 9 } } },
     { displayModeBar: false, responsive: true });
 
-  // Authentic vs un-modulated real welfare.
+  // Authentic vs un-modulated real welfare. When DemandConfig is off
+  // (the substrate-anchored default for 21 of 25 dashboard scenarios),
+  // the two curves are mathematically identical — show an overlay note
+  // rather than letting the reader stare at a single line wondering why.
+  const demandOn = !!(s.config && s.config.topology && s.config.topology.demand && s.config.topology.demand.enabled);
   const authCum = h.real_welfare_authentic_cumulative || h.real_welfare_cumulative;
+  const authAnnotations = demandOn ? [] : [{
+    text: 'demand modulation off — the two curves coincide exactly',
+    showarrow: false,
+    xref: 'paper', yref: 'paper', x: 0.5, y: 0.92,
+    font: { color: '#9ea2a8', size: 11, family: 'Iowan Old Style, Georgia, serif' },
+    bgcolor: 'rgba(20,22,26,0.85)', bordercolor: 'rgba(154,158,168,0.3)', borderwidth: 1, borderpad: 4,
+  }];
   Plotly.react('d-authentic',
     [
       { x: h.step, y: h.real_welfare_cumulative, name: 'real welfare (un-modulated)',
@@ -2105,20 +2132,34 @@ function loadDetail(name) {
         mode: 'lines', line: { color: '#b89a55', width: 2, dash: 'solid' } },
     ],
     { ...baseLayout, yaxis: { ...baseLayout.yaxis, type: 'log' },
+      annotations: authAnnotations,
       showlegend: true, legend: { orientation: 'h', y: 1.15, font: { size: 9 } } },
     { displayModeBar: false, responsive: true });
 
-  // Productive folding welfare yield vs nominal residual.
+  // Productive folding welfare yield vs nominal residual. When productive
+  // folding is off (base_variance_absorption=0, the substrate-anchored
+  // default for 21 of 25 scenarios), yield is flat zero and nominal residual
+  // is flat 1.0 — show an overlay note explaining why.
+  const productiveOn = !!(s.config && s.config.topology && s.config.topology.base_variance_absorption > 0);
   const pfs = h.productive_welfare_yield || h.step.map(() => 0);
   const pas = (h.parasitic_nominal_residual != null)
     ? h.parasitic_nominal_residual
     : pfs.map(v => 1 - v);
+  const prodAnnotations = productiveOn ? [] : [{
+    text: 'productive folding off (base_variance_absorption = 0) — all fold-cascade volume is parasitic',
+    showarrow: false,
+    xref: 'paper', yref: 'paper', x: 0.5, y: 0.5,
+    font: { color: '#e7e8ea', size: 11, family: 'Iowan Old Style, Georgia, serif' },
+    bgcolor: 'rgba(20,22,26,0.85)', bordercolor: 'rgba(154,158,168,0.3)', borderwidth: 1, borderpad: 4,
+  }];
   Plotly.react('d-pfs',
     [
       { x: h.step, y: pfs, name: 'welfare yield', stackgroup: 'one', mode: 'none', fillcolor: 'rgba(95,165,114,0.7)' },
       { x: h.step, y: pas, name: 'nominal residual', stackgroup: 'one', mode: 'none', fillcolor: 'rgba(194,90,90,0.7)' },
     ],
-    { ...baseLayout, yaxis: { ...baseLayout.yaxis, range: [0, 1] }, showlegend: true, legend: { orientation: 'h', y: 1.15, font: { size: 9 } } },
+    { ...baseLayout, yaxis: { ...baseLayout.yaxis, range: [0, 1] },
+      annotations: prodAnnotations,
+      showlegend: true, legend: { orientation: 'h', y: 1.15, font: { size: 9 } } },
     { displayModeBar: false, responsive: true });
 
   // Initialize the transaction-space animation for this scenario.

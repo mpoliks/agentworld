@@ -1246,40 +1246,40 @@ SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
 
 
 SCENARIO_DESCRIPTIONS = {
-    "coasean_paradise": "The smooth-limit baseline. α is held near 0, the friction floor is low, and the folding kernel is effectively off. Every cleared trade is a single direct exchange between two parties, so cumulative nominal GDP and real welfare track each other to within noise and EBI lands at ≈ 1. Used as the reference scenario against which all higher-α regimes are read.",
+    "coasean_paradise": "Seb Krier's dream, peak smooth-world. α is held near 0, the friction floor is low, and the folding kernel is effectively off. Every cleared trade is a single direct exchange between two parties, so cumulative nominal GDP and real welfare track each other to within noise and EBI lands at ≈ 1. Used as the reference scenario against which all higher-α regimes are read.",
     "baroque_cathedral": "The fractal-limit baseline. α is high, the folding kernel sustains itself across the full per-scenario depth budget, and the per-layer nominal multiplier is set to its design value. Cumulative nominal GDP separates from real welfare by several orders of magnitude over the run; per-capita welfare lands well below the smooth baseline. The reference scenario for the high-α attractor.",
-    "baroque_with_high_welfare": "A counter-example located by adversarial parameter search over the prior. α and the folding kernel are configured to produce EBI > 10, but capability and demand-side parameters are tuned so per-capita welfare exceeds the smooth baseline. An existence proof that high EBI does not strictly imply low welfare, even though the two correlate strongly across the population of plausible scenarios.",
-    "equilibrium_drift": "α is held at 0.5 — the midpoint of the smooth-striated continuum. Both attractors exert pull and the seed-to-seed envelope on EBI is wide. Used to read off how much active mechanism design is needed to keep the economy off the mid-α default that an unmanaged population drifts toward.",
-    "smoothing_cascade": "α is scheduled to decay linearly from 0.95 down to 0.05 over the run. A controlled test of whether an economy already deep in the fractal regime can be steered back toward direct trade by a credible commitment to wind down folding. The recovery in EBI lags the policy schedule by several steps because the existing folded layers do not unwind instantaneously.",
-    "fold_avalanche": "α is scheduled to ramp from 0 toward 1 over the run — the mirror of smoothing_cascade. EBI take-off precedes the welfare collapse: the nominal ledger compounds immediately while welfare losses propagate through the per-depth efficiency leak. Reports the lag between the two ledgers when the schedule moves α faster than the welfare side can register.",
+    "baroque_with_high_welfare": "A counter-example using adversarial parameter search over the prior. α and the folding kernel are configured to produce EBI > 10, but capability and demand-side parameters are tuned so per-capita welfare exceeds the smooth baseline. A proof that high EBI does not strictly imply low welfare, even though the two correlate strongly across the population of plausible scenarios.",
+    "equilibrium_drift": "α is held at 0.5. Both attractors exert pull and the seed-to-seed envelope on EBI is wide. Used to read off how much active mechanism design is needed to keep the economy off the mid-α default that an unmanaged population drifts toward.",
+    "smoothing_cascade": "α is scheduled to decay linearly from 0.95 down to 0.05 over the run. A controlled test of whether an economy already deep in the fractal regime can be steered back toward direct trade by a credible commitment to wind down folding. The recovery in EBI lags behind the policy schedule by several steps because the existing folded layers do not unwind instantaneously.",
+    "fold_avalanche": "α is scheduled to ramp from 0 toward 1 over the run — the mirror of smoothing_cascade. EBI take-off precedes the welfare collapse: the nominal ledger compounds immediately while welfare losses propagate through the per-depth efficiency leak. This reports the lag between the two ledgers when the schedule moves α faster than the welfare side can register.",
     "hemispherical_schism": "Multiple incompatible economic stacks (a US/EU/China-style fragmentation in miniature). Cross-stack compatibility is set near zero, which raises both the law-filter rejection probability and the per-trade cost on any inter-stack pair. Intra-stack trade dominates; the surplus that previously cleared across stacks is lost to translation, compliance, and trust costs.",
-    "compute_famine": "The friction floor on every trade rises mid-run, modelling a sudden revaluation of compute. The marginal sub-trade — the one that depended on a near-zero floor to clear — gets priced out first. Read as the asymmetric exposure of high-α scenarios to a friction-floor shock: low-α regimes barely register the change, high-α regimes shed deep folding layers within a few steps.",
-    "universal_advocate": "Agent capability is raised across the entire population — high-capability representation is available to every household, not just the wealthy. The folding parameters sit at the low-α direct-trade baseline. The wealth Gini compresses because the asymmetric bargaining power that previously compounded across deciles is removed at the source rather than redistributed after the fact.",
+    "compute_famine": "The friction floor on every trade rises mid-run, modeling a sudden revaluation of compute cost. The marginal sub-trade — the one that depended on a near-zero floor to clear — gets priced out first. Read as the asymmetric exposure of high-α scenarios to a friction-floor shock: low-α regimes barely register the change, high-α regimes shed deep folding layers within a few steps.",
+    "universal_advocate": "Agent capability is raised across the entire population — high-capability representation is available to every household, not just the wealthy. The folding parameters are pulled down to the low-α direct-trade baseline. The wealth Gini compresses because the asymmetric bargaining power that might otherwise be compounded across deciles is removed at the source rather than redistributed after the fact.",
     "synthetic_consumers": "Agent autonomy is raised across the population so that agents act on their human principals' behalf for most decisions. Demand is generated and routed by agents; humans appear in the executable trade set as a low-percentage minority. Reports the unweighted accounting and is the input baseline to synthetic_consumers_v2, which adds the demand-side weighting on top.",
     "nimby_cascade": "The alignment-layer rejection rate is raised across the population, modelling mass exercise of individual veto power. Many otherwise-clearing trades die in the alignment filter rather than the cost calculation. A stress test on how a high-veto regime locks surplus behind objections, and how much of the surplus was structurally contestable to begin with.",
-    "slop_market": "High α with low agent capability — capability roughly N(0.30, 0.15). Sub-trades spawn at the maximum permitted rate but cannot extract real value from the layering, so they accumulate as rent-collecting noise on top of every base exchange. EBI ranges into 10⁵–10⁶; per-capita welfare lands well below the smooth baseline. The clearest failure case in the scenario set.",
-    "public_defender": "A targeted capability uplift for the bottom of the wealth distribution: capability variance is widened and the lower tail is raised, leaving the upper deciles untouched. Folding parameters sit at the low-α baseline. A more politically tractable analogue of universal_advocate; tests whether redistributive access alone is enough to compress the wealth Gini in a moderately folded economy.",
-    "matryoshka_collapse": "Both the market filter and the alignment filter are raised toward their tightest setting. Most attempted trades die in the filters before reaching the cost calculation, so cumulative nominal GDP and real welfare both contract. Read as the institutional ask of the smooth attractor in the limit: when governance is strict on every layer, surviving trade volume is small and the Gini barely moves because the marginal trade does not happen.",
+    "slop_market": "High α with low agent capability — capability roughly N(0.30, 0.15). Sub-trades spawn at the maximum permitted rate but cannot extract real value from the layering, so they accumulate as rent-collecting noise on top of every base exchange. EBI ranges into 10⁵–10⁶; per-capita welfare lands well below the smooth baseline. The clearest failure case in the whole scenario set.",
+    "public_defender": "A targeted capability uplift for the bottom of the wealth distribution: agent capability variance is widened and the lower tail is raised, leaving the upper deciles untouched. Folding parameters sit at the low-α baseline. A more politically tractable analogue of universal_advocate; tests whether redistributive access alone is enough to compress the wealth Gini in a moderately folded economy.",
+    "matryoshka_collapse": "Both the market filter and the alignment filter are raised toward their tightest setting. Most attempted trades die in the filters before reaching the cost calculation, so cumulative nominal GDP and real welfare both contract. Read as the institutional side of the smooth attractor in the limit: when governance is strict on every layer, surviving trade volume is small and the Gini barely moves because marginal trade does not happen.",
     "recursive_simulation": "α responds endogenously to the running EBI: the more fractal the economy gets, the higher the propensity to spawn further sub-trades. A positive-feedback loop with no governor. The basin around the smooth attractor is shallow and the system tips into the fractal attractor within roughly twenty steps; useful for reading off how locally-stable the smooth regime is under reflexive folding pressure.",
-    "exo_baroque_singularity": "The depth limit on the folding kernel is removed; folding compounds without a ceiling. EBI ranges into the 10⁶–10⁷ band and per-capita welfare collapses to within an order of magnitude of zero. Reported as an upper-bound diagnostic on what unbounded fractal trade asymptotes to, not a regime to plan for.",
+    "exo_baroque_singularity": "The depth limit on the folding kernel is removed; folding compounds without a ceiling. EBI ranges into the 10⁶–10⁷ band and per-capita welfare collapses to within an order of magnitude of zero. Think of it as an upper-bound diagnostic on what unbounded fractal trade asymptotes to.",
     "coasean_paradise_networked": "The richest-stack low-α variant: smooth-limit configuration on a Barabási-Albert scale-free network (Atalay et al. 2011 degree exponent), with t-copula coupled noise (df = 4, BEA 2022 input-output correlations), a Hawkes self-exciting folding kernel (Bacry & Muzy 2015 endogeneity), productive folding on (base_variance_absorption = 0.20), and demand-side weighting on with a 20% A2A floor (DemandConfig.enabled = True, a2a_floor = 0.20). Per-capita welfare lands above plain coasean_paradise because the productive and demand levers are stacked on top of the topology change; not an apples-to-apples topology-robustness test against coasean_paradise. To read off pure topology effects, hold productive folding and demand weighting at the coasean_paradise defaults.",
-    "baroque_cathedral_networked": "The richest-stack baroque variant: high-α cathedral configuration on a sector-block stochastic block model, with t-copula coupled noise (df = 4, BEA 2022 input-output correlations), a Hawkes self-exciting folding kernel (Bacry & Muzy 2015 endogeneity), productive folding on (base_variance_absorption = 0.35, so 35% of fold-nominal volume converts to real welfare via risk pooling, hedging, and price discovery), and demand-side weighting on (DemandConfig.enabled = True, A2A surplus credited at the 15% floor). Per-capita real welfare is the highest in the high-α band; nominal residual is still ≈ 99.99% parasitic by Sankey share, so the two ledgers diverge in opposite directions — W large in absolute terms, share-of-G to humans tiny. Compare to plain baroque_cathedral, which holds productive folding and demand weighting off, to read off how much of the welfare lift comes from the empirical-anchor stack vs the productive/demand levers.",
-    "synthetic_consumers_v2": "synthetic_consumers with demand-side weighting on. Trades that reach a human consumer count for full welfare; pure agent-to-agent trades are credited at the 15% floor that accounts for indirect downstream benefits. Reports the gap between what the economy printed and what humans got, separating accounting from welfare in a way the unweighted version cannot.",
+    "baroque_cathedral_networked": "The richest-stack baroque variant: high-α cathedral configuration on a sector-block stochastic block model, with t-copula coupled noise (df = 4, BEA 2022 input-output correlations), a Hawkes self-exciting folding kernel (Bacry & Muzy 2015 endogeneity), productive folding on (base_variance_absorption = 0.35, so 35% of fold-nominal volume converts to real welfare via risk pooling, hedging, and price discovery), and demand-side weighting on (DemandConfig.enabled = True, A2A surplus credited at the 15% floor). Per-capita real welfare is the highest in the high-α band; nominal residual is still ≈ 99.99% parasitic by Sankey share, so the two ledgers diverge in opposite directions — W large in absolute terms, share-of-G to humans tiny. Compare to plain baroque_cathedral.",
+    "synthetic_consumers_v2": "synthetic_consumers with demand-side weighting on. Trades that reach a human consumer count for full welfare; pure agent-to-agent trades are credited at the 15% floor that accounts for indirect downstream benefits. This reports the gap between what the economy printed and what humans got, separating accounting from welfare in a way the unweighted version cannot.",
     "agentic_disconnect": "Households delegate; agent autonomy is raised toward the high end of its prior across the population. Demand-side weighting is on, so welfare credit is conditional on a human (or a low-autonomy delegate of a human) being on at least one side of a trade. Tests whether the welfare being booked actually reaches the population or whether it circulates indefinitely inside the agent layer.",
-    "productive_baroque": "Same fractal-folding rate as slop_market, but with high-capability agents — capability roughly N(0.80, 0.15). Sub-trades produce real surplus (risk pooling, price discovery, liquidity transfer) rather than pure overhead, so the per-layer welfare leak is reduced. Reports the productive-vs-parasitic split in the high-α regime: how much of the headline output is genuine welfare and how much is structurally inseparable from accounting theatre.",
+    "productive_baroque": "Same fractal-folding rate as slop_market, but with high-capability agents — capability roughly N(0.80, 0.15). Sub-trades produce real surplus (risk pooling, price discovery, liquidity transfer) rather than pure overhead, so the per-layer welfare leak is reduced. This reports the productive-vs-parasitic split in the high-α regime: how much of the headline output is genuine welfare and how much is structurally inseparable from accounting theatre.",
     "derivatives_revolution": "Mid-α (~0.6), low platform fees, and the productive-folding parameter is on. Folding is moderate but generative: each layer adds value rather than overhead. The cleanest test of whether fractal trade can deliver welfare gains within reasonable bounds when sub-markets are skilled enough to execute the jobs they nominally claim.",
     "casino_collapse": "High α, low capability, productive-folding enabled. The structural permission for productive sub-trades is in place but the agents lack the skill to extract value from them, so the layering devolves into pure speculation. EBI lands close to slop_market and per-capita welfare crashes, despite the productive regime nominally being active.",
-    "legal_collapse": "The law layer's rejection probability rises smoothly over the run as legal capacity decays. Stranger-to-stranger trades (high cross-stack distance, high alignment distance) bear most of the cost; trades inside trusted networks are largely unaffected. The welfare loss takes the shape of a slow regression measured in lost contracts rather than a single event.",
+    "legal_collapse": "The law layer's rejection probability rises smoothly over the run as legal capacity decays. Stranger-to-stranger trades (high cross-stack distance, high alignment distance) bear most of the cost and trades inside trusted networks are largely unaffected. The welfare loss takes the shape of a slow regression measured in lost contracts rather than a single event.",
     "regulatory_capture": "Wealth concentrates over the run and the law layer is gradually captured: the cross-stack compatibility falls and the captured law preferentially blocks trades against the captured group's interest. The welfare loss is paid disproportionately by the unconcentrated population. Read alongside legal_collapse and civic_renaissance as the three-way test on the law layer's stability.",
     "civic_renaissance": "Active legal upkeep is on and civic pushback against capture is active. The optimistic mirror of legal_collapse and regulatory_capture; tests whether decentralised maintenance can hold legal capacity at the level the other two scenarios let it slip away from. The welfare ledger sits between the two and the EBI band is tighter than either.",
     "pigouvian_light": "A 10% Pigouvian tax targeting A2A nominal volume — both base trades (S + C) and the fold-cascade nominal contribution Σ N_d. The tax has two effects per step: (i) deterrence, the cascade's nominal contribution is reduced by tax_rate × automation_gap, lowering EBI; (ii) revenue, the collected tax is recycled to human wealth. At 10% with α = 0.6, EBI lands ~7-8% below the no-tax baseline (synthetic_consumers_v2). Tests whether a small Pigouvian wedge meaningfully bends the parasitic-accounting trajectory.",
-    "pigouvian_heavy": "A 35% Pigouvian tax on A2A nominal volume (base + fold cascade), recycled to human wealth with progressivity 1.5 (poorer humans receive disproportionately more of the recycled revenue). The deterrence effect is substantial: at α = 0.6 the cascade's nominal contribution is suppressed enough to lower EBI by ~25-30% versus the no-tax baseline, and the tax revenue is roughly an order of magnitude larger than under the welfare-only tax base used before. Tests whether a heavy-handed Pigouvian rate can compress EBI without proportionally compressing real welfare — the regime-design question of when tax becomes corrective rather than extractive.",
-    "pigouvian_friction": "A 15% Pigouvian tax on A2A nominal volume (base + fold cascade), recycled as a friction subsidy on H2A trades rather than as cash to humans. The deterrence on fold-cascade nominal is the same as Pigouvian Light at the higher rate, but the recycling channel routes revenue to *cost relief* on human-touching trades — bringing humans back into the executable trade set via the supply side rather than via the demand side. At α = 0.6 EBI is suppressed ~10-12% below the no-tax baseline; the welfare/recycling differences vs Pigouvian Heavy are read off the §5 Sankey, not the EBI line.",
+    "pigouvian_heavy": "A 35% Pigouvian tax on A2A nominal volume (base + fold cascade), recycled to human wealth with progressivity 1.5 (poorer humans receive disproportionately more of the recycled revenue). The deterrence effect is substantial: at α = 0.6 the cascade's nominal contribution is suppressed enough to lower EBI by ~25-30% versus the no-tax baseline, and the tax revenue is roughly an order of magnitude larger than under the welfare-only tax base used before. Tests whether a heavy-handed Pigouvian rate can compress EBI without proportionally compressing real welfare.",
+    "pigouvian_friction": "A 15% Pigouvian tax on A2A nominal volume (base + fold cascade), recycled as a friction subsidy on H2A trades rather than as cash to humans. The deterrence on fold-cascade nominal is the same as Pigouvian Light at the higher rate, but the recycling channel routes revenue to *cost relief* on human-touching trades — bringing humans back into the executable trade set via the supply side rather than via the demand side. At α = 0.6 EBI is suppressed ~10-12% below the no-tax baseline; the welfare/recycling differences vs Pigouvian Heavy are best read off the §5 Sankey, not the EBI line.",
     "pigouvian_baroque": "A 35% Pigouvian tax on A2A nominal volume applied to a productive-fractal baseline (α = 0.85 with productive folding on). Distinct from pigouvian_heavy in the underlying scenario: here the fold cascade has both productive and parasitic components, and the tax targets the entire A2A nominal flow regardless of which side of the productive split it sits on. Tests whether a flat fold-cascade tax suppresses productive intermediation as a side effect — i.e. whether the corrective transfer is a precision instrument or a blunt one.",
     "endogenous_paradise": "Direct-trade-like configuration with per-prototype intermediation-preference learning enabled — a contextual bandit on each prototype's choice of α. Tests whether agents would themselves choose direct trade if they could choose any α, or whether learning steers the population toward a more folded equilibrium even with no exogenous push.",
     "endogenous_baroque": "Fractal configuration with the same learning layer enabled. Tests what α agents converge to when they are free to choose. Empirically the learning settles in the upper-mid range, not at the high-α extreme — the cathedral takes external scaffolding to sustain.",
     "institutional_emergence": "Adds firm formation and dissolution on top of strategic learning. Coalitions form when within-coalition trades become cheaper than market trades and dissolve when the cost advantage decays. Tests whether the modern firm's existence is robust to a near-zero transaction-cost technology, or whether firms re-emerge in different shapes (smaller, more fluid, sector-specific).",
-    "full_emergence": "All four feedback layers on at once: strategic learning, firm formation, population churn, and accumulating fold pressure. The maximal-richness configuration in the scenario set. A stress test for whether the diagnostic story holds under heavy compounding rather than a regime to plan for.",
+    "full_emergence": "All four feedback layers on at once: strategic learning, firm formation, population churn, and accumulating fold pressure. The maximal-richness configuration in the scenario set. A kind of stress test for whether the diagnostic story here can survive heavy compounding rather than a specific regime to plan for.",
 }
 
 
@@ -1365,6 +1365,108 @@ SCENARIOS = {
     name: (_wrap_with_dynamics(fn) if name in _ENDOGENOUS_SCENARIOS else fn)
     for name, fn in SCENARIOS.items()
 }
+
+
+# ---------- Substrate experiment: empirical anchoring with productive
+# levers explicitly off, registered as `<name>_anchored` scenarios. The
+# point of this set is to isolate the topology+noise+kernel effect on
+# welfare and EBI from the productive-folding/demand-weighting effect
+# that currently confounds the Productive Cathedral comparison.
+
+
+def _apply_empirical_topology(cfg: WorldConfig) -> WorldConfig:
+    """Mutate cfg in place to put it on the empirical substrate's topology
+    layer only — sector-block network + t-copula correlated noise + Hawkes
+    self-exciting folding kernel. Does *not* touch productive-folding levers
+    (`base_variance_absorption`) or demand weighting. Use this when sweeping
+    those levers as parameters (e.g., Sobol) but you still want realistic
+    network and noise.
+
+    Settings match those used in `baroque_cathedral_networked` so we don't
+    introduce yet another knob.
+    """
+    p = cfg.population
+    p.network_model = "sbm"
+    p.network_mean_degree = 14
+    p.network_intra_sector_share = 0.75
+    p.network_p_local = 0.85
+
+    t = cfg.topology
+    t.noise_model = "t_copula"
+    t.folding_model = "hawkes"
+    return cfg
+
+
+def _apply_empirical_substrate(cfg: WorldConfig) -> WorldConfig:
+    """Apply the empirical topology *and* explicitly clear the productive
+    levers so the substrate-vs-plain comparison is uncontaminated by the
+    productive-folding faucet.
+
+    This is the form used to anchor the dashboard's 21 substrate-default
+    scenarios. For sweeps that need productive levers as parameters,
+    use `_apply_empirical_topology` instead.
+    """
+    cfg = _apply_empirical_topology(cfg)
+    t = cfg.topology
+    t.base_variance_absorption = 0.0
+    t.demand = DemandConfig(enabled=False)
+    return cfg
+
+
+def _wrap_with_substrate(factory: Callable[[], WorldConfig]) -> Callable[[], WorldConfig]:
+    def _wrapped() -> WorldConfig:
+        return _apply_empirical_substrate(factory())
+    _wrapped.__name__ = factory.__name__ + "_anchored"
+    _wrapped.__doc__ = (factory.__doc__ or "") + "\n\nAnchored variant: empirical substrate (SBM network + t-copula noise + Hawkes folding) with productive folding and demand weighting explicitly off."
+    return _wrapped
+
+
+# Skip baroque_cathedral_networked (= Productive Cathedral on the dashboard) —
+# it already has the substrate, but with productive levers ON, so the anchored
+# version would duplicate the experimental cell we already have.
+_SUBSTRATE_SCENARIOS = [n for n in SCENARIOS if n != "baroque_cathedral_networked"]
+
+for _name in _SUBSTRATE_SCENARIOS:
+    SCENARIOS[f"{_name}_anchored"] = _wrap_with_substrate(SCENARIOS[_name])
+
+
+# ---------- Switch the dashboard's 21 substrate-eligible scenarios to use
+# the empirical substrate as their default. This makes the welfare numbers
+# everywhere on the dashboard reflect realistic matching efficiency rather
+# than the well-mixed default that was systematically understating welfare
+# by ~60%. The four exclusions:
+#
+#   - derivatives_revolution, productive_baroque: have productive folding
+#     turned on, which is the lever the §4 productive-yield chart reads
+#     off. Switching them to anchored (which forces base_variance_absorption
+#     = 0) would erase that chart's content for those scenarios.
+#   - baroque_cathedral_networked (Productive Cathedral): already on the
+#     substrate with productive levers on. Already anchored by design.
+#   - baroque_with_high_welfare: the adversarial-search variant whose
+#     hand-tuned parameters do not survive the substrate switch (the
+#     comparison shows ΔEBI +149%, ΔW −42% — its hand-tuning is
+#     well-mixed-specific).
+_DASHBOARD_25 = [
+    "coasean_paradise", "universal_advocate", "public_defender",
+    "civic_renaissance", "synthetic_consumers_v2", "smoothing_cascade",
+    "equilibrium_drift", "matryoshka_collapse", "hemispherical_schism",
+    "compute_famine", "derivatives_revolution", "legal_collapse",
+    "regulatory_capture", "endogenous_baroque", "pigouvian_heavy",
+    "pigouvian_friction", "full_emergence", "recursive_simulation",
+    "fold_avalanche", "slop_market", "productive_baroque",
+    "baroque_with_high_welfare", "baroque_cathedral",
+    "baroque_cathedral_networked", "exo_baroque_singularity",
+]
+_SUBSTRATE_DEFAULT_EXCLUDED = {
+    "derivatives_revolution", "productive_baroque",
+    "baroque_cathedral_networked", "baroque_with_high_welfare",
+}
+_SUBSTRATE_DEFAULT_SCENARIOS = [
+    n for n in _DASHBOARD_25 if n not in _SUBSTRATE_DEFAULT_EXCLUDED
+]
+
+for _name in _SUBSTRATE_DEFAULT_SCENARIOS:
+    SCENARIOS[_name] = _wrap_with_substrate(SCENARIOS[_name])
 
 
 def get_scenario(name: str) -> WorldConfig:

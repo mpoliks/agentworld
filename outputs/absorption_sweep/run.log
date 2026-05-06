@@ -1,0 +1,44 @@
+[absorption-sweep] 10 α × 4 absorption × 16 seeds = 640 sims, 3 workers. starting at 11:40:04.
+[absorption-sweep] [16/640] running 0.6 min, eta 24.5 min
+[absorption-sweep] [32/640] running 1.1 min, eta 21.5 min
+[absorption-sweep] [48/640] running 1.6 min, eta 20.2 min
+[absorption-sweep] [64/640] running 2.2 min, eta 20.2 min
+[absorption-sweep] [80/640] running 2.7 min, eta 19.2 min
+[absorption-sweep] [96/640] running 3.3 min, eta 18.4 min
+[absorption-sweep] [112/640] running 3.9 min, eta 18.2 min
+[absorption-sweep] [128/640] running 4.4 min, eta 17.4 min
+[absorption-sweep] [144/640] running 4.9 min, eta 16.8 min
+[absorption-sweep] [160/640] running 5.5 min, eta 16.4 min
+[absorption-sweep] [176/640] running 6.0 min, eta 15.8 min
+[absorption-sweep] [192/640] running 6.5 min, eta 15.2 min
+[absorption-sweep] [208/640] running 7.1 min, eta 14.7 min
+[absorption-sweep] [224/640] running 7.6 min, eta 14.1 min
+[absorption-sweep] [240/640] running 8.1 min, eta 13.5 min
+[absorption-sweep] [256/640] running 8.7 min, eta 13.0 min
+[absorption-sweep] [272/640] running 9.2 min, eta 12.5 min
+[absorption-sweep] [288/640] running 9.7 min, eta 11.9 min
+[absorption-sweep] [304/640] running 10.3 min, eta 11.4 min
+[absorption-sweep] [320/640] running 10.8 min, eta 10.8 min
+[absorption-sweep] [336/640] running 11.3 min, eta 10.3 min
+[absorption-sweep] [352/640] running 11.9 min, eta 9.7 min
+[absorption-sweep] [368/640] running 12.4 min, eta 9.2 min
+[absorption-sweep] [384/640] running 12.9 min, eta 8.6 min
+[absorption-sweep] [400/640] running 13.5 min, eta 8.1 min
+[absorption-sweep] [416/640] running 14.0 min, eta 7.5 min
+[absorption-sweep] [432/640] running 14.5 min, eta 7.0 min
+[absorption-sweep] [448/640] running 15.1 min, eta 6.5 min
+[absorption-sweep] [464/640] running 15.6 min, eta 5.9 min
+[absorption-sweep] [480/640] running 16.2 min, eta 5.4 min
+[absorption-sweep] [496/640] running 16.7 min, eta 4.8 min
+[absorption-sweep] [512/640] running 17.2 min, eta 4.3 min
+[absorption-sweep] [528/640] running 17.8 min, eta 3.8 min
+[absorption-sweep] [544/640] running 18.3 min, eta 3.2 min
+[absorption-sweep] [560/640] running 18.9 min, eta 2.7 min
+[absorption-sweep] [576/640] running 19.4 min, eta 2.2 min
+[absorption-sweep] [592/640] running 20.0 min, eta 1.6 min
+[absorption-sweep] [608/640] running 20.5 min, eta 1.1 min
+[absorption-sweep] [624/640] running 21.1 min, eta 0.5 min
+[absorption-sweep] [640/640] running 21.6 min, eta 0.0 min
+[absorption-sweep] -> outputs/absorption_sweep/grid.json
+[absorption-sweep] -> outputs/absorption_sweep/grid.md
+[absorption-sweep] done in 21.6 min
