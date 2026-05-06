@@ -975,9 +975,9 @@ $$</div>
         <div id="d-authentic" style="height:240px;"></div>
       </div>
       <div class="chart-box">
-        <div class="chart-title">productive welfare yield over time</div>
-        <div class="chart-caption">Per-step productive yield of the fold cascade. <b>Welfare yield</b> is bounded real welfare created per fold-nominal dollar (risk transfer, hedging, price discovery). <b>Nominal residual</b> is the remaining fold nominal. Yield is zero when <code>base_variance_absorption = 0.0</code> (the back-compat default).</div>
-        <div id="d-pfs" style="height:240px;"></div>
+        <div class="chart-title">max fold depth per step</div>
+        <div class="chart-caption">The deepest derivative tower observed in any single base trade per step — an integer count of how many sub-markets stacked on top of the deepest cleared trade. Climbs stair-step in the scheduled-α scenarios (<i>Smoothing Cascade</i>, <i>Fold Avalanche</i>) where α moves over the run, and in the endogenous-α scenarios (<i>Recursive Simulation</i>, <i>Endogenous Baroque</i>) where α reacts to its own EBI. Saturates at the per-scenario cap (typically 6 or 7) in static high-α scenarios. Sits at zero in direct-trade regimes. Read as a snapshot of where the cascade ceiling is at each moment.</div>
+        <div id="d-fold-depth" style="height:240px;"></div>
       </div>
     </div>
   </div>
@@ -2136,30 +2136,22 @@ function loadDetail(name) {
       showlegend: true, legend: { orientation: 'h', y: 1.15, font: { size: 9 } } },
     { displayModeBar: false, responsive: true });
 
-  // Productive folding welfare yield vs nominal residual. When productive
-  // folding is off (base_variance_absorption=0, the substrate-anchored
-  // default for 21 of 25 scenarios), yield is flat zero and nominal residual
-  // is flat 1.0 — show an overlay note explaining why.
-  const productiveOn = !!(s.config && s.config.topology && s.config.topology.base_variance_absorption > 0);
-  const pfs = h.productive_welfare_yield || h.step.map(() => 0);
-  const pas = (h.parasitic_nominal_residual != null)
-    ? h.parasitic_nominal_residual
-    : pfs.map(v => 1 - v);
-  const prodAnnotations = productiveOn ? [] : [{
-    text: 'productive folding off (base_variance_absorption = 0) — all fold-cascade volume is parasitic',
-    showarrow: false,
-    xref: 'paper', yref: 'paper', x: 0.5, y: 0.5,
-    font: { color: '#e7e8ea', size: 11, family: 'Iowan Old Style, Georgia, serif' },
-    bgcolor: 'rgba(20,22,26,0.85)', bordercolor: 'rgba(154,158,168,0.3)', borderwidth: 1, borderpad: 4,
-  }];
-  Plotly.react('d-pfs',
+  // Max fold depth per step — integer count of the deepest derivative
+  // tower observed in any single base trade. Stair-step plot for visual
+  // honesty: the value is discrete. Y-axis fixed to [0, 8] so static
+  // high-α scenarios pinned at 6 or 7 are visually comparable to dynamic
+  // scenarios that climb. Direct-trade regimes sit at zero.
+  const depthMax = Math.max(...(h.fold_max_depth || [0]), 0);
+  const yTopDepth = Math.max(8, Math.ceil(depthMax) + 1);
+  Plotly.react('d-fold-depth',
     [
-      { x: h.step, y: pfs, name: 'welfare yield', stackgroup: 'one', mode: 'none', fillcolor: 'rgba(95,165,114,0.7)' },
-      { x: h.step, y: pas, name: 'nominal residual', stackgroup: 'one', mode: 'none', fillcolor: 'rgba(194,90,90,0.7)' },
+      ..._bandTraces(name, 'fold_max_depth', 'rgba(184,154,85,0.2)'),
+      { x: h.step, y: h.fold_max_depth || h.step.map(() => 0),
+        mode: 'lines',
+        line: { color: '#b89a55', width: 2, shape: 'hv' },
+        fill: 'tozeroy', fillcolor: 'rgba(184,154,85,0.08)' },
     ],
-    { ...baseLayout, yaxis: { ...baseLayout.yaxis, range: [0, 1] },
-      annotations: prodAnnotations,
-      showlegend: true, legend: { orientation: 'h', y: 1.15, font: { size: 9 } } },
+    { ...baseLayout, yaxis: { ...baseLayout.yaxis, range: [0, yTopDepth], dtick: 1 } },
     { displayModeBar: false, responsive: true });
 
   // Initialize the transaction-space animation for this scenario.

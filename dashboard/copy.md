@@ -555,13 +555,13 @@ authentic vs un-modulated real welfare (cumulative, log)
 ### Caption
 **Authentic** real welfare is the share that reaches a human consumer (or a human-controlled agent acting on a principal's behalf). The **un-modulated** trace is the legacy aggregate. The two coincide when <code>DemandConfig.enabled = False</code> (the default) — one curve is drawn on top of the other. When demand-side feedback is on, the gap between the curves is the surplus that A2A activity printed but no person consumed.
 
-## Chart — productive welfare yield
+## Chart — max fold depth per step
 
 ### Title
-productive welfare yield over time
+max fold depth per step
 
 ### Caption
-Per-step productive yield of the fold cascade. **Welfare yield** is bounded real welfare created per fold-nominal dollar (risk transfer, hedging, price discovery). **Nominal residual** is the remaining fold nominal. Yield is zero when <code>base_variance_absorption = 0.0</code> (the back-compat default).
+The deepest derivative tower observed in any single base trade per step — an integer count of how many sub-markets stacked on top of the deepest cleared trade. Climbs stair-step in the scheduled-α scenarios (*Smoothing Cascade*, *Fold Avalanche*) where α moves over the run, and in the endogenous-α scenarios (*Recursive Simulation*, *Endogenous Baroque*) where α reacts to its own EBI. Saturates at the per-scenario cap (typically 6 or 7) in static high-α scenarios. Sits at zero in direct-trade regimes. Read as a snapshot of where the cascade ceiling is at each moment.
 
 ---
 
