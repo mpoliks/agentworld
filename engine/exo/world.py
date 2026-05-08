@@ -231,7 +231,13 @@ class ExoWorld:
             rng=self.rng,
             dampener_per_region=new_dampener,
         )
-        self.stack.consume_real(ds["real_consumed_per_region"])
+        # Plan 5: `permeability.lastmile_to_drag` gates the per-region
+        # real-welfare flow into drag-token production. At default 1.0
+        # the canonical kinetic prevails; at 0 drag stops consuming real
+        # and stays at its prior intensity.
+        self.stack.consume_real(
+            ds["real_consumed_per_region"] * float(cfg.permeability.lastmile_to_drag)
+        )
         drag_propensity_boost = ds["lift_propensity_boost"]
         dampener_arr = ds["dampener_per_region"]
 
@@ -243,7 +249,13 @@ class ExoWorld:
             real_per_region=self.stack.real,
             rng=self.rng,
         )
-        new_markets = df["new_markets_per_region"]
+        # Plan 5: `permeability.drag_to_differential` gates the share of
+        # the differential operator's market output that lands on the
+        # stack this step. Suppression cost still levies — the gate
+        # only throttles the productive output channel.
+        new_markets = df["new_markets_per_region"] * float(
+            cfg.permeability.drag_to_differential
+        )
         suppression_cost = df["suppression_cost_per_region"]
         self.stack.consume_real(suppression_cost)
         self._cum_markets += float(new_markets.sum())
@@ -282,6 +294,11 @@ class ExoWorld:
         lift_out = self.stack.lift_step(eff_prop, rng=self.rng)
 
         # 7. Last-mile consumption.
+        # Plan 5: `permeability.lift_to_lastmile` gates the share of the
+        # consumption pulse that actually reaches the last-mile pool.
+        # Default 1.0 is a no-op (the gate is fully open) so the canonical
+        # exo runs reproduce; values < 1.0 throttle the lift→last-mile
+        # transfer.
         nominal_total_per_region = self.stack.nominal.sum(axis=1)
         consumption = last_mile_consumption(
             self.last_mile_state,
@@ -290,6 +307,7 @@ class ExoWorld:
             real_stock_per_region=self.stack.real,
             cfg=cfg.last_mile,
         )
+        consumption = consumption * float(cfg.permeability.lift_to_lastmile)
         consumption = np.minimum(consumption, self.stack.real)
         self.stack.consume_real(consumption)
         self._cum_real_consumed += float(consumption.sum())

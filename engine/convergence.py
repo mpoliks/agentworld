@@ -149,7 +149,7 @@ def run_convergence(
                 f"({elapsed:.1f}s)"
             )
             per_scale[scale.value] = res
-        scenario_payload = {
+        new_scales = {
             scale.value: {
                 "scale": res.scale,
                 "n_total": res.n_total,
@@ -161,26 +161,33 @@ def run_convergence(
             for scale, res in zip(scales, per_scale.values())
         }
         out_path = output_dir / f"{name}.json"
+        scenario_payload = {}
+        if out_path.exists():
+            try:
+                scenario_payload = json.loads(out_path.read_text())
+            except json.JSONDecodeError:
+                scenario_payload = {}
+        scenario_payload.update(new_scales)
         out_path.write_text(json.dumps(scenario_payload, indent=2))
         overall[name] = scenario_payload
         print(f"  wrote {out_path}")
 
     summary_path = output_dir / "_summary.json"
-    summary_path.write_text(
-        json.dumps(
-            {
-                name: {
-                    scale_name: {
-                        metric: payload["summary"][metric]
-                        for metric in METRICS_OF_INTEREST
-                    }
-                    for scale_name, payload in scenario_payload.items()
-                }
-                for name, scenario_payload in overall.items()
-            },
-            indent=2,
-        )
-    )
+    existing_summary: dict = {}
+    if summary_path.exists():
+        try:
+            existing_summary = json.loads(summary_path.read_text())
+        except json.JSONDecodeError:
+            existing_summary = {}
+    for name, scenario_payload in overall.items():
+        scenario_summary = existing_summary.setdefault(name, {})
+        for scale_name, payload in scenario_payload.items():
+            scenario_summary[scale_name] = {
+                metric: payload["summary"][metric]
+                for metric in METRICS_OF_INTEREST
+                if metric in payload.get("summary", {})
+            }
+    summary_path.write_text(json.dumps(existing_summary, indent=2))
     print(f"\n[convergence] summary -> {summary_path}")
     return overall
 

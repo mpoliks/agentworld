@@ -62,13 +62,14 @@ from typing import Callable, Dict
 
 import numpy as np
 
-from engine.core.population import PopulationConfig
+from engine.core.population import NormConfig, PopulationConfig
 from engine.core.topology import (
     DemandConfig,
     InstitutionConfig,
     LawConfig,
     PigouvianConfig,
     PopulationDynamicsConfig,
+    RegulatorConfig,
     StrategyConfig,
     TopologyConfig,
 )
@@ -1028,6 +1029,47 @@ def pigouvian_baroque() -> WorldConfig:
     )
 
 
+# ---------- Regulator Active -------------------------------------------------
+
+
+def regulator_active() -> WorldConfig:
+    """
+    Hadfield-style licensed-regulator audit running on a registered
+    fraction of the population. Mid-α equilibrium-drift baseline so the
+    rejection panel can show a non-zero regulator slice without colliding
+    with high-α folding dynamics. Companion to
+    `docs/plans/regulator_market_split.md`.
+
+    What to look for: a non-zero `regulator_reject_share` per step, a
+    positive `audit_quality_effective` band, and the dashboard's market-
+    layer rejection split into platform vs regulator slices. EBI sits
+    near the no-regulator equilibrium-drift baseline because the
+    regulator gate's deterrent effect is bounded by `coverage *
+    audit_quality * mean_defect`, which is small at default defect
+    distribution.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.75, agent_capability_sd=0.15,
+            human_capability_mean=0.55, human_capability_sd=0.15,
+            n_human_prototypes=6_000, n_agent_prototypes=60_000,
+            registration_coverage=0.7,
+            seed=4200,
+        ),
+        topology=TopologyConfig(
+            alpha=0.5,
+            regulator=RegulatorConfig(
+                enabled=True,
+                coverage=0.5,
+                audit_quality=0.6,
+            ),
+        ),
+        pairs_per_step=200_000,
+        n_steps=200,
+        seed=42,
+    )
+
+
 # ---------- 30. Endogenous Paradise -------------------------------------------
 
 
@@ -1160,6 +1202,50 @@ def full_emergence() -> WorldConfig:
     )
 
 
+def norm_evolution_smooth() -> WorldConfig:
+    """Coasean Paradise with norm evolution and registration on.
+
+    A smooth-attractor variant where the individual-layer rejection gate
+    binds on deviation from a tracked community norm rather than on
+    static pairwise distance. Half of agent prototypes are registered, so
+    half of executed pairs contribute observations to the lag buffer; eta
+    is set so the norm visibly drifts within ~30 steps. The other knobs
+    are inherited from `coasean_paradise` so the comparison reads as
+    "what does normative competence add on top of Krier's smooth limit?".
+
+    See `docs/concepts/matryoshkan_alignment.md` and
+    `docs/plans/norm_evolution_alignment.md`.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.85, agent_capability_sd=0.12,
+            human_capability_mean=0.65, human_capability_sd=0.15,
+            n_human_prototypes=6_000, n_agent_prototypes=60_000,
+            registration_coverage=0.50,
+            norm=NormConfig(
+                enabled=True,
+                norm_update_eta=0.05,
+                norm_lag_steps=4,
+                initial_norm=0.0,
+                stratify_by_stack=False,
+            ),
+            seed=11,
+        ),
+        topology=TopologyConfig(
+            alpha=0.08,
+            base_friction=0.025,
+            coase_exp=2.1,
+            folding_propensity=0.10,
+            market_layer_tax=0.010,
+            individual_layer_alignment_tax=0.008,
+            cross_stack_compat=0.85,
+        ),
+        pairs_per_step=200_000,
+        n_steps=200,
+        seed=1,
+    )
+
+
 # ---------- registry ----------------------------------------------------------
 
 def baroque_with_high_welfare() -> WorldConfig:
@@ -1238,10 +1324,12 @@ SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
     "pigouvian_heavy": pigouvian_heavy,
     "pigouvian_friction": pigouvian_friction,
     "pigouvian_baroque": pigouvian_baroque,
+    "regulator_active": regulator_active,
     "endogenous_paradise": endogenous_paradise,
     "endogenous_baroque": endogenous_baroque,
     "institutional_emergence": institutional_emergence,
     "full_emergence": full_emergence,
+    "norm_evolution_smooth": norm_evolution_smooth,
 }
 
 
@@ -1276,10 +1364,12 @@ SCENARIO_DESCRIPTIONS = {
     "pigouvian_heavy": "A 35% Pigouvian tax on A2A nominal volume (base + fold cascade), recycled to human wealth with progressivity 1.5 (poorer humans receive disproportionately more of the recycled revenue). The deterrence effect is substantial: at α = 0.6 the cascade's nominal contribution is suppressed enough to lower EBI by ~25-30% versus the no-tax baseline, and the tax revenue is roughly an order of magnitude larger than under the welfare-only tax base used before. Tests whether a heavy-handed Pigouvian rate can compress EBI without proportionally compressing real welfare.",
     "pigouvian_friction": "A 15% Pigouvian tax on A2A nominal volume (base + fold cascade), recycled as a friction subsidy on H2A trades rather than as cash to humans. The deterrence on fold-cascade nominal is the same as Pigouvian Light at the higher rate, but the recycling channel routes revenue to *cost relief* on human-touching trades — bringing humans back into the executable trade set via the supply side rather than via the demand side. At α = 0.6 EBI is suppressed ~10-12% below the no-tax baseline; the welfare/recycling differences vs Pigouvian Heavy are best read off the §5 Sankey, not the EBI line.",
     "pigouvian_baroque": "A 35% Pigouvian tax on A2A nominal volume applied to a productive-fractal baseline (α = 0.85 with productive folding on). Distinct from pigouvian_heavy in the underlying scenario: here the fold cascade has both productive and parasitic components, and the tax targets the entire A2A nominal flow regardless of which side of the productive split it sits on. Tests whether a flat fold-cascade tax suppresses productive intermediation as a side effect — i.e. whether the corrective transfer is a precision instrument or a blunt one.",
+    "regulator_active": "Hadfield-style licensed-regulator audit on top of the mid-α equilibrium baseline. 70% of agent prototypes are registered, the regulator audits 50% of attempted trades at audit-quality 0.6, and the rejection rate per audited pair scales with the participants' defect score. Distinct from the always-on platform/deployer gate (Krier's market doll): the platform refuses on sector-and-stack incompatibility, the regulator refuses on per-prototype audit history. Read the dashboard's rejection panel to see the market-layer share split into platform vs regulator slices.",
     "endogenous_paradise": "Direct-trade-like configuration with per-prototype intermediation-preference learning enabled — a contextual bandit on each prototype's choice of α. Tests whether agents would themselves choose direct trade if they could choose any α, or whether learning steers the population toward a more folded equilibrium even with no exogenous push.",
     "endogenous_baroque": "Fractal configuration with the same learning layer enabled. Tests what α agents converge to when they are free to choose. Empirically the learning settles in the upper-mid range, not at the high-α extreme — the cathedral takes external scaffolding to sustain.",
     "institutional_emergence": "Adds firm formation and dissolution on top of strategic learning. Coalitions form when within-coalition trades become cheaper than market trades and dissolve when the cost advantage decays. Tests whether the modern firm's existence is robust to a near-zero transaction-cost technology, or whether firms re-emerge in different shapes (smaller, more fluid, sector-specific).",
     "full_emergence": "All four feedback layers on at once: strategic learning, firm formation, population churn, and accumulating fold pressure. The maximal-richness configuration in the scenario set. A kind of stress test for whether the diagnostic story here can survive heavy compounding rather than a specific regime to plan for.",
+    "norm_evolution_smooth": "Coasean Paradise with norm evolution and a 50% registration regime turned on. The individual-layer rejection gate binds on deviation from a tracked community norm rather than on static pairwise distance, with eta=0.05 and a 4-step lag buffer. Reads as Hadfield's normative-competence reading of alignment applied to Krier's smooth limit: the norm walks each step toward the alignment-weighted mean of executed registered trades, and the rejection rate moves with it instead of staying invariant under translation.",
 }
 
 

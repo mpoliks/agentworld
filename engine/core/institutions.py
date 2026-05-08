@@ -7,6 +7,24 @@ from typing import Any
 import numpy as np
 
 
+def compute_defect_score(pop: Any) -> np.ndarray:
+    """Per-prototype defect score in [0, 1].
+
+    Reads the audit trail accumulated in `transactions.coasean_step`
+    (plan 2): `rejections / max(rejections + acceptances, 1)`.
+    Unregistered prototypes (`prototype_id < 0`) carry zero — they
+    cannot be audited, so the regulator layer cannot distinguish them
+    from a perfectly-compliant counterparty. Vectorised because the
+    regulator gate calls this every step on the full prototype array.
+    """
+    accepts = pop.audit_acceptances.astype(np.float32, copy=False)
+    rejects = pop.audit_rejections.astype(np.float32, copy=False)
+    total = accepts + rejects
+    score = np.where(total > 0, rejects / np.maximum(total, 1.0), 0.0)
+    score = np.where(pop.prototype_id >= 0, score, 0.0)
+    return score.astype(np.float32, copy=False)
+
+
 def firm_cost_discount(
     firm_id: np.ndarray,
     a: np.ndarray,

@@ -77,6 +77,9 @@ This is the punchline most readers miss. If you successfully Coasean-clear a mar
 
 A society whose policy machinery treats nominal GDP as the proxy for prosperity will *resist* smoothing. This is one of the strongest reasons to suspect that, absent deliberate intervention, we drift toward Bratton's Baroque limit and not Krier's Coasean one. Folding is what happens when GDP is the proxy.
 
+### 4. Coasean clearance is amnesic without normative competence
+Static-distance alignment is the version of agent preferences Krier's argument tacitly assumes: each transaction is a fresh pairwise match between two preference vectors that exist in a vacuum. Hadfield (AIhub interview, May 2025; Jurimetrics, Winter 2026) argues alignment is more honestly read as participation in evolving community norms — preferences condition on what the community has accepted and rejected, and the gate moves with them. The model carries the weak version of this in `engine/core/transactions.py`: when `NormConfig.enabled` is true, the individual-layer rejection binds on `max(|al_a - community_norm|, |al_b - community_norm|)` rather than on `|al_a - al_b|`, with the norm tracked from the alignment-weighted mean of registered participants' executed trades. The cross-reference matters here: without normative competence, Coasean clearance is durably amnesic — the same trade clears today and tomorrow regardless of what came before. With it, clearance accumulates a community memory, which is the missing ingredient that lets the smooth attractor be a regime rather than an instantaneous statistic. See `docs/concepts/matryoshkan_alignment.md` and `docs/plans/norm_evolution_alignment.md`.
+
 ---
 
 ## What the smooth attractor needs to survive
@@ -99,4 +102,6 @@ None of these are technically hard. All are politically hard. The artifact is ag
 - Hayek, F. (1945). *The Use of Knowledge in Society.*
 - Ostrom, E. (1990). *Governing the Commons.*
 - Tomašev et al. (2025). *Virtual Agent Economy.* arXiv:2509.10147.
+- Hadfield, G. K. (2025, May). Interview, *AIhub* — alignment as participation in evolving community norms.
+- Hadfield, G. K. (2026). *Jurimetrics*, Winter — normative-competence reading of alignment infrastructure.
 - Levin, M. & Lyon, B. (2024). *Cognitive glue.*

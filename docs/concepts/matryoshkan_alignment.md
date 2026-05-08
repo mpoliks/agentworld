@@ -23,20 +23,27 @@ A transaction must pass all three filters to execute. It must be legal (else har
 The Matryoshka stack is implemented in `engine/core/transactions.py`. For each candidate transaction pair, we compute three rejection probabilities:
 
 ```
-law_reject = ~U(0,1) < 0.01 + 0.04 × (1 - cross_stack_compat)
-market_reject = ~U(0,1) < 0.02 + 0.06 × (1 - sector_affinity) + 0.04 × |alignment_a - alignment_b|
-align_reject = ~U(0,1) < 0.03 + 0.20 × |alignment_a - alignment_b| × (1 - 0.5 × autonomy_avg)
+law_reject    = ~U(0,1) < 0.01 + 0.04 × (1 - cross_stack_compat)
+market_reject = platform_reject ∨ regulator_reject
+align_reject  = ~U(0,1) < 0.03 + 0.20 × |alignment_a - alignment_b| × (1 - 0.5 × autonomy_avg)
 ```
+
+The middle layer is two independent sublayers composed by OR — either subgate can refuse a trade. Conflating them in a single gate (as the original engine did) erased a substantive distinction Hadfield drew explicitly: platforms and regulatory markets are different objects with different parameter dependencies and different policy levers.
+
+- **Platform / deployer gate** (Krier's market doll). Always on. Foundation-model deployers, agent providers, and platform owners filter on sector compatibility and pairwise alignment distance: `platform_reject = ~U(0,1) < 0.02 + 0.06 × (1 - sector_affinity) + 0.04 × |alignment_a - alignment_b|`. Reads as "platform compatibility gate" — a B2B finance-stack agent transacting with a consumer-leisure-stack agent is platform-incompatible regardless of any external regulator.
+- **Licensed-regulator gate** (Hadfield 2025/2026). Off by default; enabled per scenario. When `RegulatorConfig.enabled = True`, every attempted pair is sampled at probability `coverage` and audited pairs are rejected at `base_reject_rate + audit_quality × max(defect_score_a, defect_score_b)`. The defect score is `rejections / max(rejections + acceptances, 1)` over the prototype's audit trail (zero for unregistered prototypes — there is no continuity to defect against). Coverage is structurally bounded above by `PopulationConfig.registration_coverage`: a regulator cannot audit a prototype it cannot identify. See `docs/plans/regulator_market_split.md` and the `regulator_active` scenario.
 
 The `cost_reject` (transaction cost > expected surplus) is *only* applied to transactions that survive all three Matryoshka layers. So the cascade is:
 
 ```
-attempted → law_filter → market_filter → align_filter → cost_filter → executed
+attempted → law_filter → platform_filter → regulator_filter → align_filter → cost_filter → executed
 ```
 
 This ordering matters. In the smooth attractor (low α, high capability), `cost_filter` is rarely binding — almost any transaction *can* clear, but only if it passes the three Matryoshka layers. So **alignment becomes the dominant constraint**. In the striated attractor (high α, possibly low capability), `cost_filter` is more binding, but the Matryoshka layers are also more saturated — every layer of folding adds Matryoshka overhead.
 
 Each executed transaction is also taxed by the market and individual layers (`market_layer_tax`, `individual_layer_alignment_tax`) — these eat into real surplus regardless of whether the transaction was nominally completed.
+
+The individual-layer gate is parameter-named: `binding = max(|al_a - community_norm|, |al_b - community_norm|)` when `NormConfig.enabled` is true, else `binding = |al_a - al_b|`. The norm is a tracked field updated each step toward the alignment-weighted mean of the previous `norm_lag_steps` executed trades, with rate `norm_update_eta`. Observations only count from prototypes that were registered under `PopulationConfig.registration_coverage` — anonymous draws have no continuity to contribute. The coefficient on `binding` (0.20) is the same in both regimes; only the binding term differs. Hadfield's normative-competence reading of alignment fits the `enabled` regime; the original Krier-only formulation fits the `disabled` regime. Default is disabled, to preserve the canonical Sobol pin until the round-overview's plan 9 re-pins on the extended parameter set. See `docs/plans/norm_evolution_alignment.md`.
 
 ---
 
@@ -135,3 +142,6 @@ The model is built so that you can vary smooth/striated and Matryoshka-thickness
 - Levin, M. (2019). *The Computational Boundary of a "Self": Developmental Bioelectricity Drives Multicellularity and Scale-Free Cognition*, Frontiers in Psychology.
 - Bratton, B. (2015). *The Stack: On Software and Sovereignty*, MIT Press — for the original layered-stack framing of planetary computation.
 - Schmitt, C. (1922). *Politische Theologie* — for the question of which layer holds the sovereign exception.
+- Hadfield, G. K. (2025, May). Interview, *AIhub*. Normative-competence reading of alignment as participation in evolving community norms — the conceptual basis of the `NormConfig.enabled` regime.
+- Hadfield, G. K. (2026). *Jurimetrics*, Winter — extended argument for normative infrastructure as the binding constraint on agent alignment.
+- Hadfield, G. K. (2026, February). *Legal Infrastructure for Transformative AI Governance* — registration regimes for autonomous agents (the precondition for `PopulationConfig.registration_coverage > 0`).

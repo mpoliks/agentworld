@@ -182,6 +182,91 @@ class PopulationDynamicsConfig:
     entry_capability_boost: float = 0.05
 
 
+
+@dataclass
+class MissionConfig:
+    """Coordinator-set objective allocation (Tomašev et al. mission economy).
+
+    Default-disabled stub. Plan 7 ships the scenarios + matched baselines
+    that exercise this gate; the mechanism code is wired here so the
+    transactions / world / metrics layers can reference it without an
+    import-cycle in the meantime. With `enabled = False` (the default)
+    every pair is cleared by Coasean bargaining and the pinned baselines
+    reproduce bit-for-bit.
+
+    `objective_alignment` is the alignment-space anchor the coordinator
+    pulls toward; `objective_sectors` is the sector index set the
+    mission cares about (empty tuple = all sectors). The score is
+    `sector_match * (1 - |alignment_pair_mean - objective_alignment|)
+    * capability_pair_mean`, and the top `mission_share * n_pairs` by
+    score are captured.
+    """
+
+    enabled: bool = False
+    mission_share: float = 0.10
+    objective_alignment: float = 0.5
+    objective_sectors: tuple = ()
+    coordinator_overhead: float = 0.05
+
+
+@dataclass
+class PermeabilityConfig:
+    """Permeability as a first-class axis (Tomašev et al.).
+
+    Two distinct objects, one per side of the engine:
+
+    * `agent_stack` — cross-stack agent compatibility. Replaces the old
+      free-floating `TopologyConfig.cross_stack_compat` scalar. Default
+      `0.55` matches the legacy default exactly so the canonical pinned
+      baselines reproduce bit-for-bit.
+
+    * `exo_lift_to_lastmile`, `exo_lastmile_to_drag`,
+      `exo_drag_to_differential` — multiplicative gates on the exo-side
+      cross-layer transfer kinetics. Defaults of `1.0` are no-ops (the
+      gate is fully open and the legacy kinetic prevails); values < 1.0
+      throttle the transfer in proportion. Plan 5's two new scenarios
+      (`low_permeability_smooth` and `high_permeability_striated`) push
+      these to opposite corners.
+
+    Convention everywhere: `1.0` = perfectly permeable, `0.0` = sealed.
+    See `docs/plans/permeability_axis.md` and
+    `docs/concepts/smooth_striated.md`.
+    """
+
+    agent_stack: float = 0.55
+    exo_lift_to_lastmile: float = 1.0
+    exo_lastmile_to_drag: float = 1.0
+    exo_drag_to_differential: float = 1.0
+
+
+@dataclass
+class RegulatorConfig:
+    """Hadfield-style licensed-regulator audit gate.
+
+    Distinct from the Krier "platform/deployer compatibility" gate that
+    `transactions.py` always applies on the market layer. The regulator
+    layer is *optional and additional*: when enabled, every executed pair
+    is sampled at probability `coverage` (clamped above by
+    `PopulationConfig.registration_coverage` because you cannot audit
+    what you cannot identify) and audited pairs are rejected at rate
+    `base_reject_rate + audit_quality * defect_score`. `defect_score`
+    is the maximum over the two sides of `rejections / max(total, 1)`
+    over the prototype's audit trail.
+
+    Default-disabled. See `docs/plans/regulator_market_split.md` and
+    `docs/concepts/matryoshkan_alignment.md`.
+    """
+
+    enabled: bool = False
+    coverage: float = 0.0
+    audit_quality: float = 0.0
+    base_reject_rate: float = 0.01
+    # Reserved for the time-decay defect-score variant. Not consumed by
+    # the current implementation; pinned in the dataclass so the SALib
+    # parameter list can name it without import-cycle concerns.
+    defect_decay: float = 0.95
+
+
 @dataclass
 class TopologyConfig:
     """Configuration for the smooth-striated topology."""
@@ -191,6 +276,11 @@ class TopologyConfig:
 
     # Hemispherical compatibility matrix shape (n_stacks, n_stacks).
     # Diagonal is 1.0, off-diagonal in (0, 1] = how easy cross-stack trade is.
+    # Plan 5: superseded by `permeability.agent_stack`. `cross_stack_compat`
+    # remains as a deprecated alias — the build path reads the
+    # permeability value when it is non-default and falls back to this
+    # field otherwise so the existing scenario factories (which set
+    # `cross_stack_compat` directly) keep working.
     n_stacks: int = 4
     cross_stack_compat: float = 0.55  # default off-diagonal value
 
@@ -291,6 +381,28 @@ class TopologyConfig:
     # `docs/concepts/pigouvian_automation.md`.
     pigouvian: PigouvianConfig = field(default_factory=PigouvianConfig)
 
+    # ---- Hadfield-style licensed-regulator audit ---------------------------
+    # Distinct from the platform/deployer gate (Krier, the always-on
+    # `0.02 + 0.06*(1-sec_aff)` term in `transactions.py`). When enabled,
+    # adds a second OR-composed market-layer rejection driven by audit
+    # coverage and defect history. Bounded above by registration coverage
+    # — see `RegulatorConfig` and `docs/plans/regulator_market_split.md`.
+    regulator: RegulatorConfig = field(default_factory=RegulatorConfig)
+
+    # ---- Permeability as a first-class axis (Plan 5) -----------------------
+    # Defaults reproduce existing canonical scenarios bit-for-bit:
+    # `agent_stack = 0.55` matches the legacy `cross_stack_compat`, and
+    # the three exo permeability scalars default to 1.0 (no gate). See
+    # `PermeabilityConfig` and `docs/plans/permeability_axis.md`.
+    permeability: PermeabilityConfig = field(default_factory=PermeabilityConfig)
+
+    # ---- Mission-economy allocation (Plan 7 stub, default-off) -------------
+    # Coordinator-set objective; opt-in. When disabled, every pair is
+    # cleared by Coasean bargaining — the canonical pinned baselines
+    # reproduce exactly. The matched-permeability scenarios that exercise
+    # this lever ship in the follow-up plan-7 PR. See `MissionConfig`.
+    mission: MissionConfig = field(default_factory=MissionConfig)
+
     # ---- Dynamic law layer ----------------------------------------------------
     # See `brief/dynamic_mechanisms.md`, §3. Default-off until the law
     # mechanism is evaluated separately. `World` carries the mutable
@@ -319,9 +431,20 @@ class Topology:
         if cfg is None:
             cfg = TopologyConfig()
 
-        # Cross-stack matrix: identity diagonal, cross_stack_compat off-diag.
+        # Cross-stack matrix: identity diagonal, agent-stack permeability
+        # off-diag. The first-class axis is `permeability.agent_stack`;
+        # `cross_stack_compat` is the deprecated alias preserved so
+        # existing scenario factories that set the legacy field still
+        # behave as before. When the user has explicitly moved the legacy
+        # field off its default, prefer that — otherwise read the new
+        # permeability field.
         K = cfg.n_stacks
-        cross = np.full((K, K), cfg.cross_stack_compat, dtype=np.float32)
+        agent_perm = (
+            float(cfg.cross_stack_compat)
+            if cfg.cross_stack_compat != 0.55
+            else float(cfg.permeability.agent_stack)
+        )
+        cross = np.full((K, K), agent_perm, dtype=np.float32)
         np.fill_diagonal(cross, 1.0)
 
         # Sector affinity: low-dim latent embedding for sectors, then RBF kernel.

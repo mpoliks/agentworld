@@ -42,6 +42,9 @@ The conceptual scaffolding for this artifact lives in the following texts, in ro
 - **Williams, Dan.** *Why do people believe true things?* Conspicuous Cognition. The institutional framing of alignment-as-governance.
 - **Constitution Maker.** (2023). arXiv:2310.15428. Extracting natural-language principles from preference data.
 - **Inverse Constitutional AI.** (2024). arXiv:2406.06560. Compressing preferences into interpretable principles.
+- **Hadfield, Gillian K.** (2025, May). Interview, *AIhub*. Alignment as participation in evolving community norms — not preference-matching at fixed pairwise distance. The conceptual grounding for `NormConfig.enabled` (`docs/plans/norm_evolution_alignment.md`).
+- **Hadfield, Gillian K.** (2026). *Jurimetrics*, Winter. Extended argument for normative-competence infrastructure as the binding constraint on agent alignment.
+- **Hadfield, Gillian K.** (2026, February). *Legal Infrastructure for Transformative AI Governance.* Registration regimes for autonomous agents as the precondition for any meaningful regulatory or alignment intervention. Conceptual grounding for `PopulationConfig.registration_coverage` (`docs/plans/registration_regime.md`) and the regulator gate (`docs/plans/regulator_market_split.md`).
 
 ## Planetary computation / Antikythera background
 

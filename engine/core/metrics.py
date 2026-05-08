@@ -156,6 +156,57 @@ class StepMetrics:
     top_decile_share_change: float = 0.0
     gini_wealth_change_abs: float = 0.0
 
+    # ---- Round 1: registration / norm / regulator / mission -----------------
+    # `registered_active_share` is the share of executed real-pair-count
+    # whose either side carries a stable prototype id. Always 0.0 at
+    # `registration_coverage = 0.0` (the back-compat default). Plan 4's
+    # `audit_quality_effective` reads this; plan 3's norm evolution uses
+    # it to gate observation contribution.
+    registered_active_share: float = 0.0
+
+    # Norm-evolution state (Plan 3). All three are 0.0 when
+    # `NormConfig.enabled = False` — the canonical pre-Round-1 path
+    # produces zeros across these fields.
+    #
+    #   `community_norm_mean` — mean of `pop.community_norm` across stacks
+    #     (or the scalar value when not stratified). Tracks where the
+    #     normative mean lives in alignment-space at this step.
+    #   `community_norm_drift` — `|community_norm - initial_norm|` averaged
+    #     across stacks. Reads as "how far has the norm walked from its
+    #     prior". Visible on the dashboard for `enabled=True` scenarios.
+    #   `align_reject_share_under_norm` — alignment-layer rejection share
+    #     when the norm-evolution gate is the active binding term. Lets
+    #     the dashboard distinguish the two binding regimes side-by-side.
+    community_norm_mean: float = 0.0
+    community_norm_drift: float = 0.0
+    align_reject_share_under_norm: float = 0.0
+
+    # Plan 4: market-layer split. Both reported as real-pair-count shares
+    # over total attempts (same scale as `rejected_market` divided by
+    # total attempts). At `RegulatorConfig.enabled = False`,
+    # `regulator_reject_share` is exactly 0.0 and `platform_reject_share`
+    # equals the legacy `rejected_market` share. Sum equals
+    # `rejected_market / total_attempts`.
+    platform_reject_share: float = 0.0
+    regulator_reject_share: float = 0.0
+    # Effective audit reach: `audit_quality * registered_active_share`.
+    audit_quality_effective: float = 0.0
+
+    # Plan 7: mission-economy diagnostics. All zero on the canonical
+    # path (`MissionConfig.enabled = False`).
+    #
+    #   `mission_share_active` — fraction of executed real-pair-count
+    #     allocated by the coordinator this step.
+    #   `mission_objective_progress` — running ratio of mission-allocated
+    #     real welfare over total cumulative real welfare. Reads as
+    #     "how much of the welfare we made came through the mission
+    #     channel".
+    #   `coordinator_overhead_total` — running sum of surplus consumed
+    #     by the coordinator's coordination cost.
+    mission_share_active: float = 0.0
+    mission_objective_progress: float = 0.0
+    coordinator_overhead_total: float = 0.0
+
     # ---- Tail-tamed EBI for variance decomposition ---------------------------
     # Raw `exo_baroque_index = nominal/real` has an unbounded right tail
     # (heavily-folded scenarios push real -> 0 and EBI -> infinity). The
@@ -280,6 +331,8 @@ class Metrics:
         self._cum_real_authentic = 0.0
         self._cum_real_from_intermediation = 0.0
         self._cum_pigouvian_revenue = 0.0
+        self._cum_mission_overhead = 0.0
+        self._cum_mission_real = 0.0
         self._last_gini = 0.0
         # Snapshot of per-prototype wealth at step 0; used to compute the
         # flow-sensitive inequality metrics. Set on the first call to
@@ -328,6 +381,13 @@ class Metrics:
         wealth_imbalance_abs: float = 0.0,
         wealth_imbalance_relative: float = 0.0,
         welfare_imbalance_abs: float = 0.0,
+        registered_active_share: float = 0.0,
+        rejected_align_under_norm: float = 0.0,
+        rejected_platform_real: float = 0.0,
+        rejected_regulator_real: float = 0.0,
+        audit_quality: float = 0.0,
+        mission_executed_real: float = 0.0,
+        mission_overhead_real: float = 0.0,
     ) -> StepMetrics:
         self._cum_real += real_step
         self._cum_nominal += nominal_step
@@ -487,6 +547,64 @@ class Metrics:
             churn_rate = float(churn_count / max(pop.n, 1))
             wealth_floor = float(np.percentile(pop.wealth, 10))
 
+        # Norm-evolution metrics. All zero on the canonical path; populated
+        # only when `pop.config.norm.enabled` is True. The drift is the
+        # mean absolute departure from the per-stack `initial_norm` prior;
+        # the share is alignment-rejection real-pair count over total
+        # attempts when the norm gate is the binding term.
+        norm_cfg = pop.config.norm
+        if norm_cfg.enabled and pop.community_norm is not None:
+            community_norm_arr = pop.community_norm.astype(
+                np.float64, copy=False
+            )
+            community_norm_mean = float(community_norm_arr.mean())
+            community_norm_drift = float(
+                np.mean(np.abs(community_norm_arr - norm_cfg.initial_norm))
+            )
+            total_attempts_norm = (
+                n_tx_real + rejected_law + rejected_market + rejected_align
+                + rejected_cost
+            )
+            align_reject_share_under_norm = (
+                float(rejected_align_under_norm) / total_attempts_norm
+                if total_attempts_norm > 0
+                else 0.0
+            )
+        else:
+            community_norm_mean = 0.0
+            community_norm_drift = 0.0
+            align_reject_share_under_norm = 0.0
+
+        # Plan 4: market split. `total_attempts` mirrors the
+        # `governance_overhead_fraction` denominator so the platform
+        # and regulator shares compose with the existing dashboard
+        # rejection panel without a denominator change.
+        if total_attempted > 0:
+            platform_reject_share = float(rejected_platform_real) / total_attempted
+            regulator_reject_share = (
+                float(rejected_regulator_real) / total_attempted
+            )
+        else:
+            platform_reject_share = 0.0
+            regulator_reject_share = 0.0
+        audit_quality_effective = float(audit_quality) * float(
+            registered_active_share
+        )
+
+        # Plan 7: mission-economy diagnostics.
+        self._cum_mission_overhead += float(mission_overhead_real)
+        self._cum_mission_real += float(mission_executed_real)
+        if n_tx_real > 0:
+            mission_share_active = float(mission_executed_real) / float(n_tx_real)
+        else:
+            mission_share_active = 0.0
+        if self._cum_real > 0:
+            mission_objective_progress = self._cum_mission_real / max(
+                self._cum_real, 1e-12
+            )
+        else:
+            mission_objective_progress = 0.0
+
         m = StepMetrics(
             step=step,
             alpha=alpha,
@@ -551,6 +669,16 @@ class Metrics:
             gini_wealth_change_abs=float(gini_change_abs),
             log_exo_baroque_index=log_ebi,
             log_exo_baroque_authentic=log_ebi_authentic,
+            registered_active_share=float(registered_active_share),
+            community_norm_mean=community_norm_mean,
+            community_norm_drift=community_norm_drift,
+            align_reject_share_under_norm=align_reject_share_under_norm,
+            platform_reject_share=platform_reject_share,
+            regulator_reject_share=regulator_reject_share,
+            audit_quality_effective=audit_quality_effective,
+            mission_share_active=mission_share_active,
+            mission_objective_progress=float(mission_objective_progress),
+            coordinator_overhead_total=float(self._cum_mission_overhead),
         )
         self.history.append(m)
         return m

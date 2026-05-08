@@ -77,4 +77,12 @@ def entry_exit(pop: Any, cfg: Any, rng: np.random.Generator) -> int:
         pop.last_action[exit_mask] = -1
     if pop.firm_id is not None:
         pop.firm_id[exit_mask] = -1
+    # Entrants get a clean audit slate. The id is preserved (a re-entered
+    # registered prototype is still that registered prototype — same
+    # licensee, restart history); only the audit counters reset. Plan 8's
+    # entry/exit test pins this contract.
+    if pop.audit_acceptances is not None:
+        pop.audit_acceptances[exit_mask] = 0
+        pop.audit_rejections[exit_mask] = 0
+        pop.audit_last_alignment[exit_mask] = pop.alignment[exit_mask]
     return n_exit

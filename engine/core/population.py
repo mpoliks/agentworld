@@ -46,6 +46,42 @@ N_SECTORS = len(SECTOR_NAMES)
 
 
 @dataclass
+class NormConfig:
+    """Norm-evolution layer for the individual-layer rejection gate.
+
+    With `enabled=False` (the default), the Coasean engine reproduces the
+    pre-Round-1 individual-layer rejection bit-for-bit: `binding =
+    |al_a - al_b|`. With `enabled=True`, the binding term becomes the
+    deviation of the worse-deviating side from a tracked community norm:
+    `binding = max(|al_a - norm|, |al_b - norm|)`. The norm is a per-stack
+    field (or a single global value when `stratify_by_stack=False`) that
+    updates each step toward the alignment-weighted mean of the previous
+    `norm_lag_steps` executed trades, rate `norm_update_eta`.
+
+    See `docs/plans/norm_evolution_alignment.md` and
+    `docs/concepts/matryoshkan_alignment.md`.
+    """
+
+    enabled: bool = False
+    # Rate at which the community norm drifts toward the observed mean.
+    # `eta = 0` with `enabled=True` keeps the norm pinned at `initial_norm`,
+    # so the binding becomes a constant offset rather than the original
+    # distance — used as the bit-for-bit regression check in
+    # `test_eta_zero_reproduces_static`.
+    norm_update_eta: float = 0.05
+    # Number of recent steps the observation buffer averages before the
+    # norm responds. `1` is immediate updating; the default `4` damps
+    # single-step noise.
+    norm_lag_steps: int = 4
+    # Anchor for the prior. Both `community_norm` and the lag buffer
+    # initialise to this value at synthesize time.
+    initial_norm: float = 0.0
+    # When True, every stack carries its own norm (shape `(n_stacks,)`).
+    # When False, one global norm is shared across all stacks.
+    stratify_by_stack: bool = False
+
+
+@dataclass
 class PopulationConfig:
     """Configuration for population generation."""
 
@@ -106,6 +142,22 @@ class PopulationConfig:
     network_intra_sector_share: float = 0.7
     network_p_local: float = 0.85
 
+    # Fraction of agent prototypes (NOT humans) that carry a stable id and
+    # accumulate a per-prototype audit trail across timesteps. At 0.0 the
+    # model behaves identically to the pre-Round-1 engine: every
+    # transaction is between anonymous prototype draws, every audit
+    # counter stays at zero, and downstream consumers (norm evolution,
+    # regulator) see the population mean. At 1.0 every agent prototype is
+    # registered. Humans never receive an id regardless of this value —
+    # see `docs/plans/registration_regime.md`.
+    registration_coverage: float = 0.0
+
+    # Norm-evolution layer config. Default-disabled; when enabled, the
+    # individual-layer rejection gate switches from static pairwise
+    # distance to deviation-from-tracked-norm. See `NormConfig` and
+    # `docs/plans/norm_evolution_alignment.md`.
+    norm: NormConfig = field(default_factory=NormConfig)
+
 
 @dataclass
 class Population:
@@ -142,6 +194,29 @@ class Population:
     last_action: np.ndarray | None = None
     firm_id: np.ndarray | None = None
     firm_next_id: int = 0
+
+    # Per-prototype identity and audit trail. `prototype_id == -1` means
+    # unregistered (every human, plus the agents not in the registered
+    # fraction). Audit counters increment only for registered agents that
+    # actually participated in a step's executed/rejected pair, so they
+    # are always zero at `registration_coverage = 0.0`. Plan 4's regulator
+    # reads `audit_acceptances` and `audit_rejections` to compute defect
+    # score; plan 3's norm evolution reads `audit_last_alignment` for the
+    # observation buffer.
+    prototype_id: np.ndarray | None = None
+    audit_acceptances: np.ndarray | None = None
+    audit_rejections: np.ndarray | None = None
+    audit_last_alignment: np.ndarray | None = None
+
+    # Norm-evolution state. Both fields are None when `cfg.norm.enabled`
+    # is False (preserves the pre-Round-1 memory layout bit-for-bit).
+    # When enabled, `community_norm` has shape `(K,)` with K=n_stacks
+    # under stratification or K=1 otherwise; `norm_observation_buffer`
+    # has shape `(norm_lag_steps, K)` and is initialised to
+    # `cfg.norm.initial_norm`. See `NormConfig` and
+    # `docs/plans/norm_evolution_alignment.md`.
+    community_norm: np.ndarray | None = None
+    norm_observation_buffer: np.ndarray | None = None
 
     # Sampling structures — built once at synthesize time, immutable thereafter.
     # See _build_sampling_structures. We exploit a structural property: in
@@ -249,6 +324,38 @@ class Population:
         last_action = np.full(n, -1, dtype=np.int8)
         firm_id = np.full(n, -1, dtype=np.int32)
 
+        # Persistent identity and audit trail. Humans always stay at -1;
+        # agents are registered with probability `registration_coverage`.
+        # Compact id assignment so plan 4's regulator can scatter into a
+        # contiguous defect-score array.
+        prototype_id = np.full(n, -1, dtype=np.int64)
+        coverage = float(np.clip(config.registration_coverage, 0.0, 1.0))
+        if coverage > 0.0 and n_a > 0:
+            mask_registered = rng.random(n_a) < coverage
+            n_registered = int(mask_registered.sum())
+            if n_registered > 0:
+                prototype_id[n_h:][mask_registered] = np.arange(
+                    n_registered, dtype=np.int64
+                )
+        audit_acceptances = np.zeros(n, dtype=np.int32)
+        audit_rejections = np.zeros(n, dtype=np.int32)
+        audit_last_alignment = np.zeros(n, dtype=np.float32)
+
+        # Norm-evolution state. Allocated only when `cfg.norm.enabled` so
+        # the canonical pre-Round-1 path keeps the same memory layout
+        # (and snapshot serialisation, which round-trips dataclass fields).
+        norm_cfg = config.norm
+        if norm_cfg.enabled:
+            K = config.n_stacks if norm_cfg.stratify_by_stack else 1
+            lag = max(1, int(norm_cfg.norm_lag_steps))
+            community_norm = np.full(K, norm_cfg.initial_norm, dtype=np.float32)
+            norm_observation_buffer = np.full(
+                (lag, K), norm_cfg.initial_norm, dtype=np.float32
+            )
+        else:
+            community_norm = None
+            norm_observation_buffer = None
+
         pop = cls(
             capability=cap,
             sector=sector,
@@ -263,6 +370,12 @@ class Population:
             bandit_counts=bandit_counts,
             last_action=last_action,
             firm_id=firm_id,
+            prototype_id=prototype_id,
+            audit_acceptances=audit_acceptances,
+            audit_rejections=audit_rejections,
+            audit_last_alignment=audit_last_alignment,
+            community_norm=community_norm,
+            norm_observation_buffer=norm_observation_buffer,
             config=config,
         )
         pop._build_sampling_structures()

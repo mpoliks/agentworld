@@ -181,6 +181,31 @@ class ImperialConfig:
 
 
 @dataclass
+class ExoPermeabilityConfig:
+    """Plan 5 — permeability axis on the exo side (Tomašev et al.).
+
+    Three independent scalar gates on the operator transfers between the
+    exo subsystems. Each defaults to 1.0 (full pass-through), so existing
+    canonical exo runs reproduce bit-for-bit. With one or more gates at
+    0.0, the corresponding flow is sealed; intermediate values are
+    fractional throttles.
+
+    See `docs/plans/permeability_axis.md` and `engine/exo/world.py`.
+    """
+
+    # Share of the consumption pulse from the lifted economy that returns
+    # to the last-mile pool. `0.0` seals the lift-to-last-mile gate;
+    # `_cum_real_consumed` stops accumulating.
+    lift_to_lastmile: float = 1.0
+    # Share of the per-region last-mile consumption that the drag economy
+    # absorbs as legibility-token raw material. `0.0` seals the gate.
+    lastmile_to_drag: float = 1.0
+    # Share of drag-derived suppression pressure that propagates into the
+    # differential layer. `0.0` decouples drag and differential.
+    drag_to_differential: float = 1.0
+
+
+@dataclass
 class ExoWorldConfig:
     """Top-level config for an exo-engine run.
 
@@ -196,6 +221,9 @@ class ExoWorldConfig:
     differential: DifferentialConfig = field(default_factory=DifferentialConfig)
     region: RegionConfig = field(default_factory=RegionConfig)
     imperial: ImperialConfig = field(default_factory=ImperialConfig)
+    # Plan 5 — three permeability gates on the exo flows. Defaults at 1.0
+    # reproduce canonical exo runs bit-for-bit. See `ExoPermeabilityConfig`.
+    permeability: ExoPermeabilityConfig = field(default_factory=ExoPermeabilityConfig)
 
     n_steps: int = 80
     seed: int = 0

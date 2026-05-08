@@ -215,7 +215,7 @@ def basin_counts(points: Iterable[SweepPoint]) -> dict[str, int]:
 # them like any other speculative parameter: we report S1 / ST within
 # the bounds; we do not claim any bound is "the value."
 ALPHA_ENGINE_PROBLEM: dict = {
-    "num_vars": 15,
+    "num_vars": 23,
     "names": [
         "alpha",
         "agent_capability_mean",
@@ -232,6 +232,18 @@ ALPHA_ENGINE_PROBLEM: dict = {
         "productive_decay",
         "cap_slope",
         "max_productive_real_share",
+        # Round 1 robustness: registration / norms / regulator /
+        # permeability. Plans 6 (deciles) and 7 (mission) are not in
+        # this PR's parameter vector; their entries land with their
+        # respective plans.
+        "registration_coverage",
+        "norm_update_eta",
+        "regulator_coverage",
+        "audit_quality",
+        "perm_agent_stack",
+        "perm_exo_lift_lastmile",
+        "perm_exo_lastmile_drag",
+        "perm_exo_drag_differential",
     ],
     "bounds": [
         [0.05, 0.95],   # alpha
@@ -249,6 +261,15 @@ ALPHA_ENGINE_PROBLEM: dict = {
         [0.40, 0.85],   # productive_decay
         [2.0, 6.0],     # cap_slope
         [0.20, 0.80],   # max_productive_real_share
+        # Round 1 bounds.
+        [0.0, 1.0],     # registration_coverage (PopulationConfig)
+        [0.0, 0.30],    # norm_update_eta (NormConfig)
+        [0.0, 1.0],     # regulator_coverage (RegulatorConfig)
+        [0.0, 1.0],     # audit_quality (RegulatorConfig)
+        [0.0, 1.0],     # perm_agent_stack (PermeabilityConfig)
+        [0.0, 1.0],     # perm_exo_lift_lastmile (alpha-side mirror)
+        [0.0, 1.0],     # perm_exo_lastmile_drag
+        [0.0, 1.0],     # perm_exo_drag_differential
     ],
 }
 
@@ -306,17 +327,32 @@ def _alpha_world_from_vector(
     n_agent_prototypes: int,
     seed: int,
 ) -> WorldConfig:
-    from engine.core.topology import DemandConfig
+    from engine.core.population import NormConfig
+    from engine.core.topology import (
+        DemandConfig,
+        PermeabilityConfig,
+        RegulatorConfig,
+    )
     from engine.scenarios import _apply_empirical_topology
 
+    population_cfg = PopulationConfig(
+        n_human_prototypes=n_human_prototypes,
+        n_agent_prototypes=n_agent_prototypes,
+        agent_capability_mean=float(x[1]),
+        human_capability_mean=max(0.05, float(x[1]) - 0.18),
+        seed=seed,
+        # Round 1: registration coverage at index 15. Plan 2's audit
+        # trail engages whenever this is > 0; plans 3 and 4 read it.
+        registration_coverage=float(x[15]),
+    )
+    # NormConfig lives on PopulationConfig; opt-in once `norm_update_eta`
+    # is non-zero so the default-config Sobol mirror (eta=0) reproduces
+    # the static-distance binding. The lag is held at the conservative
+    # default; bounds-aware tuning happens after this round lands.
+    population_cfg.norm = NormConfig(enabled=True, norm_update_eta=float(x[16]))
+
     cfg = WorldConfig(
-        population=PopulationConfig(
-            n_human_prototypes=n_human_prototypes,
-            n_agent_prototypes=n_agent_prototypes,
-            agent_capability_mean=float(x[1]),
-            human_capability_mean=max(0.05, float(x[1]) - 0.18),
-            seed=seed,
-        ),
+        population=population_cfg,
         topology=TopologyConfig(
             alpha=float(x[0]),
             coase_exp=float(x[2]),
@@ -337,6 +373,19 @@ def _alpha_world_from_vector(
             productive_decay=float(x[12]),
             cap_slope=float(x[13]),
             max_productive_real_share=float(x[14]),
+            # Round 1 robustness — opt in so Sobol reads non-default
+            # behaviour.
+            regulator=RegulatorConfig(
+                enabled=True,
+                coverage=float(x[17]),
+                audit_quality=float(x[18]),
+            ),
+            permeability=PermeabilityConfig(
+                agent_stack=float(x[19]),
+                exo_lift_to_lastmile=float(x[20]),
+                exo_lastmile_to_drag=float(x[21]),
+                exo_drag_to_differential=float(x[22]),
+            ),
         ),
         n_steps=n_steps,
         pairs_per_step=pairs_per_step,
@@ -349,6 +398,16 @@ def _alpha_world_from_vector(
         # for n_steps < k, identically zero across all sims (which then
         # blows up the Saltelli/Sobol estimator).
         gini_every_k_steps=1,
+        # Per-component RNG so a parameter that gates `n_pairs` (e.g.
+        # cost) cannot shift the position of every other subsystem's draw
+        # call for the rest of the step. Without this the Saltelli
+        # estimator still converges, but it converges on a noised value
+        # where draw-sequence cross-talk inflates small-but-nonzero S1 on
+        # parameters the engine is mathematically independent of. With
+        # per-component, ST attribution is reliable down to ~0.005 (vs
+        # ~0.03 under the legacy shared-RNG layout). See
+        # `docs/plans/rng_per_component_split.md`.
+        rng_split_mode="per_component",
     )
     # Put the Sobol sweep on the same empirical substrate as the dashboard's
     # 21 substrate-anchored scenarios — sector-block network + t-copula noise
@@ -402,6 +461,16 @@ def run_sobol_sensitivity(
     raised from 64 to 512 because 64 leaves Sobol indices noise-dominated
     on a 15-parameter problem. Override with `--samples` for cheaper runs;
     cost scales linearly.
+
+    Each simulation runs the World with
+    `rng_split_mode="per_component"` (set in `_alpha_world_from_vector`),
+    so the only source of variance between two parameter vectors is the
+    parameter being varied — not draw-sequence shifts induced by one
+    subsystem consuming a different number of draws. Under that layout
+    ST attribution is reliable down to ~0.005; under the legacy
+    shared-RNG layout the noise floor was ~0.03 and small-but-nonzero S1
+    on mathematically-independent parameters were the visible artefact.
+    See `docs/plans/rng_per_component_split.md` for the derivation.
 
     Returns S1 and ST per (metric, parameter), plus the bounds we swept
     over so the dashboard can be honest about the conditional nature of
