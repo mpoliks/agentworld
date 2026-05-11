@@ -137,6 +137,14 @@ A scenario that lands at EBI = 47.3 with band [22, 81] is telling you: "given th
 - **Calibration drift.** Empirical anchors in `engine/data/empirical_anchors.py` carry a "vintage" year. Re-anchor when public sources update; re-run the dashboard to see if any scenario classifications flip.
 - **Ensemble seed dependence.** Bands are computed across the seed set we run. With N=64 the bands themselves have non-trivial uncertainty; we report bootstrap-of-bootstrap when needed.
 
+## Conditioning assumptions on governance objects (added 2026-05)
+
+Three Hadfield / Jacobs-orbit assumptions are baked into every canonical scenario as of this writing. Each is addressed by a planned workstream in `docs/plans/hadfield_jacobs_robustness.md`; until those land, every result in the artifact should be read as conditioned on these.
+
+- **Implicit cross-stack permeability is 1.** `engine/core/topology.py` has no `cross_stack_permeability` parameter. Cross-stack trade attempts are gated only by `cross_stack_compat` inside the law layer (fit, not attempt). Tomašev / Jacobs's *Virtual Agent Economies* (arXiv:2509.10147) treats permeability ↔ impermeability as an axis orthogonal to smooth ↔ striated; the artifact currently runs at the permeable corner. W1c adds the parameter; until then, the impermeable variant is not in the sweep.
+- **Persistent agent identity is absent.** Every transaction is between anonymous prototype draws. There is no stable `agent_id`, no `registered` mask, no audit trail. Hadfield's *Legal Infrastructure for Transformative AI Governance* (arXiv:2602.01474, Feb 2026) treats registration as the precondition for regulator-layer governance. The Matryoshka middle layer in the current engine is therefore filtering pseudonymous draws, not persistent actors. W2a adds the identifier and the `RegistrationConfig` block; see `docs/concepts/registration.md`.
+- **`align_reject` is static-distance, not norm-participation.** `engine/core/transactions.py:312` computes individual-layer rejection as `0.03 + 0.20 · |alignment_a − alignment_b| · (1 − 0.5 · autonomy_avg)`, on a fixed scalar alignment vector that does not evolve. Hadfield's *Normative Infrastructure for AI Alignment* (AIhub, May 2025) argues alignment is participation in evolving community norms. In Smoothworld the individual layer is the binding constraint (~50% rejection share per `docs/concepts/matryoshkan_alignment.md:71`), so the binding constraint inherits this static-distance proxy. W1b adds per-agent `norm_vector` evolution under `NormsConfig.enabled`; until that lands, the canonical Smoothworld claim — that the dominant rejection mode is preference-revealing rather than friction-bound — is conditioned on the static-distance proxy holding.
+
 ---
 
 ## What the artifact can now falsify

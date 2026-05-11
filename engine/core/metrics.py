@@ -156,6 +156,14 @@ class StepMetrics:
     top_decile_share_change: float = 0.0
     gini_wealth_change_abs: float = 0.0
 
+    # ---- Permeability boundary (W1c) -----------------------------------------
+    # Cross-stack pairs rejected at the Tomašev / Jacobs sandbox boundary
+    # before any Matryoshka filter. Zero when `cross_stack_permeability == 1.0`
+    # (the historical default and the canonical pre-2026-05 behavior).
+    # Excluded from `governance_overhead_fraction` by design: permeability
+    # is a boundary condition, not Matryoshka governance.
+    rejected_permeability: float = 0.0
+
     # ---- Tail-tamed EBI for variance decomposition ---------------------------
     # Raw `exo_baroque_index = nominal/real` has an unbounded right tail
     # (heavily-folded scenarios push real -> 0 and EBI -> infinity). The
@@ -305,6 +313,7 @@ class Metrics:
         rejected_market: float,
         rejected_align: float,
         rejected_cost: float,
+        rejected_permeability: float = 0.0,
         gini_every_k_steps: int = 1,
         real_authentic_step: Optional[float] = None,
         productive_welfare_yield: float = 0.0,
@@ -397,7 +406,12 @@ class Metrics:
         per_cap = (self._cum_real / real_humans) if real_humans > 0 else 0.0
 
         total_attempted = (
-            n_tx_real + rejected_law + rejected_market + rejected_align + rejected_cost
+            n_tx_real
+            + rejected_law
+            + rejected_market
+            + rejected_align
+            + rejected_cost
+            + rejected_permeability
         )
         law_surplus_loss = (
             law_weak_surplus_loss + law_capture_surplus_loss + law_upkeep_cost
@@ -502,6 +516,7 @@ class Metrics:
             rejected_market=rejected_market,
             rejected_align=rejected_align,
             rejected_cost=rejected_cost,
+            rejected_permeability=rejected_permeability,
             gini_wealth=gini,
             real_per_capita_welfare=per_cap,
             human_legibility_index=leg,

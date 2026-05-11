@@ -517,6 +517,7 @@ class World:
             rejected_market=tx.rejected_market,
             rejected_align=tx.rejected_align,
             rejected_cost=tx.rejected_cost,
+            rejected_permeability=tx.rejected_permeability,
             gini_every_k_steps=self.cfg.gini_every_k_steps,
             real_authentic_step=real_authentic_step,
             productive_welfare_yield=fold.productive_welfare_yield,

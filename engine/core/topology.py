@@ -194,6 +194,17 @@ class TopologyConfig:
     n_stacks: int = 4
     cross_stack_compat: float = 0.55  # default off-diagonal value
 
+    # Sandbox permeability between stacks (Tomašev / Jacobs, *Virtual Agent
+    # Economies*, arXiv:2509.10147). Probability that a sampled cross-stack
+    # pair is *attempted* at all, applied before the Matryoshka cascade.
+    # 1.0 reproduces the historical pre-2026-05 behavior bit-for-bit
+    # (no rng draw is consumed). Below 1.0 the gate rejects cross-stack
+    # attempts at the boundary, surfaced as `rejected_permeability` in
+    # `TransactionResult` and `StepMetrics`. Same-stack pairs are never
+    # gated. See `docs/concepts/smooth_striated.md` "What this axis is not"
+    # and `docs/plans/hadfield_jacobs_robustness.md` (W1c).
+    cross_stack_permeability: float = 1.0
+
     # Sector affinity: sectors close in this matrix transact more readily.
     # Generated from a low-dim latent + small noise, normalized to [0.2, 1.0].
     sector_affinity_seed: int = 1234

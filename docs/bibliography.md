@@ -28,12 +28,23 @@ The conceptual scaffolding for this artifact lives in the following texts, in ro
 
 ## Multi-agent economic infrastructure
 
-- **Tomašev, Nenad et al.** (2025). *Virtual Agent Economy.* arXiv:2509.10147. The "virtual agent economy" framing that Krier and others build on.
+- **Tomašev, Nenad et al.** (2025). *Virtual Agent Economy.* arXiv:2509.10147. The "virtual agent economy" framing that Krier and others build on. Co-authored by Julian Jacobs (DeepMind / Oxford Martin AIGI). Cross-listed under "Sandbox economies" below: its two-axis taxonomy (emergent ↔ intentional, permeable ↔ impermeable) is orthogonal to this artifact's smooth ↔ striated axis and forms the basis of the `cross_stack_permeability` parameter introduced in `docs/plans/hadfield_jacobs_robustness.md` (W1c).
 - **Leibo, Joel Z. et al.** (2025). *A patchwork polychrome quilt: Modelling societal and technological progress.* arXiv:2505.05197. The "muddle through" framing of socio-technical evolution.
 - **Capability-Priced Micro-Markets (CPMM).** (2026). arXiv:2603.16899. Framework for HTTP 402 / agent payment infrastructure.
 - **ClawCoin.** (2026). arXiv:2604.19026. Compute-cost-indexed cryptocurrency for A2A settlement.
 - **SoK: Blockchain Agent-to-Agent Payments.** (2026). arXiv:2604.03733. Survey of A2A payment infrastructure.
 - **Mastercard Agent Pay**, **Stripe Agentic Commerce**, **Google Cloud AP2 protocol** — production infrastructure shipping in late 2025 / early 2026.
+
+## Regulatory infrastructure and registration regimes
+
+- **Hadfield, Gillian K.** (Winter 2026). *Regulatory Markets: The Future of AI Governance.* Jurimetrics. Government-licensed private regulators competing on audit quality. The construct the Matryoshka middle layer is *not*: see `docs/concepts/matryoshkan_alignment.md` "What this model is not." Operationalized as the `regulator_reject` filter (W1a in `docs/plans/hadfield_jacobs_robustness.md`).
+- **Hadfield, Gillian K.** (May 2025). *Normative infrastructure for AI alignment.* Interview, AIhub. Alignment as participation in evolving community norms rather than preference-matching at static distance. The reason `align_reject` is a load-bearing misspecification in the current engine; replaced by norm-participation under `NormsConfig.enabled` (W1b).
+- **Hadfield, Gillian K.** (February 2026). *Legal Infrastructure for Transformative AI Governance.* arXiv:2602.01474. Registration regimes for autonomous agents as the precondition for everything else. The absence the artifact must name as a conditioning assumption; addressed by W2a (`RegistrationConfig`, persistent `agent_id`).
+
+## Sandbox economies
+
+- **Tomašev, Nenad et al. / Jacobs, Julian.** (2025). *Virtual Agent Economy.* arXiv:2509.10147. See primary entry under "Multi-agent economic infrastructure." The two-axis sandbox taxonomy is what `cross_stack_permeability` (W1c) and `mission_economy` (W2b) bring into the artifact's parameter space.
+- **Jacobs, Julian.** *Predicting AI's Impact on Jobs.* Oxford Martin AIGI. Labor-displacement work that motivates the explicit human-side labor-market split (W2c).
 
 ## Alignment and Matryoshka layers
 

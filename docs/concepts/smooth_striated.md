@@ -64,6 +64,14 @@ Both regimes can produce extraordinary welfare. Both can produce extraordinary c
 
 ---
 
+## What this axis is not — permeability
+
+Tomašev, Jacobs et al. (*Virtual Agent Economies*, arXiv:2509.10147) propose a two-axis taxonomy: *emergent ↔ intentional* origin and *permeable ↔ impermeable* boundary between the agent economy and the human economy. Neither of those axes is the smooth ↔ striated dial. A permeable Smoothworld and an impermeable Smoothworld are different attractors with different welfare profiles. The canonical scenarios in this artifact all run at implicit *high permeability* — every agent-side transaction is treated as freely substitutable for a human-side transaction at the labor-share split. There is no parameter that gates whether the trade is *attempted* across the agent / human boundary; only `cross_stack_compat` gates whether it *fits* once attempted, and only inside the law layer.
+
+`docs/plans/hadfield_jacobs_robustness.md` (W1c) adds `cross_stack_permeability ∈ [0, 1]` as a first-class topology parameter — applied before the Matryoshka cascade rather than inside the law gate, so impermeable variants drop trade *volume* rather than just trade *acceptance rate*. Two new scenarios bracket the axis: `agent_economy_sandbox` (low permeability) and `permeable_default` (current behavior). Until those land, the smooth / striated dial is reported at the artifact's default permeability prior and the impermeable corner of the Tomašev / Jacobs taxonomy is not in the sweep.
+
+---
+
 ## Sectoral and jurisdictional heterogeneity
 
 In practice, no real economy will sit at a single α. The likely 2030s pattern is something like:

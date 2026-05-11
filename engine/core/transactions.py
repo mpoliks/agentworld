@@ -13,6 +13,8 @@ The output is per-step:
     real_surplus_added : sum across all pairs of (surplus - layer taxes)
     nominal_volume     : sum across all pairs of transaction values
     n_transactions     : number of executed transactions (in real units)
+    rejected_permeability : number rejected at the cross-stack boundary
+                            before any Matryoshka layer (W1c, Tomašev / Jacobs)
     rejected_law       : number rejected by law layer
     rejected_market    : number rejected by market layer
     rejected_align     : number rejected by alignment layer
@@ -56,6 +58,10 @@ class TransactionResult:
     rejected_align: float
     rejected_cost: float
     wealth_delta: np.ndarray  # per-prototype wealth change in this step
+    # Cross-stack boundary rejections (W1c). Defaults to 0.0 so historical
+    # scenarios that never set `cross_stack_permeability < 1.0` remain
+    # bit-identical at the result-field level.
+    rejected_permeability: float = 0.0
     # Demand-modulated share of the real surplus that ultimately reaches a
     # human consumer (or a human-controlled agent). Equals
     # `real_surplus_added` when `DemandConfig.enabled = False`. See
@@ -269,6 +275,19 @@ def coasean_step(
     )
     base_surplus_raw = np.clip(base_surplus_raw, 0.0, None)
 
+    # ---- Permeability boundary (W1c) -----------------------------------------
+    # Tomašev / Jacobs sandbox axis: cross-stack pairs may be blocked at the
+    # boundary before any Matryoshka filter runs. Same-stack pairs are never
+    # gated. With `cross_stack_permeability == 1.0` (historical default) the
+    # rng is not consumed so canonical scenarios stay bit-identical.
+    permeability = float(topo.cfg.cross_stack_permeability)
+    if permeability < 1.0:
+        cross_stack_mask = stk_a != stk_b
+        permeability_draws = rng.random(n_pairs)
+        rejected_perm_mask = cross_stack_mask & (permeability_draws >= permeability)
+    else:
+        rejected_perm_mask = np.zeros(n_pairs, dtype=bool)
+
     # ---- Matryoshka filters --------------------------------------------------
     # Law layer. With the dynamic mechanism disabled, preserve the original
     # binary rejection path exactly. When enabled, law also gates surplus and
@@ -313,21 +332,31 @@ def coasean_step(
         0.03 + 0.20 * align_dist * (1.0 - 0.5 * (auto_a + auto_b) / 2.0)
     )
 
-    rejected_law_mask = law_reject
-    rejected_market_mask = (~rejected_law_mask) & market_reject
-    rejected_align_mask = (~rejected_law_mask) & (~rejected_market_mask) & align_reject
+    # Permeability is the first gate; subsequent rejection buckets exclude
+    # pairs already blocked at the boundary so the counts never double-count.
+    survives_perm = ~rejected_perm_mask
+    rejected_law_mask = survives_perm & law_reject
+    rejected_market_mask = survives_perm & (~rejected_law_mask) & market_reject
+    rejected_align_mask = (
+        survives_perm & (~rejected_law_mask) & (~rejected_market_mask) & align_reject
+    )
 
     # Surplus must exceed transaction cost to execute.
     cost_reject = base_surplus <= cost
     rejected_cost_mask = (
-        (~rejected_law_mask)
+        survives_perm
+        & (~rejected_law_mask)
         & (~rejected_market_mask)
         & (~rejected_align_mask)
         & cost_reject
     )
 
     executed_mask = ~(
-        rejected_law_mask | rejected_market_mask | rejected_align_mask | rejected_cost_mask
+        rejected_perm_mask
+        | rejected_law_mask
+        | rejected_market_mask
+        | rejected_align_mask
+        | rejected_cost_mask
     )
 
     # Gross surplus on executed pairs.
@@ -416,6 +445,7 @@ def coasean_step(
         rejected_align=float((rejected_align_mask * pair_real_count).sum()),
         rejected_cost=float((rejected_cost_mask * pair_real_count).sum()),
         wealth_delta=wealth_delta,
+        rejected_permeability=float((rejected_perm_mask * pair_real_count).sum()),
         real_surplus_authentic=real_surplus_authentic,
         law_weak_surplus_loss=law_weak_surplus_loss,
         law_capture_surplus_loss=law_capture_surplus_loss,
@@ -449,6 +479,7 @@ def _coasean_step_chunked(
     rejected_market = 0.0
     rejected_align = 0.0
     rejected_cost = 0.0
+    rejected_permeability = 0.0
     law_weak_surplus_loss = 0.0
     law_capture_surplus_loss = 0.0
     pigouvian_revenue = 0.0
@@ -481,6 +512,7 @@ def _coasean_step_chunked(
         rejected_market += part.rejected_market
         rejected_align += part.rejected_align
         rejected_cost += part.rejected_cost
+        rejected_permeability += part.rejected_permeability
         law_weak_surplus_loss += part.law_weak_surplus_loss
         law_capture_surplus_loss += part.law_capture_surplus_loss
         pigouvian_revenue += part.pigouvian_revenue
@@ -495,6 +527,7 @@ def _coasean_step_chunked(
             + part.rejected_market
             + part.rejected_align
             + part.rejected_cost
+            + part.rejected_permeability
         )
         all_pair_alpha_weighted += part.realized_alpha * all_pair_weight
         all_pair_alpha_weight += all_pair_weight
@@ -510,6 +543,7 @@ def _coasean_step_chunked(
         rejected_align=rejected_align,
         rejected_cost=rejected_cost,
         wealth_delta=wealth_delta,
+        rejected_permeability=rejected_permeability,
         real_surplus_authentic=real_surplus_authentic,
         law_weak_surplus_loss=law_weak_surplus_loss,
         law_capture_surplus_loss=law_capture_surplus_loss,

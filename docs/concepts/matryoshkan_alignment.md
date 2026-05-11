@@ -97,7 +97,7 @@ Krier raises this directly: agents operate within the rules, but *the rules them
 
 The model is silent on this — it treats initial entitlements as fixed. But the **public_defender** scenario is implicitly an answer: a deliberate redistribution of *agent capability* (not entitlement) compensates for whatever entitlement asymmetries exist. This is not a substitute for getting the default right; it is a partial offset.
 
-A more aggressive intervention — re-allocating actual entitlements via the Matryoshka law layer — would require modeling the law-layer as a richer object than a binary filter. We leave that for v2.
+A more aggressive intervention — re-allocating actual entitlements via the Matryoshka law layer — is partially in code as of 2026-05: `LawConfig.enabled` runs the dynamic-law mechanism with capture, civic pushback, and upkeep against welfare. The dynamic law gate sits at `engine/core/transactions.py:279` and scales surplus by a `law_gate` rather than rejecting binary. The v2 caveat for the law layer therefore retires. The equivalent caveats now sit on the *individual* layer (static-distance `align_reject` is a placeholder for norm-participation; see W1b in `docs/plans/hadfield_jacobs_robustness.md`) and on agent identity itself (no persistent `agent_id`; see W2a).
 
 ---
 
@@ -129,9 +129,24 @@ The model is built so that you can vary smooth/striated and Matryoshka-thickness
 
 ---
 
+## What this model is not
+
+Three things to name explicitly, so a reader in the Hadfield orbit does not have to find them in the source.
+
+**The middle layer is Krier's coarsening, not Hadfield's design.** Krier's "market / platform" layer is the set of foundation-model deployers and platform operators. Hadfield's *regulatory markets* (Jurimetrics, Winter 2026) are government-licensed private regulators competing on audit quality. The current `market_reject` formula at `engine/core/transactions.py:305` bundles both into one filter and is a faithful rendering of Krier, not of Hadfield. The W1a split in `docs/plans/hadfield_jacobs_robustness.md` separates them into `platform_reject` and `regulator_reject` — each with its own surplus tax channel and its own capture / strength / audit-quality parameterization. Until that lands, treat the middle-layer rejection share in the dashboard as an upper bound on what Krier's coarsening would predict, not as a reading on Hadfield's design.
+
+**`align_reject` is static-distance, not norm-participation.** The individual layer at `engine/core/transactions.py:312` computes rejection as a function of `|alignment_a − alignment_b|` on a fixed alignment scalar. Hadfield's *normative infrastructure* argument (AIhub, May 2025) is that alignment is participation in evolving community norms, not preference-matching at static distance. In Smoothworld the individual layer is the binding constraint (~50% rejection share, above). The binding constraint cannot be the misspecified one. The W1b workstream adds a per-agent `norm_vector` that evolves toward the local transactional neighborhood and recomputes `align_reject` in norm-space, gated by `NormsConfig.enabled`. Every Smoothworld result in the current artifact inherits the static-distance assumption; canonical pin tests stay on it for bit-identity, but the norm-participation variant is the load-bearing claim going forward.
+
+**Persistent agent identity is absent.** Every transaction in the engine is between anonymous prototype draws from `Population`. There is no stable `agent_id` across steps, no `registered` mask, no audit trail, no identity-laundering surface. Hadfield's *Legal Infrastructure for Transformative AI Governance* (arXiv:2602.01474) argues a registration regime is the precondition for everything else — without identity, the regulator layer is filtering pseudonymous prototype draws rather than persistent actors. The W2a workstream adds the identifier, the `RegistrationConfig` block, and the coupling to W1a's regulator floor. Until it lands, the artifact runs on infrastructure the model does not claim to have built; this is a conditioning assumption, not an oversight.
+
+---
+
 ## References
 
 - Krier, S. (2025). *Coasean Bargaining at Scale*, "Matryoshkan Alignment" section.
+- Hadfield, G. K. (Winter 2026). *Regulatory Markets: The Future of AI Governance.* Jurimetrics.
+- Hadfield, G. K. (May 2025). *Normative infrastructure for AI alignment.* AIhub interview.
+- Hadfield, G. K. (February 2026). *Legal Infrastructure for Transformative AI Governance.* arXiv:2602.01474.
 - Levin, M. (2019). *The Computational Boundary of a "Self": Developmental Bioelectricity Drives Multicellularity and Scale-Free Cognition*, Frontiers in Psychology.
 - Bratton, B. (2015). *The Stack: On Software and Sovereignty*, MIT Press — for the original layered-stack framing of planetary computation.
 - Schmitt, C. (1922). *Politische Theologie* — for the question of which layer holds the sovereign exception.
