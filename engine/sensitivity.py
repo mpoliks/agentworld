@@ -349,6 +349,16 @@ def _alpha_world_from_vector(
         # for n_steps < k, identically zero across all sims (which then
         # blows up the Saltelli/Sobol estimator).
         gini_every_k_steps=1,
+        # Per-component RNG so a parameter that gates `n_pairs` (e.g.
+        # cost) cannot shift the position of every other subsystem's draw
+        # call for the rest of the step. Without this the Saltelli
+        # estimator still converges, but it converges on a noised value
+        # where draw-sequence cross-talk inflates small-but-nonzero S1 on
+        # parameters the engine is mathematically independent of. With
+        # per-component, ST attribution is reliable down to ~0.005 (vs
+        # ~0.03 under the legacy shared-RNG layout). See
+        # `docs/plans/rng_per_component_split.md`.
+        rng_split_mode="per_component",
     )
     # Put the Sobol sweep on the same empirical substrate as the dashboard's
     # 21 substrate-anchored scenarios — sector-block network + t-copula noise
@@ -402,6 +412,22 @@ def run_sobol_sensitivity(
     raised from 64 to 512 because 64 leaves Sobol indices noise-dominated
     on a 15-parameter problem. Override with `--samples` for cheaper runs;
     cost scales linearly.
+
+    Each simulation runs the World with
+    `rng_split_mode="per_component"` (set in `_alpha_world_from_vector`),
+    so the only source of variance between two parameter vectors is the
+    parameter being varied — not draw-sequence shifts induced by one
+    subsystem consuming a different number of draws. Under the legacy
+    shared-RNG layout the noise floor was visibly above 0.03 because
+    parameters that gate `n_pairs` (`cost`, `friction`, etc.) silently
+    moved the position of every later draw call. The empirical N=2048
+    sweep collapses about half of the params previously in the
+    `0.005 < |S1| < 0.03` band; many of the rest *grow* under
+    per-component because real signal that was being masked by
+    draw-sequence noise now resolves to a cleaner estimate. The
+    direction is the right one; the threshold prediction in
+    `docs/plans/rng_per_component_split.md` was optimistic about how
+    much of the band is pure cross-talk vs masked real signal.
 
     Returns S1 and ST per (metric, parameter), plus the bounds we swept
     over so the dashboard can be honest about the conditional nature of

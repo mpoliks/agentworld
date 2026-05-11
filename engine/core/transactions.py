@@ -25,7 +25,7 @@ The output is per-step:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Mapping, Optional, Union
 
 import numpy as np
 
@@ -46,6 +46,33 @@ def _copula_state(dof: float) -> CopulaState:
         state = CopulaState.from_corr(BEA_SECTOR_CORR, dof=dof)
         _COPULA_STATE_CACHE[dof] = state
     return state
+
+
+# Public type for the rng argument: either a single Generator (legacy
+# single-stream behaviour, used by direct unit-test callers) or a dict
+# keyed by subsystem name. The helper below normalises to a dict so the
+# body can always speak the per-component contract.
+RngOrRngs = Union[np.random.Generator, Mapping[str, np.random.Generator]]
+_TX_SUBSYSTEMS: tuple[str, ...] = (
+    "market",
+    "alignment",
+    "law",
+    "network",
+    "demand",
+    "permeability",
+)
+
+
+def _resolve_rngs(rng: RngOrRngs) -> Mapping[str, np.random.Generator]:
+    """Normalise `rng` into a subsystem dict.
+
+    A single `Generator` is treated as "all subsystems share this stream"
+    (legacy behaviour — bit-identical to the pre-split engine). A
+    mapping is returned as-is.
+    """
+    if isinstance(rng, np.random.Generator):
+        return {name: rng for name in _TX_SUBSYSTEMS}
+    return rng
 
 
 @dataclass
@@ -190,7 +217,7 @@ def _sample_partners(
 def coasean_step(
     pop: Population,
     topo: Topology,
-    rng: np.random.Generator,
+    rng: RngOrRngs,
     n_pairs: int = 200_000,
     base_match_volume: float = 1.0,
     chunk_size: int = 0,
@@ -209,14 +236,25 @@ def coasean_step(
     chunk_size and aggregated. This keeps the per-batch working set in cache
     at xlarge scales (n_pairs >= 5M); aggregation is exact (sums are
     associative for the purposes of these metrics).
+
+    `rng` is either a single `np.random.Generator` (legacy: every draw —
+    market gate, alignment gate, law gate, partner sampler, surplus
+    shock, permeability gate — comes from one shared stream) or a
+    mapping keyed by subsystem (`"market"`, `"alignment"`, `"law"`,
+    `"network"`, `"demand"`, `"permeability"`) when the World was built
+    with `WorldConfig.rng_split_mode == "per_component"`. In the
+    per-component mode each gate consumes its own stream so that
+    perturbing one subsystem's draw count cannot move another
+    subsystem's draw sequence.
     """
+    rngs = _resolve_rngs(rng)
     if 0 < chunk_size < n_pairs:
         return _coasean_step_chunked(
             pop, topo, rng, n_pairs, base_match_volume, chunk_size,
             law_strength, law_capture, gini_wealth, local_alpha,
         )
     n = pop.n
-    a, b = _sample_partners(pop, topo, n_pairs, rng)
+    a, b = _sample_partners(pop, topo, n_pairs, rngs["network"])
 
     # Vectorized lookups.
     cap_a, cap_b = pop.capability[a], pop.capability[b]
@@ -233,7 +271,7 @@ def coasean_step(
         )
         noise_sd = topo.cfg.strategy.local_alpha_noise_sd
         if noise_sd > 0:
-            pair_alpha = pair_alpha + noise_sd * rng.standard_normal(n_pairs).astype(np.float32)
+            pair_alpha = pair_alpha + noise_sd * rngs["market"].standard_normal(n_pairs).astype(np.float32)
         pair_alpha = np.clip(pair_alpha, 0.0, 1.0)
     else:
         pair_alpha = None
@@ -259,7 +297,7 @@ def coasean_step(
     cap_product = cap_a * cap_b
     if topo.cfg.noise_model == "t_copula":
         shock = per_pair_surplus_shock(
-            rng,
+            rngs["demand"],
             n_pairs,
             sec_a,
             scale=0.05,
@@ -269,7 +307,7 @@ def coasean_step(
             state=_copula_state(topo.cfg.noise_dof),
         )
     else:
-        shock = 0.05 * rng.standard_normal(n_pairs)
+        shock = 0.05 * rngs["demand"].standard_normal(n_pairs)
     base_surplus_raw = base_match_volume * (
         0.05 + 0.5 * cap_product * sec_aff + shock
     )
@@ -283,7 +321,7 @@ def coasean_step(
     permeability = float(topo.cfg.cross_stack_permeability)
     if permeability < 1.0:
         cross_stack_mask = stk_a != stk_b
-        permeability_draws = rng.random(n_pairs)
+        permeability_draws = rngs["permeability"].random(n_pairs)
         rejected_perm_mask = cross_stack_mask & (permeability_draws >= permeability)
     else:
         rejected_perm_mask = np.zeros(n_pairs, dtype=bool)
@@ -294,7 +332,7 @@ def coasean_step(
     # reports the resulting surplus losses separately from explicit vetoes.
     law_cfg = topo.cfg.law
     compat = topo.cross_stack[stk_a, stk_b]
-    law_reject = rng.random(n_pairs) < (0.01 + 0.04 * (1.0 - compat))
+    law_reject = rngs["law"].random(n_pairs) < (0.01 + 0.04 * (1.0 - compat))
     if law_cfg.enabled:
         same_stack = stk_a == stk_b
         law_strength_clamped = float(np.clip(law_strength, 0.0, 1.0))
@@ -321,14 +359,14 @@ def coasean_step(
     # Market layer: each platform/protocol has its own filter, simulated as
     # rejection probability that scales with cross-sector and cross-alignment.
     align_dist = np.abs(al_a - al_b)
-    market_reject = rng.random(n_pairs) < (
+    market_reject = rngs["market"].random(n_pairs) < (
         0.02 + 0.06 * (1.0 - sec_aff) + 0.04 * align_dist
     )
 
     # Alignment layer: individual-agent refusal. Higher alignment distance →
     # more refusal. Also: if either party's autonomy is very low, the agent
     # may decline on behalf of the principal.
-    align_reject = rng.random(n_pairs) < (
+    align_reject = rngs["alignment"].random(n_pairs) < (
         0.03 + 0.20 * align_dist * (1.0 - 0.5 * (auto_a + auto_b) / 2.0)
     )
 
@@ -460,7 +498,7 @@ def coasean_step(
 def _coasean_step_chunked(
     pop: Population,
     topo: Topology,
-    rng: np.random.Generator,
+    rng: RngOrRngs,
     n_pairs: int,
     base_match_volume: float,
     chunk_size: int,

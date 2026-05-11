@@ -16,7 +16,7 @@ It exposes:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable, Literal, Optional
 
 import numpy as np
 
@@ -85,6 +85,55 @@ class WorldConfig:
     dt: float = 1.0
     time_unit: str = "step"
 
+    # RNG split layout. With `legacy` (the default), every subsystem draws
+    # from the same `np.random.default_rng(seed)` — bit-identical to the
+    # pre-split engine and the canonical pinned baselines. With
+    # `per_component`, `World.build` spawns one child generator per
+    # subsystem boundary (`market`, `alignment`, `law`, `folding`,
+    # `population`, `demand`, `network`, `permeability`, `exo`) so a
+    # parameter that perturbs how many draws subsystem A consumes does
+    # not move the draw sequence subsystem B sees. The Sobol/Saltelli
+    # sensitivity driver opts into `per_component` so its ST attribution
+    # is not contaminated by draw-sequence shifts; the canonical
+    # regression suite stays on `legacy` so the pinned metrics keep
+    # their bit pattern. See `docs/plans/rng_per_component_split.md` for
+    # the rationale.
+    rng_split_mode: Literal["legacy", "per_component"] = "legacy"
+
+
+_RNG_SUBSYSTEMS: tuple[str, ...] = (
+    "population",
+    "market",
+    "alignment",
+    "law",
+    "folding",
+    "demand",
+    "network",
+    "permeability",
+    "exo",
+)
+
+
+def _build_rng_dict(
+    seed: int, mode: str
+) -> dict[str, np.random.Generator]:
+    """Return the per-subsystem RNG dict.
+
+    Under `legacy` every key aliases the same generator (bit-identical to
+    the pre-split engine). Under `per_component` each key gets its own
+    `default_rng` spawned from a SeedSequence, so a draw on one stream
+    does not advance any other.
+    """
+    if mode == "per_component":
+        seed_seq = np.random.SeedSequence(seed)
+        children = seed_seq.spawn(len(_RNG_SUBSYSTEMS))
+        return {
+            name: np.random.default_rng(child)
+            for name, child in zip(_RNG_SUBSYSTEMS, children)
+        }
+    shared = np.random.default_rng(seed)
+    return {name: shared for name in _RNG_SUBSYSTEMS}
+
 
 @dataclass
 class World:
@@ -92,7 +141,7 @@ class World:
     population: Population
     topology: Topology
     metrics: Metrics
-    rng: np.random.Generator
+    rngs: dict[str, np.random.Generator]
     law_strength: float
     law_capture: float
     step_idx: int = 0
@@ -107,11 +156,21 @@ class World:
     # reducing human-involving transaction costs next step.
     _pigouvian_friction_pool: float = 0.0
 
+    @property
+    def rng(self) -> np.random.Generator:
+        """Backward-compat alias to the market subsystem stream.
+
+        Kept so user-supplied notebooks that read `world.rng` still work.
+        New engine code should reach into `self.rngs[<subsystem>]` so the
+        call site is honest about which stream it consumes.
+        """
+        return self.rngs["market"]
+
     @classmethod
     def build(cls, cfg: Optional[WorldConfig] = None) -> "World":
         if cfg is None:
             cfg = WorldConfig()
-        rng = np.random.default_rng(cfg.seed)
+        rngs = _build_rng_dict(cfg.seed, cfg.rng_split_mode)
         topo = Topology.build(cfg.topology)
         pop = Population.synthesize(cfg.population, strategy_config=topo.cfg.strategy)
         agents_mask = ~pop.is_human
@@ -126,7 +185,7 @@ class World:
             population=pop,
             topology=topo,
             metrics=Metrics(),
-            rng=rng,
+            rngs=rngs,
             _cap_intermediating_mean=cap_inter,
             law_strength=(
                 float(np.clip(topo.cfg.law.law_strength_initial, 0.0, 1.0))
@@ -279,7 +338,7 @@ class World:
                 self.population.bandit_rewards,
                 self.population.bandit_counts,
                 strategy_cfg.epsilon,
-                self.rng,
+                self.rngs["population"],
             )
             self.population.last_action = actions
             apply_actions(
@@ -294,7 +353,7 @@ class World:
         law_strength_used = self.law_strength if law_enabled else 1.0
         law_capture_used = self.law_capture if law_enabled else 0.0
         tx = coasean_step(
-            self.population, self.topology, self.rng,
+            self.population, self.topology, self.rngs,
             n_pairs=self.cfg.pairs_per_step,
             chunk_size=self.cfg.pair_chunk_size,
             law_strength=law_strength_used,
@@ -355,7 +414,7 @@ class World:
             base_real_surplus=tx.real_surplus_added,
             base_nominal_volume=tx.nominal_volume,
             topo=self.topology,
-            rng=self.rng,
+            rng=self.rngs["folding"],
             cap_intermediating=self._cap_intermediating_mean,
             realized_alpha=tx.realized_alpha if strategy_cfg.enabled else None,
             fold_pressure=fold_pressure,
@@ -446,8 +505,11 @@ class World:
 
             W_pre_inst = _total_wealth() if track_ledger else 0.0
             dissolution_step(self.population, inst_cfg)
-            formation_step(self.population, inst_cfg, self.rng, surplus_per_proto=tx.wealth_delta)
-            merge_step(self.population, inst_cfg, self.rng)
+            formation_step(
+                self.population, inst_cfg, self.rngs["population"],
+                surplus_per_proto=tx.wealth_delta,
+            )
+            merge_step(self.population, inst_cfg, self.rngs["population"])
             firm_overhead_step(self.population, inst_cfg)
             if track_ledger:
                 W_post_inst = _total_wealth()
@@ -479,7 +541,7 @@ class World:
             if track_ledger:
                 W_post_dep = _total_wealth()
                 ledger.add_wealth_out("dynamics.depreciation", W_pre_dep - W_post_dep)
-            churn_count = entry_exit(self.population, dyn_cfg, self.rng)
+            churn_count = entry_exit(self.population, dyn_cfg, self.rngs["population"])
             if track_ledger:
                 W_post_ee = _total_wealth()
                 ee_delta = W_post_ee - W_post_dep
