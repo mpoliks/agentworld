@@ -101,6 +101,7 @@ label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter
   cursor: pointer;
   font-size: 12px;
   letter-spacing: 0.06em;
+  position: relative;
   text-transform: uppercase;
   color: var(--text-3);
   border-bottom: 2px solid transparent;
@@ -109,6 +110,17 @@ label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter
 }
 .tab:hover { color: var(--text-2); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab[data-has-data="true"]::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  margin-left: 8px;
+  vertical-align: middle;
+  box-shadow: 0 0 6px rgba(95, 165, 114, 0.6);
+}
 
 .foldtree-panel { min-height: 480px; padding: 24px; font-family: var(--mono); font-size: 12px; color: var(--text-3); text-align: center; }
 .foldtree-panel a { color: var(--accent); }
@@ -382,6 +394,14 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     return foldTree;
   }
 
+  function markTabHasData(tabName) {
+    const t = document.querySelector(`.tab[data-tab="${tabName}"]`);
+    if (t) t.setAttribute('data-has-data', 'true');
+  }
+  function clearTabIndicators() {
+    document.querySelectorAll('.tab[data-has-data]').forEach((t) => t.removeAttribute('data-has-data'));
+  }
+
   function applyStep(step) {
     sStep.textContent = step.step;
     sAlpha.textContent = step.alpha != null ? step.alpha.toFixed(3) : '—';
@@ -390,14 +410,24 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     appendStep('chart-alpha', step.step, step.alpha);
     appendStep('chart-ebi', step.step, step.exo_baroque_index);
     appendStep('chart-rwpc', step.step, step.real_per_capita_welfare);
+    markTabHasData('charts');
     const ft = ensureFoldTree();
     if (ft) {
       ft.appendStep(step.step, step.fold_per_depth_contribution || []);
+      if ((step.fold_per_depth_contribution || []).some((v) => v > 0)) {
+        markTabHasData('foldtree');
+      }
     }
     ensureExchangeViews();
+    const hasPairs = (step.pair_samples || []).length > 0;
     if (tape) tape.applyStep(step);
     if (grid) grid.applyStep(step);
     if (chord) chord.applyStep(step);
+    if (hasPairs) {
+      markTabHasData('tape');
+      markTabHasData('grid');
+      markTabHasData('chord');
+    }
   }
 
   function onTerminal(kind, payload) {
@@ -451,6 +481,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     if (tape) tape.reset();
     if (grid) grid.reset();
     if (chord) chord.reset();
+    clearTabIndicators();
     clearLog();
     sStep.textContent = '0';
     sAlpha.textContent = '—';

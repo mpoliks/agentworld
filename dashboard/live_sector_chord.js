@@ -73,8 +73,11 @@
 
     const controls = document.createElement('div');
     controls.className = 'lp-chord-controls';
-    const perStepChip = makeChip('per step', false);
-    const cumulativeChip = makeChip('cumulative', true);
+    // Default to per-step so first-time users see ribbons pulse with
+    // step-by-step volume; cumulative is one chip-click away when the
+    // user wants the slowly-growing structural pattern.
+    const perStepChip = makeChip('per step', true);
+    const cumulativeChip = makeChip('cumulative', false);
     const status = document.createElement('span');
     status.className = 'lp-chord-status';
     status.textContent = 'waiting for run…';
@@ -90,7 +93,7 @@
       return c;
     }
 
-    let mode = 'cumulative';
+    let mode = 'per-step';
     perStepChip.addEventListener('click', () => {
       mode = 'per-step';
       perStepChip.classList.add('active');

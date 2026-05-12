@@ -25,15 +25,27 @@
     .pt-group { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 12px 16px; }
     .pt-group-header { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
     .pt-hint { font-family: var(--sans); font-size: 11px; color: var(--text-3); text-transform: none; letter-spacing: 0; font-weight: normal; }
-    .pt-family-radio { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 14px; }
-    .pt-family-radio label { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--text-2); cursor: pointer; padding: 4px 0; }
-    .pt-family-radio input[type=radio] { margin-top: 2px; accent-color: var(--accent); }
-    .pt-family-radio label.active { color: var(--text); }
-    .pt-family-radio .pt-family-desc { font-family: var(--serif); font-size: 12px; line-height: 1.4; color: var(--text-3); }
-    .pt-row { display: grid; grid-template-columns: 200px 1fr 70px 110px; gap: 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); }
+    .pt-family-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pt-family-pill { padding: 6px 14px; border: 1px solid var(--border); border-radius: 20px; cursor: pointer; font-family: var(--mono); font-size: 11px; color: var(--text-2); background: transparent; user-select: none; transition: background 80ms, color 80ms, border-color 80ms; }
+    .pt-family-pill:hover { color: var(--text); border-color: var(--text-3); }
+    .pt-family-pill.active { background: var(--accent); color: #1a1208; border-color: var(--accent); font-weight: 600; }
+    .pt-family-active-desc { font-family: var(--serif); font-size: 12px; color: var(--text-2); margin-top: 10px; line-height: 1.5; font-style: italic; }
+
+    .pt-row { display: grid; grid-template-columns: 200px 1fr 70px 110px; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); position: relative; }
     .pt-row:first-child { border-top: none; }
-    .pt-row.coupled { padding-left: 16px; border-left: 2px solid var(--border); margin-left: -2px; }
+    .pt-row.tier-1 { padding-left: 10px; border-left: 3px solid var(--accent); margin-left: -10px; }
+    .pt-row.tier-1 .pt-name > span:first-child { font-size: 13px; color: var(--text); font-weight: 500; }
+    .pt-row.tier-2 .pt-name > span:first-child { font-size: 12px; color: var(--text-2); }
+    .pt-row.coupled { padding-left: 24px; }
+    .pt-row.coupled::before { content: '↳'; position: absolute; left: 6px; color: var(--text-3); font-family: var(--mono); }
     .pt-row.inert { opacity: 0.45; }
+
+    details.pt-more { margin-top: 4px; }
+    details.pt-more > summary { cursor: pointer; padding: 12px 0 8px; color: var(--text-3); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; border-top: 1px dashed var(--border); list-style: none; }
+    details.pt-more > summary::-webkit-details-marker { display: none; }
+    details.pt-more > summary::before { content: '▸ '; color: var(--text-3); }
+    details.pt-more[open] > summary { color: var(--accent); border-top-color: var(--accent); }
+    details.pt-more[open] > summary::before { content: '▾ '; color: var(--accent); }
     .pt-name { font-family: var(--mono); font-size: 12px; color: var(--text); line-height: 1.3; cursor: help; }
     .pt-name .pt-sub { font-family: var(--sans); font-size: 11px; color: var(--text-3); display: block; margin-top: 2px; }
     .pt-slider-cell { display: flex; align-items: center; gap: 8px; }
@@ -56,9 +68,10 @@
     details.pt-bounds-help summary { cursor: pointer; color: var(--text-2); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
     details.pt-bounds-help[open] summary { margin-bottom: 6px; }
     .pt-preset { width: 100%; }
-    .pt-mode-btn { font-family: var(--mono); font-size: 10px; padding: 3px 8px; background: var(--panel-2); color: var(--text-2); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em; }
-    .pt-mode-btn.active { background: var(--accent); color: #1a1208; border-color: var(--accent); }
-    .pt-schedule-wrap { padding: 8px 0 10px; }
+    .pt-alpha-mode-btn { display: block; width: 100%; padding: 8px 12px; margin-top: 8px; background: var(--panel-2); color: var(--text-2); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; transition: color 80ms, border-color 80ms, background 80ms; }
+    .pt-alpha-mode-btn:hover { color: var(--text); border-color: var(--text-3); }
+    .pt-alpha-mode-btn.active { background: var(--accent); color: #1a1208; border-color: var(--accent); font-weight: 600; }
+    .pt-schedule-wrap { padding: 12px 0 4px; }
     .pt-schedule-svg { width: 100%; height: 110px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; cursor: crosshair; }
     .pt-schedule-svg .grid { stroke: var(--border); stroke-width: 1; }
     .pt-schedule-svg .curve { stroke: var(--accent); stroke-width: 2; fill: none; }
@@ -158,31 +171,44 @@
 
     // ---- panel sections ---------------------------------------------------
 
-    // family selector
+    // family selector — horizontal pills, with the active family's
+    // description shown as a single line below the pill row.
+    const FAMILY_SHORT_LABELS = {
+      alpha_baseline: 'Baseline',
+      demand_intermediation: 'Demand',
+      dynamic_law: 'Dynamic law',
+      pigouvian: 'Pigouvian',
+      emergent_strategy: 'Emergent',
+      mission_economy: 'Mission',
+      norms_layer: 'Norms',
+    };
     const familyGroup = el('div', { class: 'pt-group' });
     familyGroup.appendChild(el('div', { class: 'pt-group-header' },
       'Scenario family',
       el('span', { class: 'pt-hint' }, 'chosen before run; sets which engine modules are active'),
     ));
-    const familyDescBox = el('div', { class: 'pt-family-desc' });
-    const familyRadioBox = el('div', { class: 'pt-family-radio' });
+    const familyPillRow = el('div', { class: 'pt-family-pills' });
+    const familyActiveDesc = el('div', { class: 'pt-family-active-desc' });
+    const pillByFamily = {};
     families.forEach((fam) => {
-      const input = el('input', { type: 'radio', name: 'pt-family', value: fam.id });
-      if (fam.id === state.family) input.checked = true;
-      const label = el('label', {}, input, el('span', {}, fam.label));
-      input.addEventListener('change', () => {
+      const pill = el('button', { class: 'pt-family-pill', type: 'button' },
+        FAMILY_SHORT_LABELS[fam.id] || fam.label,
+      );
+      pill.title = fam.label;
+      if (fam.id === state.family) pill.classList.add('active');
+      pill.addEventListener('click', () => {
         state.family = fam.id;
-        familyDescBox.textContent = fam.description;
+        Object.values(pillByFamily).forEach((p) => p.classList.remove('active'));
+        pill.classList.add('active');
+        familyActiveDesc.textContent = fam.description;
         repopulatePresets();
-        familyRadioBox.querySelectorAll('label').forEach((l) => l.classList.remove('active'));
-        label.classList.add('active');
       });
-      if (fam.id === state.family) label.classList.add('active');
-      familyRadioBox.appendChild(label);
+      familyPillRow.appendChild(pill);
+      pillByFamily[fam.id] = pill;
     });
-    familyGroup.appendChild(familyRadioBox);
-    familyDescBox.textContent = families.find((f) => f.id === state.family).description;
-    familyGroup.appendChild(familyDescBox);
+    familyGroup.appendChild(familyPillRow);
+    familyActiveDesc.textContent = families.find((f) => f.id === state.family).description;
+    familyGroup.appendChild(familyActiveDesc);
     root.appendChild(familyGroup);
 
     // scenario preset
@@ -217,14 +243,25 @@
     });
     repopulatePresets();
 
-    // headline metric selector
+    // headline metric selector — human labels for the cryptic engine names.
+    const METRIC_LABELS = {
+      log_exo_baroque_index: 'Exo-baroque index (log)',
+      real_per_capita_welfare: 'Real welfare per capita',
+      gini_wealth_change_abs: 'Wealth Gini change |Δ|',
+      log_exo_baroque_authentic: 'Authentic EBI (log)',
+      real_welfare_authentic_cumulative: 'Authentic welfare, cumulative',
+      productive_welfare_yield: 'Productive welfare yield',
+    };
     const metricGroup = el('div', { class: 'pt-group' });
     const metricHeader = el('div', { class: 'pt-group-header' });
     metricHeader.appendChild(document.createTextNode('Sensitivity metric'));
     metricHeader.appendChild(el('span', { class: 'pt-hint' }, 'drives the S1/ST badge on each slider'));
     metricGroup.appendChild(metricHeader);
     const metricSelect = el('select', { class: 'pt-metric-select' });
-    sobolMetrics.forEach((m) => metricSelect.appendChild(el('option', { value: m }, m)));
+    sobolMetrics.forEach((m) => {
+      const label = METRIC_LABELS[m] || m;
+      metricSelect.appendChild(el('option', { value: m }, label));
+    });
     metricSelect.value = state.metric;
     metricSelect.addEventListener('change', async () => {
       state.metric = metricSelect.value;
@@ -249,14 +286,22 @@
     });
     root.appendChild(pfGroup);
 
-    // parameter rows
+    // parameter rows — Tier-1 rendered visibly, Tier-2 collapsed in a
+    // <details> expander so the panel doesn't tower over the rest of
+    // the page on first load.
     const paramGroup = el('div', { class: 'pt-group' });
     paramGroup.appendChild(el('div', { class: 'pt-group-header' },
       'Parameters · ranked by mean |ST|',
       el('span', { class: 'pt-hint' }, 'click name to expand help'),
     ));
-    const rowsHost = el('div');
-    paramGroup.appendChild(rowsHost);
+    const tier1Host = el('div');
+    const tier2Details = el('details', { class: 'pt-more' });
+    const tier2Summary = el('summary', {}, 'more parameters (Tier 2 — lower sensitivity)');
+    const tier2Host = el('div');
+    tier2Details.appendChild(tier2Summary);
+    tier2Details.appendChild(tier2Host);
+    paramGroup.appendChild(tier1Host);
+    paramGroup.appendChild(tier2Details);
     root.appendChild(paramGroup);
 
     const rowControls = {};  // name → { input, valueCell, stCell, row, helpDrawer }
@@ -286,23 +331,31 @@
         valueCell,
         stCell,
       );
+      // Tier class for visual elevation: Tier-1 gets an accent
+      // border-left and a heavier label; Tier-2 sits in the expander.
+      row.classList.add(p.tier === 1 ? 'tier-1' : 'tier-2');
       const wrap = el('div', {});
       wrap.appendChild(row);
       wrap.appendChild(helpDrawer);
-      rowsHost.appendChild(wrap);
+      (p.tier === 1 ? tier1Host : tier2Host).appendChild(wrap);
 
-      // Couple rows visually for the productive-folding pair.
+      // Couple rows visually for the productive-folding pair (a Tier-1
+      // and a Tier-2 — the coupling glyph reads in both hosts).
       if (p.name === 'base_variance_absorption' || p.name === 'max_productive_real_share') {
         row.classList.add('coupled');
       }
 
-      // α gets a constant/schedule mode toggle and an inline SVG curve editor.
-      // The schedule editor is built once and hidden until mode flips.
+      // α gets a constant/schedule mode toggle and an inline SVG curve
+      // editor. The toggle is rendered as a full-width button under the
+      // row so it reads as a *primary* affordance, not a footnote on
+      // the slider cell. The schedule editor is built once and hidden
+      // until mode flips.
       let scheduleWrap = null;
       if (p.name === 'alpha') {
-        const modeBtn = el('button', { class: 'pt-mode-btn', type: 'button' }, 'schedule α(t)');
-        // Place the toggle next to the bounds label.
-        row.querySelector('.pt-slider-cell').appendChild(modeBtn);
+        const modeBtn = el('button', { class: 'pt-alpha-mode-btn', type: 'button' },
+          'Schedule α(t) over time →',
+        );
+        wrap.appendChild(modeBtn);
         scheduleWrap = el('div', { class: 'pt-schedule-wrap', style: 'display: none;' });
         wrap.appendChild(scheduleWrap);
         buildScheduleEditor(scheduleWrap);
@@ -310,7 +363,7 @@
           if (state.alphaMode === 'constant') {
             state.alphaMode = 'schedule';
             modeBtn.classList.add('active');
-            modeBtn.textContent = 'use constant α';
+            modeBtn.textContent = '← Use constant α';
             input.style.display = 'none';
             row.querySelector('.pt-bounds').style.display = 'none';
             valueCell.style.display = 'none';
@@ -324,7 +377,7 @@
           } else {
             state.alphaMode = 'constant';
             modeBtn.classList.remove('active');
-            modeBtn.textContent = 'schedule α(t)';
+            modeBtn.textContent = 'Schedule α(t) over time →';
             input.style.display = '';
             row.querySelector('.pt-bounds').style.display = '';
             valueCell.style.display = '';
