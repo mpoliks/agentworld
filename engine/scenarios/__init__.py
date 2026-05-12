@@ -1696,4 +1696,19 @@ def get_scenario(name: str) -> WorldConfig:
 
 
 def list_scenarios() -> list[tuple[str, str]]:
-    return [(k, SCENARIO_DESCRIPTIONS[k]) for k in SCENARIOS]
+    # `_anchored` variants are wrapped programmatically and share the base
+    # scenario's description (with a substrate-anchored suffix). Other keys
+    # missing from SCENARIO_DESCRIPTIONS fall back to an empty string rather
+    # than raising — the dashboard endpoint must not 500 on a registration
+    # mismatch.
+    out: list[tuple[str, str]] = []
+    suffix = "_anchored"
+    for k in SCENARIOS:
+        if k in SCENARIO_DESCRIPTIONS:
+            out.append((k, SCENARIO_DESCRIPTIONS[k]))
+        elif k.endswith(suffix) and k[: -len(suffix)] in SCENARIO_DESCRIPTIONS:
+            base = k[: -len(suffix)]
+            out.append((k, SCENARIO_DESCRIPTIONS[base] + " (substrate-anchored variant)"))
+        else:
+            out.append((k, ""))
+    return out

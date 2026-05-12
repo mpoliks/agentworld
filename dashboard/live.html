@@ -8,6 +8,7 @@
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script src="foldtree.js" defer></script>
+<script src="live_parameters.js" defer></script>
 <link rel="stylesheet" href="_tokens.css">
 <style>
 header {
@@ -144,34 +145,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
 <main>
   <div class="wrap">
 
-    <div class="controls panel" id="controls">
-      <div>
-        <label for="scenario">Scenario</label>
-        <select id="scenario" style="width: 100%;"></select>
-      </div>
-      <div>
-        <label for="scale">Scale</label>
-        <select id="scale">
-          <option value="small" selected>small (88K)</option>
-          <option value="medium">medium (880K)</option>
-          <option value="large">large (8.8M)</option>
-        </select>
-      </div>
-      <div>
-        <label for="n_steps">Steps</label>
-        <input id="n_steps" type="number" min="1" max="500" value="60" style="width: 90px;">
-      </div>
-      <div>
-        <label for="seed">Seed</label>
-        <input id="seed" type="number" value="0" style="width: 90px;">
-      </div>
-      <div style="display: flex; gap: 8px;">
-        <button id="run-btn">Run</button>
-        <button id="cancel-btn" class="ghost" disabled>Cancel</button>
-      </div>
-    </div>
-
-    <p id="scenario-desc" class="scenario-desc"></p>
+    <div id="param-panel" class="panel" style="padding: 0; background: transparent; border: none;"></div>
 
     <div class="tabs">
       <div class="tab active" data-tab="charts">Charts</div>
@@ -234,14 +208,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
 (() => {
   // ---- DOM ------------------------------------------------------------
   const $ = (id) => document.getElementById(id);
-  const sel = $('scenario');
-  const scaleSel = $('scale');
-  const nStepsInp = $('n_steps');
-  const seedInp = $('seed');
-  const runBtn = $('run-btn');
-  const cancelBtn = $('cancel-btn');
   const eventLog = $('event-log');
-  const desc = $('scenario-desc');
 
   const sStatus = $('s-status');
   const sStep = $('s-step');
@@ -294,24 +261,11 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     });
   });
 
-  // ---- scenarios ------------------------------------------------------
-  const scenarioDescByName = {};
-  fetch('/scenarios').then((r) => r.json()).then((items) => {
-    items.forEach((sc) => {
-      const opt = document.createElement('option');
-      opt.value = sc.name;
-      opt.textContent = sc.name;
-      sel.appendChild(opt);
-      scenarioDescByName[sc.name] = sc.description;
-    });
-    if (items.length > 0) {
-      sel.value = items.find((s) => s.name === 'equilibrium_drift') ? 'equilibrium_drift' : items[0].name;
-      desc.textContent = scenarioDescByName[sel.value] || '';
-    }
-  });
-  sel.addEventListener('change', () => {
-    desc.textContent = scenarioDescByName[sel.value] || '';
-  });
+  // ---- parameter panel (S2) -------------------------------------------
+  // The panel owns scenario/family/overrides/scale/n_steps/seed/run/cancel.
+  // We hand it an onSubmit/onCancel pair and read getRunConfig() back when
+  // the user hits Run.
+  let panel = null;
 
   // ---- event log ------------------------------------------------------
   function logRow(kind, body) {
@@ -330,12 +284,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
   let elapsedTimer = null;
 
   function setRunning(running) {
-    runBtn.disabled = running;
-    cancelBtn.disabled = !running;
-    sel.disabled = running;
-    scaleSel.disabled = running;
-    nStepsInp.disabled = running;
-    seedInp.disabled = running;
+    if (panel) panel.setRunning(running);
   }
 
   function tickElapsed() {
@@ -415,8 +364,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     });
   }
 
-  runBtn.addEventListener('click', async () => {
-    if (!sel.value) return;
+  async function onPanelSubmit(body) {
     closeStream();
     resetCharts();
     if (foldTree) { foldTree.reset(); }
@@ -429,12 +377,6 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     sStatus.textContent = 'starting…';
     sStatus.className = 'value muted';
 
-    const body = {
-      scenario: sel.value,
-      n_steps: parseInt(nStepsInp.value, 10) || 0,
-      scale: scaleSel.value,
-      seed: parseInt(seedInp.value, 10),
-    };
     setRunning(true);
     startedAt = Date.now();
     elapsedTimer = setInterval(tickElapsed, 100);
@@ -454,24 +396,41 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       const ans = await r.json();
       sStatus.textContent = 'running';
       sStatus.className = 'value tinted';
-      logRow('post', `started run ${ans.run_id}`);
+      logRow('post', `started run ${ans.run_id} · ${ans.scenario} · family=${ans.family || '—'}`);
       startStream(ans.run_id);
     } catch (e) {
       logRow('error', `network: ${e.message}`);
       onTerminal('error', null);
     }
-  });
+  }
 
-  cancelBtn.addEventListener('click', async () => {
+  async function onPanelCancel() {
     if (!activeRunId) return;
-    cancelBtn.disabled = true;
     try {
       await fetch(`/runs/${activeRunId}/cancel`, { method: 'POST' });
       logRow('post', 'cancel requested');
     } catch (e) {
       logRow('error', `cancel failed: ${e.message}`);
     }
-  });
+  }
+
+  // The parameter panel is loaded via `live_parameters.js` (defer), so
+  // window.createParameterPanel is available once DOMContentLoaded fires.
+  function mountPanel() {
+    if (typeof window.createParameterPanel !== 'function') {
+      logRow('error', 'parameter panel module failed to load');
+      return;
+    }
+    window.createParameterPanel($('param-panel'), {
+      onSubmit: onPanelSubmit,
+      onCancel: onPanelCancel,
+    }).then((p) => { panel = p; });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mountPanel);
+  } else {
+    mountPanel();
+  }
 })();
 </script>
 
