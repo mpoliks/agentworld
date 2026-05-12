@@ -10,6 +10,7 @@
 <script src="foldtree.js" defer></script>
 <script src="live_parameters.js" defer></script>
 <script src="live_pairs.js" defer></script>
+<script src="live_sector_chord.js" defer></script>
 <link rel="stylesheet" href="_tokens.css">
 <style>
 header {
@@ -152,6 +153,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       <div class="tab active" data-tab="charts">Charts</div>
       <div class="tab" data-tab="tape">Tape</div>
       <div class="tab" data-tab="grid">Grid</div>
+      <div class="tab" data-tab="chord">Sector chord</div>
       <div class="tab" data-tab="foldtree">Fold tree</div>
     </div>
 
@@ -203,6 +205,17 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
         (one per sector endpoint) and draw an arc between them if the trade
         executed. Rejected pairs flash dim with no arc. Slot positions are
         deterministic per prototype index.
+      </p>
+    </div>
+
+    <div id="tab-chord" style="display: none;">
+      <div id="chord-host"></div>
+      <p class="chart-caption" style="padding: 8px 0;">
+        Twelve sectors arranged around a circle. Ribbon thickness encodes the
+        weighted volume of cleared trades between sector pairs, derived from
+        the K-pair-per-step sample. Per-step mode shows the instantaneous
+        snapshot; cumulative mode shows the structure that emerges over the
+        whole run.
       </p>
     </div>
 
@@ -301,19 +314,24 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       $('tab-charts').style.display = which === 'charts' ? '' : 'none';
       $('tab-tape').style.display = which === 'tape' ? '' : 'none';
       $('tab-grid').style.display = which === 'grid' ? '' : 'none';
+      $('tab-chord').style.display = which === 'chord' ? '' : 'none';
       $('tab-foldtree').style.display = which === 'foldtree' ? '' : 'none';
     });
   });
 
-  // ---- live exchange views (V2 S5) ------------------------------------
+  // ---- live exchange views (V2 S5 + S6) -------------------------------
   let tape = null;
   let grid = null;
+  let chord = null;
   function ensureExchangeViews() {
     if (!tape && typeof window.createTape === 'function') {
       tape = window.createTape($('tape-host'));
     }
     if (!grid && typeof window.createGrid === 'function') {
       grid = window.createGrid($('grid-host'));
+    }
+    if (!chord && typeof window.createSectorChord === 'function') {
+      chord = window.createSectorChord($('chord-host'));
     }
   }
 
@@ -379,6 +397,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     ensureExchangeViews();
     if (tape) tape.applyStep(step);
     if (grid) grid.applyStep(step);
+    if (chord) chord.applyStep(step);
   }
 
   function onTerminal(kind, payload) {
@@ -431,6 +450,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     ensureExchangeViews();
     if (tape) tape.reset();
     if (grid) grid.reset();
+    if (chord) chord.reset();
     clearLog();
     sStep.textContent = '0';
     sAlpha.textContent = '—';
