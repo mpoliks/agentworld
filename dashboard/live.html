@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script src="foldtree.js" defer></script>
 <script src="live_parameters.js" defer></script>
+<script src="live_pairs.js" defer></script>
 <link rel="stylesheet" href="_tokens.css">
 <style>
 header {
@@ -149,6 +150,8 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
 
     <div class="tabs">
       <div class="tab active" data-tab="charts">Charts</div>
+      <div class="tab" data-tab="tape">Tape</div>
+      <div class="tab" data-tab="grid">Grid</div>
       <div class="tab" data-tab="foldtree">Fold tree</div>
     </div>
 
@@ -182,6 +185,25 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       </div>
 
       <div id="event-log" class="event-log"><div class="row"><b>idle</b>no run yet · pick a scenario and hit Run</div></div>
+    </div>
+
+    <div id="tab-tape" style="display: none;">
+      <div id="tape-host"></div>
+      <p class="chart-caption" style="padding: 8px 0;">
+        K sampled trades per step (default 200 of the ~200K processed). Newest first.
+        Filter by pair type or executed/rejected. "ƒ" is friction; "+" is real surplus
+        delivered; "✕" is the gate that killed the trade.
+      </p>
+    </div>
+
+    <div id="tab-grid" style="display: none;">
+      <div id="grid-host"></div>
+      <p class="chart-caption" style="padding: 8px 0;">
+        Twelve sector columns. Per step, the K sampled pairs light up two slots
+        (one per sector endpoint) and draw an arc between them if the trade
+        executed. Rejected pairs flash dim with no arc. Slot positions are
+        deterministic per prototype index.
+      </p>
     </div>
 
     <div id="tab-foldtree" style="display: none;">
@@ -277,9 +299,23 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       t.classList.add('active');
       const which = t.dataset.tab;
       $('tab-charts').style.display = which === 'charts' ? '' : 'none';
+      $('tab-tape').style.display = which === 'tape' ? '' : 'none';
+      $('tab-grid').style.display = which === 'grid' ? '' : 'none';
       $('tab-foldtree').style.display = which === 'foldtree' ? '' : 'none';
     });
   });
+
+  // ---- live exchange views (V2 S5) ------------------------------------
+  let tape = null;
+  let grid = null;
+  function ensureExchangeViews() {
+    if (!tape && typeof window.createTape === 'function') {
+      tape = window.createTape($('tape-host'));
+    }
+    if (!grid && typeof window.createGrid === 'function') {
+      grid = window.createGrid($('grid-host'));
+    }
+  }
 
   // ---- parameter panel (S2) -------------------------------------------
   // The panel owns scenario/family/overrides/scale/n_steps/seed/run/cancel.
@@ -340,6 +376,9 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     if (ft) {
       ft.appendStep(step.step, step.fold_per_depth_contribution || []);
     }
+    ensureExchangeViews();
+    if (tape) tape.applyStep(step);
+    if (grid) grid.applyStep(step);
   }
 
   function onTerminal(kind, payload) {
@@ -389,6 +428,9 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     resetCharts();
     if (body.alpha_schedule) drawAlphaSchedule(body.alpha_schedule);
     if (foldTree) { foldTree.reset(); }
+    ensureExchangeViews();
+    if (tape) tape.reset();
+    if (grid) grid.reset();
     clearLog();
     sStep.textContent = '0';
     sAlpha.textContent = '—';

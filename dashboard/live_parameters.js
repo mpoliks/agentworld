@@ -591,6 +591,10 @@
         n_steps,
         scale: scaleSel.value,
         seed: parseInt(seedInp.value, 10),
+        // V2: enable per-pair sampling by default. The tape and grid
+        // panels read from this stream; wire cost is roughly 80 bytes
+        // × K × n_steps ≈ 1 MB per default run.
+        pair_sample_k: 200,
       };
       if (state.alphaMode === 'schedule' && n_steps > 0) {
         cfg.alpha_schedule = sampleSchedule(n_steps);
