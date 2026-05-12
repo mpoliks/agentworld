@@ -106,6 +106,25 @@ class RegulatorConfig:
     # Third tax channel; added to `matryoshka_real_tax()` when enabled.
     # 0 = the regulator gate rejects but doesn't tax surviving surplus.
     regulator_layer_tax: float = 0.0
+    # Audit-trail tampering rate (S1 stretch). Per-step probability that
+    # an unregistered agent's `registered` bit is *forged to True* in the
+    # regulator's view, scaled by `regulator_capture[stack]` so capture
+    # is the load-bearing input. With `audit_tampering_rate = 0` (the
+    # default) or `registration.enabled = False`, the regulator reads
+    # the raw `pop.registered` bit and the `registration_floor` bump
+    # bites on every unregistered endpoint. Crank both this lever and
+    # `regulator_capture` to 1.0 and the floor is fully defeated —
+    # unregistered actors trade as if registered. Surfaced on
+    # `StepMetrics.forged_registration_share`. See S1 in
+    # `docs/plans/registration_stretch_goals.md`.
+    audit_tampering_rate: float = 0.0
+    # S2 stretch — laundering-detection rate. Fraction of laundered
+    # prototypes (firm-dissolution + identity re-issue) whose newly
+    # drawn `registered` bit is flipped back to False — the regulator
+    # catches some but not all laundering attempts. 0 (the default)
+    # means the regulator catches no laundering. Only reads under
+    # `InstitutionConfig.laundering_enabled` + `RegistrationConfig.enabled`.
+    laundering_detection_rate: float = 0.0
 
 
 @dataclass
@@ -200,9 +219,12 @@ class LaborConfig:
     where `automation_gap = 1 − demand_factor(pair)` reuses the
     Pigouvian / demand semantics. The wedge is *deducted* from the pair
     payouts (i.e. the Nash 50/50 splits the post-wedge residual) and
-    *routed to humans*, proportional to human importance weight. The
-    larger the automation_gap (the more A2A the pair is), the smaller
-    the human wage share — labor displacement made concrete.
+    *routed to humans in the production-side sector* (`sec_a`),
+    proportional to human importance weight inside that sector. A
+    sector with no human prototypes has its share fall into the void —
+    documented as structural, not a runtime accident. The larger the
+    automation_gap (the more A2A the pair is), the smaller the human
+    wage share — labor displacement made concrete.
 
     With `enabled = False` (the canonical default) the wedge is zero
     everywhere and the pre-W2c engine math holds bit-for-bit. The
@@ -342,6 +364,16 @@ class RegistrationConfig:
     # build. Distinct from `PopulationConfig.seed` so toggling the
     # registration mechanism doesn't perturb other population draws.
     initial_registration_seed: int = 0
+    # S3 stretch — multi-jurisdiction registration arbitrage. With
+    # `arbitrage_enabled = True`, every agent picks the stack with the
+    # lowest effective regulator rejection rate
+    # (`strength × audit_quality × (1 − capture)`) at world build; that
+    # stack becomes the agent's `registration_stack` and the
+    # regulator-gate floor reads its effective strength rather than the
+    # trading partner's. Default-off so canonical baselines stay
+    # bit-identical (`Population.registration_stack` is `None`). See S3
+    # in `docs/plans/registration_stretch_goals.md`.
+    arbitrage_enabled: bool = False
 
 
 @dataclass
@@ -445,6 +477,16 @@ class InstitutionConfig:
     merge_probability: float = 0.01
     formation_check_every_k: int = 5
     max_firm_size: int = 500
+    # S2 stretch — identity laundering through firm dissolution. When
+    # enabled, members of a dissolved firm are issued fresh `agent_id`
+    # values and have their `registered` bit re-drawn per
+    # `RegistrationConfig.initial_registered_share`. A previously-flagged
+    # agent can shed its regulator history by riding a firm through
+    # dissolution. Requires `RegistrationConfig.enabled = True` (the
+    # mechanism reads/writes the registered field); otherwise it is a
+    # no-op. Default-off so the W2a baselines stay bit-identical. See
+    # S2 in `docs/plans/registration_stretch_goals.md`.
+    laundering_enabled: bool = False
 
 
 @dataclass

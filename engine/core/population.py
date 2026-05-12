@@ -154,6 +154,14 @@ class Population:
     agent_id: np.ndarray | None = None
     registered: np.ndarray | None = None
     agent_next_id: int = 0
+    # S3 stretch — multi-jurisdiction registration arbitrage. When the
+    # arbitrage flag is set on `RegistrationConfig`, each agent picks
+    # the stack with the lowest effective regulator rejection rate at
+    # world build; that stack becomes their `registration_stack` and the
+    # regulator-gate floor for the agent reads its strength, not the
+    # trading partner's. `None` when arbitrage is off (the W2a default),
+    # preserving bit-identity at the canonical scenarios.
+    registration_stack: np.ndarray | None = None
     # W1b — norm-participation alignment. `norm_vector[i, k]` is
     # prototype i's position on norm dimension k. Generalises the
     # scalar `alignment` to a K-dim space; the per-step update toward

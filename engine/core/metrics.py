@@ -25,7 +25,7 @@ from typing import Optional
 
 import numpy as np
 
-from engine.core.population import Population
+from engine.core.population import N_SECTORS, Population
 
 
 @dataclass
@@ -172,6 +172,13 @@ class StepMetrics:
     # governance overhead — the regulator is one of the middle-layer gates,
     # so its rejections roll up into `governance_overhead_fraction`.
     rejected_regulator: float = 0.0
+    # Share of unregistered endpoints whose `registered` bit was forged
+    # to True in the regulator's view this step (S1 stretch — audit-trail
+    # tampering). 0.0 when `audit_tampering_rate = 0` (the default) or
+    # when no unregistered endpoints appeared in the sample. A high
+    # value at high capture means the floor is being silently defeated:
+    # unregistered agents trade as if registered.
+    forged_registration_share: float = 0.0
 
     # ---- Tail-tamed EBI for variance decomposition ---------------------------
     # Raw `exo_baroque_index = nominal/real` has an unbounded right tail
@@ -192,6 +199,13 @@ class StepMetrics:
     # `human_labor_wage_cumulative`.
     human_labor_wage_step: float = 0.0
     human_labor_wage_cumulative: float = 0.0
+    # Per-sector cumulative wage. List of length N_SECTORS = 12;
+    # `[s]` is the cumulative wedge attributed to sector `s` (the
+    # production-side sector of contributing pairs, via `sec_a`).
+    # Sums to `human_labor_wage_cumulative` by construction. Zeros when
+    # `LaborConfig.enabled = False`. `list[float]` so it serialises
+    # cleanly through `StepMetrics.to_dict()` / dataclasses.asdict.
+    human_labor_wage_cumulative_per_sector: list = field(default_factory=list)
     # Human-only wealth Gini and per-capita welfare. Computed from the
     # human subset of the population; with W2c off, `gini_wealth_human`
     # is just the wealth-side gini restricted to humans and
@@ -317,6 +331,9 @@ class Metrics:
         self._cum_pigouvian_revenue = 0.0
         # W2c: cumulative wage routed to humans by the labor wedge.
         self._cum_human_labor_wage = 0.0
+        # W2c per-sector extension: per-sector cumulative wage. Sums to
+        # `_cum_human_labor_wage` by construction. Zero when W2c is off.
+        self._cum_human_labor_wage_per_sector = np.zeros(N_SECTORS, dtype=np.float64)
         # W2c: human-only wealth Gini, cached on the gini_every_k_steps
         # throttle so the recompute cadence matches the population-wide
         # Gini.
@@ -348,7 +365,9 @@ class Metrics:
         rejected_cost: float,
         rejected_permeability: float = 0.0,
         rejected_regulator: float = 0.0,
+        forged_registration_share: float = 0.0,
         human_labor_wage_step: float = 0.0,
+        human_wage_per_sector_step: Optional[np.ndarray] = None,
         gini_every_k_steps: int = 1,
         real_authentic_step: Optional[float] = None,
         productive_welfare_yield: float = 0.0,
@@ -385,6 +404,10 @@ class Metrics:
         self._cum_pigouvian_revenue += pigouvian_revenue
         # W2c: cumulative labor wedge routed to humans.
         self._cum_human_labor_wage += float(human_labor_wage_step)
+        if human_wage_per_sector_step is not None:
+            self._cum_human_labor_wage_per_sector += np.asarray(
+                human_wage_per_sector_step, dtype=np.float64
+            )
 
         ebi = (self._cum_nominal / self._cum_real) if self._cum_real > 0 else 1.0
         ebi_authentic = (
@@ -574,6 +597,7 @@ class Metrics:
             rejected_cost=rejected_cost,
             rejected_permeability=rejected_permeability,
             rejected_regulator=rejected_regulator,
+            forged_registration_share=float(forged_registration_share),
             gini_wealth=gini,
             real_per_capita_welfare=per_cap,
             human_legibility_index=leg,
@@ -625,6 +649,9 @@ class Metrics:
             log_exo_baroque_authentic=log_ebi_authentic,
             human_labor_wage_step=float(human_labor_wage_step),
             human_labor_wage_cumulative=float(self._cum_human_labor_wage),
+            human_labor_wage_cumulative_per_sector=[
+                float(v) for v in self._cum_human_labor_wage_per_sector
+            ],
             gini_wealth_human=float(self._last_gini_human),
             real_per_capita_welfare_human=float(per_cap_human),
         )

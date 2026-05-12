@@ -179,6 +179,77 @@ def test_human_only_metrics_reported() -> None:
     )
 
 
+def test_per_sector_disbursement_concentrates_on_target_sector() -> None:
+    """Mission-style: when `labor_share` is zero everywhere except sector
+    9 (health), the cumulative per-sector wage is concentrated on sector
+    9 and zero elsewhere. This pins the per-sector routing contract:
+    wages don't leak into sectors that didn't see the wedge fire.
+    """
+    from engine.core.population import N_SECTORS
+
+    target_sector = 9
+    share = [0.6 if s == target_sector else 0.0 for s in range(N_SECTORS)]
+
+    cfg = _small_cfg()
+    cfg.topology.labor = LaborConfig(enabled=True, labor_share=tuple(share))
+    world = World.build(cfg)
+    world.run(progress=False)
+    last = world.metrics.history.steps[-1]
+    per_sec = last.human_labor_wage_cumulative_per_sector
+
+    assert len(per_sec) == N_SECTORS
+    assert per_sec[target_sector] > 0.0, (
+        f"Expected positive wage on sector {target_sector}; got {per_sec[target_sector]}"
+    )
+    # Every other sector is exactly zero — the wedge_pair is zero for any
+    # pair whose `sec_a != target_sector` because the labor_share for
+    # those sectors is zero.
+    for s, v in enumerate(per_sec):
+        if s == target_sector:
+            continue
+        assert v == 0.0, (
+            f"Sector {s} should have zero wage under target-only labor "
+            f"share; got {v}"
+        )
+    # The scalar cumulative matches the sum.
+    assert last.human_labor_wage_cumulative == pytest.approx(
+        sum(per_sec), rel=1e-9
+    )
+
+
+def test_per_sector_disbursement_handles_no_humans_in_sector() -> None:
+    """A sector with no human prototypes — the wage attributed to that
+    sector falls into the void rather than NaN-propagating or crashing.
+    This is documented behaviour; the contract is "no failure on this
+    edge case."
+    """
+    from engine.core.population import N_SECTORS
+
+    cfg = _small_cfg()
+    cfg.topology.labor = LaborConfig(enabled=True, labor_share=0.4)
+    world = World.build(cfg)
+
+    # Force one sector to contain no human prototypes by re-assigning
+    # any human in that sector to a neighbouring sector. With the small
+    # default cfg (200 humans, 12 sectors) at least one sector is
+    # already empty by chance; we hand-construct it for determinism.
+    pop = world.population
+    empty_sector = 0
+    overflow_sector = 1
+    move_mask = pop.is_human & (pop.sector == empty_sector)
+    pop.sector[move_mask] = overflow_sector
+    assert not (pop.is_human & (pop.sector == empty_sector)).any()
+
+    world.run(progress=False)
+    last = world.metrics.history.steps[-1]
+    per_sec = last.human_labor_wage_cumulative_per_sector
+    assert len(per_sec) == N_SECTORS
+    # No NaN, no inf anywhere.
+    assert all(np.isfinite(v) for v in per_sec)
+    # The cumulative total stays finite too.
+    assert np.isfinite(last.human_labor_wage_cumulative)
+
+
 def test_per_sector_labor_share_validates_length() -> None:
     """`labor_share` accepts a scalar or a length-N_SECTORS sequence;
     mismatched lengths must raise at world build / first step rather

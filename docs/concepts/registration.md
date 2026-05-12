@@ -35,16 +35,19 @@ Three scenarios bracket the axis:
 - **registration_lax** — `registration_cost` low, `registration_floor` low. Most agents register but the regulator layer barely reads the bit. The current artifact's implicit position.
 - **registration_collapse** — `regulator_capture` rises endogenously when registered-agent share drops below a threshold; captured regulators forge audit trails; the registration signal degrades to noise. The failure mode Hadfield's *Legal Infrastructure* paper is most worried about.
 
-## What is still not modeled after W2a
+## What is now modeled after the S1–S3 stretch goals
 
-W2a is the smallest credible add. Several pieces of the Hadfield agenda stay out of scope:
+Three of the four W2a omissions landed as scenario-default-off levers in the registration stretch round:
 
-- **Audit-trail tampering with cryptographic signatures.** The model treats audit quality as a scalar; in reality the regulator's ability to detect tampering depends on protocol design. The artifact has no protocol-design parameter.
-- **Identity laundering through firm formation.** A registered agent might form a firm, dissolve it, and re-emerge with a fresh `agent_id` to evade a flag. The dissolution / formation cycle in `engine/core/institutions.py` does not currently re-issue identifiers.
-- **Multi-jurisdiction registration arbitrage.** Each stack has its own regulator pool under W1a, but agents do not strategically choose which stack to register under. The cross-stack permeability parameter (W1c) is the structural surface that would allow this; the choice-of-regulator behavior is not in scope.
-- **Reputation accrual to individuals.** `agent_id` is an identifier, not a reputation accumulator. A reputation-tracked engine variant is a candidate v3 extension after W2a lands and the identity machinery is stable.
+- **Audit-trail tampering (S1).** `RegulatorConfig.audit_tampering_rate` is the per-step probability that an unregistered agent's `registered` bit is forged to True in the regulator's view, scaled by `regulator_capture[stack]`. With both knobs at 1.0 the `registration_floor` is fully defeated and unregistered agents trade as if registered. Surfaced on `StepMetrics.forged_registration_share` for the dashboard.
+- **Identity laundering through firm formation (S2).** `InstitutionConfig.laundering_enabled` couples firm dissolution to identity re-issue: every member of a dissolved firm gets a fresh monotonic `agent_id` and a fresh draw on the `registered` bit per `RegistrationConfig.initial_registered_share`. `RegulatorConfig.laundering_detection_rate` flips a fraction of the redrawn bits back to False — the regulator catches some but not all attempts. Bit-identity contract is preserved when the flag is off.
+- **Multi-jurisdiction registration arbitrage (S3).** `RegistrationConfig.arbitrage_enabled` populates `Population.registration_stack` at world build by picking the stack with the lowest effective regulator rejection rate (`strength × audit_quality × (1 − capture)`). The regulator-gate floor on each agent then reads its registration stack's effective strength — agents who escaped to a lax stack see a proportionally smaller floor.
 
-These omissions are the conditioning assumptions a reader in the Hadfield orbit should hold while reading any registration-regime result the engine produces post-W2a.
+## What is still not modeled after the S1–S3 stretch
+
+- **Reputation accrual to individuals.** `agent_id` is an identifier, not a reputation accumulator. A reputation-tracked engine variant is a candidate v3 extension after the identity machinery is stable.
+
+These omissions are the conditioning assumptions a reader in the Hadfield orbit should hold while reading any registration-regime result the engine produces post-stretch.
 
 ---
 

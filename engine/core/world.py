@@ -187,6 +187,24 @@ class World:
             registration_config=topo.cfg.registration,
             norms_config=topo.cfg.norms,
         )
+        # S3 stretch — assign per-agent registration_stack by arbitraging
+        # across regulator vendors. Off by default; populates the field
+        # only when both the regulator and the arbitrage flags are on.
+        reg2a_cfg = topo.cfg.registration
+        reg_cfg = topo.cfg.regulator
+        if (
+            reg2a_cfg.enabled
+            and getattr(reg2a_cfg, "arbitrage_enabled", False)
+            and reg_cfg.enabled
+        ):
+            reg_strength, reg_capture, reg_audit = topo.regulator_vendor_arrays()
+            eff_p = (
+                np.asarray(reg_strength, dtype=np.float64)
+                * np.asarray(reg_audit, dtype=np.float64)
+                * (1.0 - np.asarray(reg_capture, dtype=np.float64))
+            )
+            chosen = int(np.argmin(eff_p))
+            pop.registration_stack = np.full(pop.n, chosen, dtype=np.int8)
         agents_mask = ~pop.is_human
         if agents_mask.any():
             w = pop.weight[agents_mask].astype(np.float64)
@@ -372,6 +390,52 @@ class World:
             0.01, 0.99,
         )
         return float(disbursed)
+
+    def _launder_identities(self, pre_firm_id: np.ndarray) -> None:
+        """S2 stretch — re-issue agent_id + redraw `registered` on dissolved members.
+
+        Called immediately after `dissolution_step`. `pre_firm_id` is the
+        snapshot of `pop.firm_id` taken before dissolution. Any prototype
+        whose firm_id was `>= 0` before and `== -1` after just got
+        released; we treat that release as a laundering event:
+
+        * issue a fresh monotonic `agent_id` (advances `agent_next_id`);
+        * redraw the `registered` bit per
+          `RegistrationConfig.initial_registered_share`;
+        * with `RegulatorConfig.laundering_detection_rate > 0`, flip a
+          fraction of the redrawn bits back to False — the regulator
+          catches some but not all laundering attempts.
+
+        Humans are skipped (registration is an agent-side concept).
+        Reads `regulator` rng so the new draw is isolated from population
+        synthesis.
+        """
+        pop = self.population
+        post_firm_id = pop.firm_id
+        just_dissolved = (pre_firm_id >= 0) & (post_firm_id == -1)
+        if not just_dissolved.any():
+            return
+        agent_laundered = (~pop.is_human) & just_dissolved
+        n_laundered = int(agent_laundered.sum())
+        if n_laundered == 0:
+            return
+        # Fresh, monotonic agent_id values for laundered agent prototypes.
+        next_id = int(pop.agent_next_id)
+        pop.agent_id[agent_laundered] = np.arange(
+            next_id, next_id + n_laundered, dtype=np.int64,
+        )
+        pop.agent_next_id = next_id + n_laundered
+        # Redraw the registered bit and apply optional detection.
+        rng = self.rngs["regulator"]
+        share = float(self.topology.cfg.registration.initial_registered_share)
+        new_reg = rng.random(n_laundered) < share
+        det_rate = float(
+            getattr(self.topology.cfg.regulator, "laundering_detection_rate", 0.0)
+        )
+        if det_rate > 0.0:
+            detected = rng.random(n_laundered) < det_rate
+            new_reg = new_reg & ~detected
+        pop.registered[agent_laundered] = new_reg
 
     def step(self) -> StepMetrics:
         # Apply schedules if present.
@@ -593,7 +657,19 @@ class World:
             )
 
             W_pre_inst = _total_wealth() if track_ledger else 0.0
+            # S2 stretch — identity laundering. Snapshot pre-dissolution
+            # firm_id so we know which prototypes were just released.
+            launder_active = (
+                inst_cfg.laundering_enabled
+                and self.topology.cfg.registration.enabled
+                and self.population.firm_id is not None
+            )
+            pre_firm_id = (
+                self.population.firm_id.copy() if launder_active else None
+            )
             dissolution_step(self.population, inst_cfg)
+            if launder_active:
+                self._launder_identities(pre_firm_id)
             formation_step(
                 self.population, inst_cfg, self.rngs["population"],
                 surplus_per_proto=tx.wealth_delta,
@@ -707,7 +783,9 @@ class World:
             rejected_cost=tx.rejected_cost,
             rejected_permeability=tx.rejected_permeability,
             rejected_regulator=tx.rejected_regulator,
+            forged_registration_share=tx.forged_registration_share,
             human_labor_wage_step=tx.human_labor_wage,
+            human_wage_per_sector_step=tx.human_wage_per_sector,
             gini_every_k_steps=self.cfg.gini_every_k_steps,
             real_authentic_step=real_authentic_step,
             productive_welfare_yield=fold.productive_welfare_yield,

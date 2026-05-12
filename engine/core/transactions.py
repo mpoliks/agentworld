@@ -26,7 +26,7 @@ The output is per-step:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping, Optional, Union
 
 import numpy as np
@@ -95,10 +95,21 @@ class TransactionResult:
     # (the platform/deployer gate). Defaults to 0.0 so historical scenarios
     # with `RegulatorConfig.enabled = False` remain bit-identical.
     rejected_regulator: float = 0.0
+    # Share of unregistered endpoints whose registered bit was forged
+    # to True in the regulator's view this step (S1 stretch). 0.0 when
+    # `audit_tampering_rate = 0` or no unregistered endpoints appeared
+    # in the sample. Read by `StepMetrics.forged_registration_share`.
+    forged_registration_share: float = 0.0
     # Human-labor wage routed by the W2c labor wedge — surplus deducted
     # from the agent-side Nash split and disbursed to humans. Zero when
     # `LaborConfig.enabled = False`.
     human_labor_wage: float = 0.0
+    # Per-sector aggregate of the wedge by `sec_a` (the production-side
+    # sector). Sums to `human_labor_wage` by construction. Default
+    # zeros-vector when `LaborConfig.enabled = False`.
+    human_wage_per_sector: np.ndarray = field(
+        default_factory=lambda: np.zeros(N_SECTORS, dtype=np.float64)
+    )
     # Demand-modulated share of the real surplus that ultimately reaches a
     # human consumer (or a human-controlled agent). Equals
     # `real_surplus_added` when `DemandConfig.enabled = False`. See
@@ -391,6 +402,7 @@ def coasean_step(
     # agent-side concept). The floor composes additively with the
     # vendor's base rejection and is clipped to [0, 1].
     reg_cfg = topo.cfg.regulator
+    forged_registration_share = 0.0
     if reg_cfg.enabled:
         reg_strength, reg_capture, reg_audit = topo.regulator_vendor_arrays()
         p_reject_a = reg_strength[stk_a] * reg_audit[stk_a] * (1.0 - reg_capture[stk_a])
@@ -405,8 +417,66 @@ def coasean_step(
             # Unregistered AGENT endpoints only — humans are exempt.
             unreg_a = (~pop.is_human[a]) & (~pop.registered[a])
             unreg_b = (~pop.is_human[b]) & (~pop.registered[b])
-            p_reject_a = p_reject_a + floor * unreg_a.astype(np.float64)
-            p_reject_b = p_reject_b + floor * unreg_b.astype(np.float64)
+            # S1: audit-trail tampering. With `audit_tampering_rate > 0`,
+            # the regulator's view of `registered` can be forged for an
+            # unregistered endpoint with probability
+            # `audit_tampering_rate × regulator_capture[stack]`. Forged
+            # endpoints are *not* charged the registration floor — the
+            # captured regulator can't tell they're unregistered. With
+            # the rate at 0 (the default) no rng draw is consumed.
+            audit_rate = float(reg_cfg.audit_tampering_rate)
+            if audit_rate > 0.0:
+                p_forge_a = audit_rate * reg_capture[stk_a]
+                p_forge_b = audit_rate * reg_capture[stk_b]
+                forge_a = unreg_a & (
+                    rngs["regulator"].random(n_pairs) < p_forge_a
+                )
+                forge_b = unreg_b & (
+                    rngs["regulator"].random(n_pairs) < p_forge_b
+                )
+                effective_unreg_a = unreg_a & ~forge_a
+                effective_unreg_b = unreg_b & ~forge_b
+                unreg_count = int(unreg_a.sum()) + int(unreg_b.sum())
+                forged_registration_share = (
+                    (int(forge_a.sum()) + int(forge_b.sum())) / unreg_count
+                    if unreg_count > 0
+                    else 0.0
+                )
+            else:
+                effective_unreg_a = unreg_a
+                effective_unreg_b = unreg_b
+            # S3 stretch — multi-jurisdiction registration arbitrage. When
+            # `Population.registration_stack` is populated, the floor bump
+            # on agent `a` reads `a`'s registration stack's effective
+            # regulator strength (`strength × audit × (1 − capture)`), not
+            # the trading partner's stack. Agents who arbitraged to a lax
+            # stack see a proportionally smaller floor. With the field at
+            # `None` (the S3-off default) the floor is the flat `registration_floor`
+            # value, preserving the pre-S3 contract.
+            if pop.registration_stack is not None:
+                reg_stack_a = pop.registration_stack[a]
+                reg_stack_b = pop.registration_stack[b]
+                eff_strength_a = (
+                    reg_strength[reg_stack_a]
+                    * reg_audit[reg_stack_a]
+                    * (1.0 - reg_capture[reg_stack_a])
+                )
+                eff_strength_b = (
+                    reg_strength[reg_stack_b]
+                    * reg_audit[reg_stack_b]
+                    * (1.0 - reg_capture[reg_stack_b])
+                )
+                p_reject_a = (
+                    p_reject_a
+                    + floor * eff_strength_a * effective_unreg_a.astype(np.float64)
+                )
+                p_reject_b = (
+                    p_reject_b
+                    + floor * eff_strength_b * effective_unreg_b.astype(np.float64)
+                )
+            else:
+                p_reject_a = p_reject_a + floor * effective_unreg_a.astype(np.float64)
+                p_reject_b = p_reject_b + floor * effective_unreg_b.astype(np.float64)
         p_reject = np.clip(np.maximum(p_reject_a, p_reject_b), 0.0, 1.0)
         regulator_reject = rngs["regulator"].random(n_pairs) < p_reject
     else:
@@ -574,11 +644,21 @@ def coasean_step(
             * real_pair_surplus_post_pig
         )
         real_pair_surplus_to_split = real_pair_surplus_post_pig - wedge_pair
-        human_labor_wage = float((wedge_pair * pair_real_count).sum())
+        # Per-sector aggregate by `sec_a` (the production-side sector;
+        # same convention W2b's `coordinator_sectors` uses). Scalar total
+        # stays as a convenience field for the metric reader; the
+        # per-sector array is what routes the disbursement below.
+        human_wage_per_sector = np.bincount(
+            sec_a,
+            weights=wedge_pair * pair_real_count,
+            minlength=N_SECTORS,
+        ).astype(np.float64)
+        human_labor_wage = float(human_wage_per_sector.sum())
     else:
         wedge_pair = None
         real_pair_surplus_to_split = real_pair_surplus_post_pig
         human_labor_wage = 0.0
+        human_wage_per_sector = np.zeros(N_SECTORS, dtype=np.float64)
 
     # Wealth delta: split the post-Pigouvian-post-wedge surplus 50/50
     # between the two parties (Nash bargaining). When the Pigouvian tax
@@ -590,20 +670,22 @@ def coasean_step(
     wealth_delta = np.bincount(a, weights=contrib_a, minlength=n)
     wealth_delta += np.bincount(b, weights=contrib_b, minlength=n)
 
-    # Disburse the labor wedge to humans, proportional to human weight.
-    # Routing is uniform across humans (not per-sector) in this first
-    # pass; per-sector labor markets are a stretch goal noted in W2c.
+    # Disburse the labor wedge to humans in the *production-side sector*
+    # of each contributing pair (`sec_a`). The wedge attributes the wage
+    # to where the work happens; high-A2A sectors concentrate wage
+    # payments to humans living in those sectors. A sector with no
+    # human prototypes (a possibility at small n) has its share fall
+    # into the void — documented as structural, not a runtime accident.
     if labor_cfg.enabled and human_labor_wage > 0.0:
-        human_mask = pop.is_human
-        h_weight = pop.weight[human_mask].astype(np.float64)
-        total_h_weight = float(h_weight.sum())
-        if total_h_weight > 0:
-            # `human_labor_wage` is in real-pair-count units (already
-            # weighted). Convert to per-prototype delta:
-            # per_proto_real = wage_total * h_weight / total_h_weight;
-            # per_proto_delta = per_proto_real / h_weight = wage / total_h_weight.
-            per_proto_delta = human_labor_wage / total_h_weight
-            wealth_delta[human_mask] += per_proto_delta
+        for s in range(N_SECTORS):
+            wage_s = float(human_wage_per_sector[s])
+            if wage_s <= 0.0:
+                continue
+            mask_s = pop.is_human & (pop.sector == s)
+            h_weight_s = pop.weight[mask_s].astype(np.float64)
+            total_h_weight_s = float(h_weight_s.sum())
+            if total_h_weight_s > 0:
+                wealth_delta[mask_s] += wage_s / total_h_weight_s
 
     # W1b norm-participation update. Run *after* the wealth split so the
     # norms read this step are still the pre-update ones for the gate
@@ -640,6 +722,8 @@ def coasean_step(
         h2a_share=h2a_share,
         h2h_share=h2h_share,
         human_labor_wage=human_labor_wage,
+        human_wage_per_sector=human_wage_per_sector,
+        forged_registration_share=forged_registration_share,
     )
 
 
@@ -668,6 +752,9 @@ def _coasean_step_chunked(
     rejected_permeability = 0.0
     rejected_regulator = 0.0
     human_labor_wage = 0.0
+    human_wage_per_sector = np.zeros(N_SECTORS, dtype=np.float64)
+    forged_share_num = 0.0
+    forged_share_den = 0.0
     law_weak_surplus_loss = 0.0
     law_capture_surplus_loss = 0.0
     pigouvian_revenue = 0.0
@@ -703,6 +790,13 @@ def _coasean_step_chunked(
         rejected_permeability += part.rejected_permeability
         rejected_regulator += part.rejected_regulator
         human_labor_wage += part.human_labor_wage
+        human_wage_per_sector += part.human_wage_per_sector
+        # Reconstruct the per-step share by weighting each chunk's share
+        # by the chunk's "size". Without per-chunk unregistered counts we
+        # use the chunk's n_pairs as a proxy; this matches the chunked
+        # variant's other rate-style aggregations.
+        forged_share_num += part.forged_registration_share * batch
+        forged_share_den += batch
         law_weak_surplus_loss += part.law_weak_surplus_loss
         law_capture_surplus_loss += part.law_capture_surplus_loss
         pigouvian_revenue += part.pigouvian_revenue
@@ -753,4 +847,10 @@ def _coasean_step_chunked(
         h2a_share=h2a_weighted / n_real if n_real > 0 else 0.0,
         h2h_share=h2h_weighted / n_real if n_real > 0 else 0.0,
         human_labor_wage=human_labor_wage,
+        human_wage_per_sector=human_wage_per_sector,
+        forged_registration_share=(
+            forged_share_num / forged_share_den
+            if forged_share_den > 0
+            else 0.0
+        ),
     )
