@@ -168,6 +168,27 @@ comparison.
 - Bumping N to 4096–8192 would tighten the bootstrap CI (S1_conf scales
   with √N) and likely pull more borderline params under the 0.005
   threshold, but that's a question of compute budget, not RNG layout.
+- **Empirical N=4096 result (2026-05).** Ran `agentworld sobol --samples
+  4096` under `caffeinate -i`; ~107 minutes wall single-threaded on
+  the dev box (the plan's "~28 minutes pinned" estimate assumed a
+  CPU-budget profile this environment did not hit). Pinned at
+  `outputs/sensitivity/sobol_indices.per_component.n4096.json`. The
+  CI-aware comparison harness lives at `engine/sensitivity_compare.py`;
+  the four-way transition counts for `N=2048 → N=4096` (across all 6
+  metrics × 15 params = 90 pairs):
+  `noise → noise: 51, signal → noise: 9, noise → signal: 5,
+  signal → signal: 25`. The plan-bet that "about half of the
+  noise→noise band collapses" did not materialise — only 14 of the 65
+  noise→noise params at N=2048 changed class. Most of the residual
+  band is structural (true `|S1| < 0.002`), not CI-limited. The
+  per-metric breakdown is dominated by `productive_welfare_yield`
+  (7 flips of 15 params); the headline EBI + welfare + Gini panels
+  show 0–2 flips each. Canonical pin stayed at N=2048
+  (`outputs/sensitivity/sobol_indices.json`); the N=4096 artifact is
+  kept as a high-resolution auxiliary for any analysis that wants
+  tighter CIs on the borderline band. Pairwise comparison artifact at
+  `outputs/sensitivity/sobol_n_bump_comparison.json`. See
+  `docs/plans/sobol_n_bump.md`.
 - Within-step finer subdivision of the `network` stream
   (`_sample_partners`) was investigated and ruled out: `sample_global`
   consumes a *fixed* 2·n_pairs draws regardless of the Bernoulli split

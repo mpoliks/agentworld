@@ -1,0 +1,496 @@
+{
+  "sources": [
+    {
+      "label": "legacy_n2048",
+      "path": "outputs/sensitivity/sobol_indices.n2048.json",
+      "n_base_samples": 2048,
+      "n_simulations": 34816
+    },
+    {
+      "label": "percomp_n2048",
+      "path": "outputs/sensitivity/sobol_indices.per_component.n2048.json",
+      "n_base_samples": 2048,
+      "n_simulations": 34816
+    },
+    {
+      "label": "percomp_n4096",
+      "path": "outputs/sensitivity/sobol_indices.per_component.n4096.json",
+      "n_base_samples": 4096,
+      "n_simulations": 69632
+    }
+  ],
+  "comparisons": [
+    {
+      "label_a": "legacy_n2048",
+      "label_b": "percomp_n2048",
+      "n_base_a": 2048,
+      "n_base_b": 2048,
+      "counts": {
+        "noise_to_noise": 53,
+        "signal_to_noise": 3,
+        "noise_to_signal": 9,
+        "signal_to_signal": 25
+      },
+      "per_metric": {
+        "log_exo_baroque_index": {
+          "noise_to_noise": 10,
+          "signal_to_noise": 0,
+          "noise_to_signal": 0,
+          "signal_to_signal": 5
+        },
+        "real_per_capita_welfare": {
+          "noise_to_noise": 9,
+          "signal_to_noise": 1,
+          "noise_to_signal": 2,
+          "signal_to_signal": 3
+        },
+        "gini_wealth_change_abs": {
+          "noise_to_noise": 12,
+          "signal_to_noise": 1,
+          "noise_to_signal": 0,
+          "signal_to_signal": 2
+        },
+        "log_exo_baroque_authentic": {
+          "noise_to_noise": 8,
+          "signal_to_noise": 0,
+          "noise_to_signal": 0,
+          "signal_to_signal": 7
+        },
+        "real_welfare_authentic_cumulative": {
+          "noise_to_noise": 9,
+          "signal_to_noise": 0,
+          "noise_to_signal": 1,
+          "signal_to_signal": 5
+        },
+        "productive_welfare_yield": {
+          "noise_to_noise": 5,
+          "signal_to_noise": 1,
+          "noise_to_signal": 6,
+          "signal_to_signal": 3
+        }
+      },
+      "per_param_examples": {
+        "noise_to_noise": [
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "coase_exp",
+            "s1_legacy_n2048": 0.0017179090028006001,
+            "conf_legacy_n2048": 0.0021844700465769094,
+            "s1_percomp_n2048": 0.0002691859042712504,
+            "conf_percomp_n2048": 0.004505576667212028
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "base_friction",
+            "s1_legacy_n2048": 0.0019819192611972083,
+            "conf_legacy_n2048": 0.003729155702062917,
+            "s1_percomp_n2048": 0.0029160696898935224,
+            "conf_percomp_n2048": 0.005724031273190042
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "fold_real_efficiency",
+            "s1_legacy_n2048": 0.00034087023069591453,
+            "conf_legacy_n2048": 0.0008924025935409753,
+            "s1_percomp_n2048": -2.958305485451647e-05,
+            "conf_percomp_n2048": 0.00538886487396892
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "cross_stack_compat",
+            "s1_legacy_n2048": -6.545059067949028e-05,
+            "conf_legacy_n2048": 0.000635156000729057,
+            "s1_percomp_n2048": -0.0014818549833667029,
+            "conf_percomp_n2048": 0.005529745200121365
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "market_layer_tax",
+            "s1_legacy_n2048": 0.00037425868355304704,
+            "conf_legacy_n2048": 0.0009830983202703293,
+            "s1_percomp_n2048": 0.002366293525319335,
+            "conf_percomp_n2048": 0.0046221900371076294
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "a2a_floor",
+            "s1_legacy_n2048": 0.00014434657358116412,
+            "conf_legacy_n2048": 0.0006248593971595363,
+            "s1_percomp_n2048": 0.0018872494518677953,
+            "conf_percomp_n2048": 0.004803387371114292
+          }
+        ],
+        "signal_to_noise": [
+          {
+            "metric": "real_per_capita_welfare",
+            "param": "market_layer_tax",
+            "s1_legacy_n2048": 0.011238495841222263,
+            "conf_legacy_n2048": 0.010937746300379267,
+            "s1_percomp_n2048": -0.004416399556016944,
+            "conf_percomp_n2048": 0.005804456040769663
+          },
+          {
+            "metric": "gini_wealth_change_abs",
+            "param": "alpha",
+            "s1_legacy_n2048": 0.05991126373784588,
+            "conf_legacy_n2048": 0.02523008761605715,
+            "s1_percomp_n2048": 0.003110975887905986,
+            "conf_percomp_n2048": 0.010529674561831409
+          },
+          {
+            "metric": "productive_welfare_yield",
+            "param": "agent_capability_mean",
+            "s1_legacy_n2048": 0.03471864404060623,
+            "conf_legacy_n2048": 0.013161394463759106,
+            "s1_percomp_n2048": 0.020903003569314987,
+            "conf_percomp_n2048": 0.024250134785382686
+          }
+        ],
+        "noise_to_signal": [
+          {
+            "metric": "real_per_capita_welfare",
+            "param": "alpha",
+            "s1_legacy_n2048": 0.01580148407964359,
+            "conf_legacy_n2048": 0.021702545547790247,
+            "s1_percomp_n2048": 0.02051726205500147,
+            "conf_percomp_n2048": 0.01564759836483522
+          },
+          {
+            "metric": "real_per_capita_welfare",
+            "param": "folding_branching",
+            "s1_legacy_n2048": -0.000437924089568478,
+            "conf_legacy_n2048": 0.011116519535423957,
+            "s1_percomp_n2048": -0.00861459994618077,
+            "conf_percomp_n2048": 0.007848644951054841
+          },
+          {
+            "metric": "real_welfare_authentic_cumulative",
+            "param": "base_friction",
+            "s1_legacy_n2048": -0.0030371086712664623,
+            "conf_legacy_n2048": 0.008616188628596559,
+            "s1_percomp_n2048": -0.009152753509481694,
+            "conf_percomp_n2048": 0.006241999552642654
+          },
+          {
+            "metric": "productive_welfare_yield",
+            "param": "coase_exp",
+            "s1_legacy_n2048": 0.0005031846027380989,
+            "conf_legacy_n2048": 0.0008828481744212168,
+            "s1_percomp_n2048": -0.02299385096517874,
+            "conf_percomp_n2048": 0.016315526275341805
+          },
+          {
+            "metric": "productive_welfare_yield",
+            "param": "base_friction",
+            "s1_legacy_n2048": -0.0002880987135623186,
+            "conf_legacy_n2048": 0.0011796780856148368,
+            "s1_percomp_n2048": -0.018096519635536226,
+            "conf_percomp_n2048": 0.015937920027362246
+          },
+          {
+            "metric": "productive_welfare_yield",
+            "param": "fold_real_efficiency",
+            "s1_legacy_n2048": 7.119402083353528e-05,
+            "conf_legacy_n2048": 0.0004769265749784608,
+            "s1_percomp_n2048": -0.02322583800205021,
+            "conf_percomp_n2048": 0.01697617485238143
+          }
+        ],
+        "signal_to_signal": [
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "alpha",
+            "s1_legacy_n2048": 0.4795023505283877,
+            "conf_legacy_n2048": 0.04644490375282796,
+            "s1_percomp_n2048": 0.47395584713756306,
+            "conf_percomp_n2048": 0.05434426939900685
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "agent_capability_mean",
+            "s1_legacy_n2048": 0.018298045373798453,
+            "conf_legacy_n2048": 0.007577498480945496,
+            "s1_percomp_n2048": 0.017827448165217145,
+            "conf_percomp_n2048": 0.008923667487664495
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "folding_propensity",
+            "s1_legacy_n2048": 0.19747745839291098,
+            "conf_legacy_n2048": 0.040461896780501626,
+            "s1_percomp_n2048": 0.20347710521710052,
+            "conf_percomp_n2048": 0.04529115604931783
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "folding_branching",
+            "s1_legacy_n2048": 0.026510483053554714,
+            "conf_legacy_n2048": 0.019012617654835768,
+            "s1_percomp_n2048": 0.04170132272518922,
+            "conf_percomp_n2048": 0.01710824872048844
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "fold_nominal_multiplier",
+            "s1_legacy_n2048": 0.013845382058319153,
+            "conf_legacy_n2048": 0.011834707893474723,
+            "s1_percomp_n2048": 0.020335669106274493,
+            "conf_percomp_n2048": 0.013781776899140098
+          },
+          {
+            "metric": "real_per_capita_welfare",
+            "param": "agent_capability_mean",
+            "s1_legacy_n2048": 0.7875207528619289,
+            "conf_legacy_n2048": 0.04442740660004362,
+            "s1_percomp_n2048": 0.854462146587993,
+            "conf_percomp_n2048": 0.04938453759667838
+          }
+        ]
+      }
+    },
+    {
+      "label_a": "percomp_n2048",
+      "label_b": "percomp_n4096",
+      "n_base_a": 2048,
+      "n_base_b": 4096,
+      "counts": {
+        "noise_to_noise": 51,
+        "signal_to_noise": 9,
+        "noise_to_signal": 5,
+        "signal_to_signal": 25
+      },
+      "per_metric": {
+        "log_exo_baroque_index": {
+          "noise_to_noise": 10,
+          "signal_to_noise": 0,
+          "noise_to_signal": 0,
+          "signal_to_signal": 5
+        },
+        "real_per_capita_welfare": {
+          "noise_to_noise": 9,
+          "signal_to_noise": 1,
+          "noise_to_signal": 1,
+          "signal_to_signal": 4
+        },
+        "gini_wealth_change_abs": {
+          "noise_to_noise": 12,
+          "signal_to_noise": 0,
+          "noise_to_signal": 1,
+          "signal_to_signal": 2
+        },
+        "log_exo_baroque_authentic": {
+          "noise_to_noise": 8,
+          "signal_to_noise": 1,
+          "noise_to_signal": 0,
+          "signal_to_signal": 6
+        },
+        "real_welfare_authentic_cumulative": {
+          "noise_to_noise": 7,
+          "signal_to_noise": 1,
+          "noise_to_signal": 2,
+          "signal_to_signal": 5
+        },
+        "productive_welfare_yield": {
+          "noise_to_noise": 5,
+          "signal_to_noise": 6,
+          "noise_to_signal": 1,
+          "signal_to_signal": 3
+        }
+      },
+      "per_param_examples": {
+        "noise_to_noise": [
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "coase_exp",
+            "s1_percomp_n2048": 0.0002691859042712504,
+            "conf_percomp_n2048": 0.004505576667212028,
+            "s1_percomp_n4096": 0.0010599903957042433,
+            "conf_percomp_n4096": 0.0035410694934930936
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "base_friction",
+            "s1_percomp_n2048": 0.0029160696898935224,
+            "conf_percomp_n2048": 0.005724031273190042,
+            "s1_percomp_n4096": 0.0008869304579063707,
+            "conf_percomp_n4096": 0.004276822921932862
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "fold_real_efficiency",
+            "s1_percomp_n2048": -2.958305485451647e-05,
+            "conf_percomp_n2048": 0.00538886487396892,
+            "s1_percomp_n4096": -0.00030023821242803635,
+            "conf_percomp_n4096": 0.0034187024473742497
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "cross_stack_compat",
+            "s1_percomp_n2048": -0.0014818549833667029,
+            "conf_percomp_n2048": 0.005529745200121365,
+            "s1_percomp_n4096": 0.0006697793210405464,
+            "conf_percomp_n4096": 0.0031065465467766742
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "market_layer_tax",
+            "s1_percomp_n2048": 0.002366293525319335,
+            "conf_percomp_n2048": 0.0046221900371076294,
+            "s1_percomp_n4096": 0.0018093616207185005,
+            "conf_percomp_n4096": 0.0030379881152994377
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "a2a_floor",
+            "s1_percomp_n2048": 0.0018872494518677953,
+            "conf_percomp_n2048": 0.004803387371114292,
+            "s1_percomp_n4096": -0.0019450266344995099,
+            "conf_percomp_n4096": 0.0030473213928607122
+          }
+        ],
+        "signal_to_noise": [
+          {
+            "metric": "real_per_capita_welfare",
+            "param": "folding_branching",
+            "s1_percomp_n2048": -0.00861459994618077,
+            "conf_percomp_n2048": 0.007848644951054841,
+            "s1_percomp_n4096": 0.003062421271280527,
+            "conf_percomp_n4096": 0.005664670627731848
+          },
+          {
+            "metric": "log_exo_baroque_authentic",
+            "param": "base_variance_absorption",
+            "s1_percomp_n2048": 0.015247000362425316,
+            "conf_percomp_n2048": 0.010103499256521093,
+            "s1_percomp_n4096": 0.007433077715988959,
+            "conf_percomp_n4096": 0.008061259364759514
+          },
+          {
+            "metric": "real_welfare_authentic_cumulative",
+            "param": "base_friction",
+            "s1_percomp_n2048": -0.009152753509481694,
+            "conf_percomp_n2048": 0.006241999552642654,
+            "s1_percomp_n4096": 0.002393652136318245,
+            "conf_percomp_n4096": 0.004217257563161161
+          },
+          {
+            "metric": "productive_welfare_yield",
+            "param": "coase_exp",
+            "s1_percomp_n2048": -0.02299385096517874,
+            "conf_percomp_n2048": 0.016315526275341805,
+            "s1_percomp_n4096": -0.006238179549083254,
+            "conf_percomp_n4096": 0.009973739591437637
+          },
+          {
+            "metric": "productive_welfare_yield",
+            "param": "base_friction",
+            "s1_percomp_n2048": -0.018096519635536226,
+            "conf_percomp_n2048": 0.015937920027362246,
+            "s1_percomp_n4096": -0.00014025983129592817,
+            "conf_percomp_n4096": 0.01031604419445477
+          },
+          {
+            "metric": "productive_welfare_yield",
+            "param": "fold_real_efficiency",
+            "s1_percomp_n2048": -0.02322583800205021,
+            "conf_percomp_n2048": 0.01697617485238143,
+            "s1_percomp_n4096": 0.0019876633440080145,
+            "conf_percomp_n4096": 0.009327492881108125
+          }
+        ],
+        "noise_to_signal": [
+          {
+            "metric": "real_per_capita_welfare",
+            "param": "max_productive_real_share",
+            "s1_percomp_n2048": -0.0066660295322713515,
+            "conf_percomp_n2048": 0.010673071367653901,
+            "s1_percomp_n4096": 0.009226528491457671,
+            "conf_percomp_n4096": 0.008459716107349122
+          },
+          {
+            "metric": "gini_wealth_change_abs",
+            "param": "alpha",
+            "s1_percomp_n2048": 0.003110975887905986,
+            "conf_percomp_n2048": 0.010529674561831409,
+            "s1_percomp_n4096": 0.012410431078237501,
+            "conf_percomp_n4096": 0.0071239078691235375
+          },
+          {
+            "metric": "real_welfare_authentic_cumulative",
+            "param": "folding_branching",
+            "s1_percomp_n2048": -0.007342814750655506,
+            "conf_percomp_n2048": 0.0110289006920414,
+            "s1_percomp_n4096": 0.010032429142698715,
+            "conf_percomp_n4096": 0.007993483613535293
+          },
+          {
+            "metric": "real_welfare_authentic_cumulative",
+            "param": "max_productive_real_share",
+            "s1_percomp_n2048": -0.0021388062471358778,
+            "conf_percomp_n2048": 0.015281213657483974,
+            "s1_percomp_n4096": 0.02181498689296477,
+            "conf_percomp_n4096": 0.011668998143628094
+          },
+          {
+            "metric": "productive_welfare_yield",
+            "param": "agent_capability_mean",
+            "s1_percomp_n2048": 0.020903003569314987,
+            "conf_percomp_n2048": 0.024250134785382686,
+            "s1_percomp_n4096": 0.035838496265574095,
+            "conf_percomp_n4096": 0.016304718055710744
+          }
+        ],
+        "signal_to_signal": [
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "alpha",
+            "s1_percomp_n2048": 0.47395584713756306,
+            "conf_percomp_n2048": 0.05434426939900685,
+            "s1_percomp_n4096": 0.4705691512670147,
+            "conf_percomp_n4096": 0.0324689717046118
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "agent_capability_mean",
+            "s1_percomp_n2048": 0.017827448165217145,
+            "conf_percomp_n2048": 0.008923667487664495,
+            "s1_percomp_n4096": 0.011670580475567648,
+            "conf_percomp_n4096": 0.005768762386910838
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "folding_propensity",
+            "s1_percomp_n2048": 0.20347710521710052,
+            "conf_percomp_n2048": 0.04529115604931783,
+            "s1_percomp_n4096": 0.20270586097374826,
+            "conf_percomp_n4096": 0.028642440107891447
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "folding_branching",
+            "s1_percomp_n2048": 0.04170132272518922,
+            "conf_percomp_n2048": 0.01710824872048844,
+            "s1_percomp_n4096": 0.04354929565782954,
+            "conf_percomp_n4096": 0.012562205748119197
+          },
+          {
+            "metric": "log_exo_baroque_index",
+            "param": "fold_nominal_multiplier",
+            "s1_percomp_n2048": 0.020335669106274493,
+            "conf_percomp_n2048": 0.013781776899140098,
+            "s1_percomp_n4096": 0.02027920387195739,
+            "conf_percomp_n4096": 0.008874587746602033
+          },
+          {
+            "metric": "real_per_capita_welfare",
+            "param": "alpha",
+            "s1_percomp_n2048": 0.02051726205500147,
+            "conf_percomp_n2048": 0.01564759836483522,
+            "s1_percomp_n4096": 0.02120044227156522,
+            "conf_percomp_n4096": 0.012569772199549986
+          }
+        ]
+      }
+    }
+  ]
+}
