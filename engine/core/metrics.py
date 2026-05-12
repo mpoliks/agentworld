@@ -164,6 +164,15 @@ class StepMetrics:
     # is a boundary condition, not Matryoshka governance.
     rejected_permeability: float = 0.0
 
+    # ---- Hadfield regulator gate (W1a) ---------------------------------------
+    # Pairs rejected by the government-licensed third-party regulator,
+    # parallel to but distinct from the platform/`market` gate. Zero when
+    # `RegulatorConfig.enabled = False` (the canonical default), so historical
+    # baselines remain bit-identical. Counted *inside* the Matryoshka
+    # governance overhead — the regulator is one of the middle-layer gates,
+    # so its rejections roll up into `governance_overhead_fraction`.
+    rejected_regulator: float = 0.0
+
     # ---- Tail-tamed EBI for variance decomposition ---------------------------
     # Raw `exo_baroque_index = nominal/real` has an unbounded right tail
     # (heavily-folded scenarios push real -> 0 and EBI -> infinity). The
@@ -314,6 +323,7 @@ class Metrics:
         rejected_align: float,
         rejected_cost: float,
         rejected_permeability: float = 0.0,
+        rejected_regulator: float = 0.0,
         gini_every_k_steps: int = 1,
         real_authentic_step: Optional[float] = None,
         productive_welfare_yield: float = 0.0,
@@ -412,6 +422,7 @@ class Metrics:
             + rejected_align
             + rejected_cost
             + rejected_permeability
+            + rejected_regulator
         )
         law_surplus_loss = (
             law_weak_surplus_loss + law_capture_surplus_loss + law_upkeep_cost
@@ -422,7 +433,8 @@ class Metrics:
             else 0.0
         )
         gov_overhead = (
-            (rejected_law + rejected_market + rejected_align) / total_attempted
+            (rejected_law + rejected_market + rejected_regulator + rejected_align)
+            / total_attempted
             if total_attempted > 0
             else 0.0
         )
@@ -517,6 +529,7 @@ class Metrics:
             rejected_align=rejected_align,
             rejected_cost=rejected_cost,
             rejected_permeability=rejected_permeability,
+            rejected_regulator=rejected_regulator,
             gini_wealth=gini,
             real_per_capita_welfare=per_cap,
             human_legibility_index=leg,

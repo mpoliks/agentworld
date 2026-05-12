@@ -16,7 +16,9 @@ The output is per-step:
     rejected_permeability : number rejected at the cross-stack boundary
                             before any Matryoshka layer (W1c, Tomašev / Jacobs)
     rejected_law       : number rejected by law layer
-    rejected_market    : number rejected by market layer
+    rejected_market    : number rejected by platform / market layer (Krier)
+    rejected_regulator : number rejected by Hadfield third-party regulator
+                         layer (W1a, Hadfield)
     rejected_align     : number rejected by alignment layer
     rejected_cost      : number rejected because cost > surplus
     wealth_delta       : per-prototype wealth change
@@ -89,6 +91,10 @@ class TransactionResult:
     # scenarios that never set `cross_stack_permeability < 1.0` remain
     # bit-identical at the result-field level.
     rejected_permeability: float = 0.0
+    # Hadfield regulator rejections (W1a). Distinct from `rejected_market`
+    # (the platform/deployer gate). Defaults to 0.0 so historical scenarios
+    # with `RegulatorConfig.enabled = False` remain bit-identical.
+    rejected_regulator: float = 0.0
     # Demand-modulated share of the real surplus that ultimately reaches a
     # human consumer (or a human-controlled agent). Equals
     # `real_surplus_added` when `DemandConfig.enabled = False`. See
@@ -356,12 +362,33 @@ def coasean_step(
         law_weak_loss_pair = np.zeros(n_pairs, dtype=np.float32)
         law_capture_loss_pair = np.zeros(n_pairs, dtype=np.float32)
 
-    # Market layer: each platform/protocol has its own filter, simulated as
-    # rejection probability that scales with cross-sector and cross-alignment.
+    # Platform (Krier middle) layer: each platform/protocol has its own
+    # filter, simulated as rejection probability that scales with
+    # cross-sector and cross-alignment. Note: pre-W1a this was called
+    # `market_reject` and the variable name is preserved for back-compat
+    # with downstream telemetry; conceptually it now corresponds to the
+    # platform/deployer gate, distinct from the Hadfield regulator gate
+    # below (W1a in `docs/plans/hadfield_jacobs_robustness.md`).
     align_dist = np.abs(al_a - al_b)
     market_reject = rngs["market"].random(n_pairs) < (
         0.02 + 0.06 * (1.0 - sec_aff) + 0.04 * align_dist
     )
+
+    # Regulator (W1a) layer: government-licensed third-party gate running
+    # in parallel with the platform layer. Per-pair rejection probability
+    # is `strength × audit_quality × (1 − capture)` evaluated at each
+    # endpoint's stack vendor; the strictest jurisdiction binds. With
+    # `regulator.enabled = False` (the default) the gate is skipped and
+    # no rng draw is consumed, preserving canonical bit-identity.
+    reg_cfg = topo.cfg.regulator
+    if reg_cfg.enabled:
+        reg_strength, reg_capture, reg_audit = topo.regulator_vendor_arrays()
+        p_reject_a = reg_strength[stk_a] * reg_audit[stk_a] * (1.0 - reg_capture[stk_a])
+        p_reject_b = reg_strength[stk_b] * reg_audit[stk_b] * (1.0 - reg_capture[stk_b])
+        p_reject = np.clip(np.maximum(p_reject_a, p_reject_b), 0.0, 1.0)
+        regulator_reject = rngs["regulator"].random(n_pairs) < p_reject
+    else:
+        regulator_reject = np.zeros(n_pairs, dtype=bool)
 
     # Alignment layer: individual-agent refusal. Higher alignment distance →
     # more refusal. Also: if either party's autonomy is very low, the agent
@@ -372,11 +399,23 @@ def coasean_step(
 
     # Permeability is the first gate; subsequent rejection buckets exclude
     # pairs already blocked at the boundary so the counts never double-count.
+    # Regulator sits between the platform layer and the alignment layer in
+    # the rejection cascade so its bucket is exclusive of upstream rejects.
     survives_perm = ~rejected_perm_mask
     rejected_law_mask = survives_perm & law_reject
     rejected_market_mask = survives_perm & (~rejected_law_mask) & market_reject
+    rejected_regulator_mask = (
+        survives_perm
+        & (~rejected_law_mask)
+        & (~rejected_market_mask)
+        & regulator_reject
+    )
     rejected_align_mask = (
-        survives_perm & (~rejected_law_mask) & (~rejected_market_mask) & align_reject
+        survives_perm
+        & (~rejected_law_mask)
+        & (~rejected_market_mask)
+        & (~rejected_regulator_mask)
+        & align_reject
     )
 
     # Surplus must exceed transaction cost to execute.
@@ -385,6 +424,7 @@ def coasean_step(
         survives_perm
         & (~rejected_law_mask)
         & (~rejected_market_mask)
+        & (~rejected_regulator_mask)
         & (~rejected_align_mask)
         & cost_reject
     )
@@ -393,6 +433,7 @@ def coasean_step(
         rejected_perm_mask
         | rejected_law_mask
         | rejected_market_mask
+        | rejected_regulator_mask
         | rejected_align_mask
         | rejected_cost_mask
     )
@@ -484,6 +525,7 @@ def coasean_step(
         rejected_cost=float((rejected_cost_mask * pair_real_count).sum()),
         wealth_delta=wealth_delta,
         rejected_permeability=float((rejected_perm_mask * pair_real_count).sum()),
+        rejected_regulator=float((rejected_regulator_mask * pair_real_count).sum()),
         real_surplus_authentic=real_surplus_authentic,
         law_weak_surplus_loss=law_weak_surplus_loss,
         law_capture_surplus_loss=law_capture_surplus_loss,
@@ -518,6 +560,7 @@ def _coasean_step_chunked(
     rejected_align = 0.0
     rejected_cost = 0.0
     rejected_permeability = 0.0
+    rejected_regulator = 0.0
     law_weak_surplus_loss = 0.0
     law_capture_surplus_loss = 0.0
     pigouvian_revenue = 0.0
@@ -551,6 +594,7 @@ def _coasean_step_chunked(
         rejected_align += part.rejected_align
         rejected_cost += part.rejected_cost
         rejected_permeability += part.rejected_permeability
+        rejected_regulator += part.rejected_regulator
         law_weak_surplus_loss += part.law_weak_surplus_loss
         law_capture_surplus_loss += part.law_capture_surplus_loss
         pigouvian_revenue += part.pigouvian_revenue
@@ -566,6 +610,7 @@ def _coasean_step_chunked(
             + part.rejected_align
             + part.rejected_cost
             + part.rejected_permeability
+            + part.rejected_regulator
         )
         all_pair_alpha_weighted += part.realized_alpha * all_pair_weight
         all_pair_alpha_weight += all_pair_weight
@@ -582,6 +627,7 @@ def _coasean_step_chunked(
         rejected_cost=rejected_cost,
         wealth_delta=wealth_delta,
         rejected_permeability=rejected_permeability,
+        rejected_regulator=rejected_regulator,
         real_surplus_authentic=real_surplus_authentic,
         law_weak_surplus_loss=law_weak_surplus_loss,
         law_capture_surplus_loss=law_capture_surplus_loss,

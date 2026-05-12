@@ -46,6 +46,7 @@ _BAND_METRIC_KEYS: tuple[str, ...] = (
     "rejected_align",
     "rejected_cost",
     "rejected_permeability",
+    "rejected_regulator",
     "gini_wealth",
     "real_per_capita_welfare",
     "human_legibility_index",

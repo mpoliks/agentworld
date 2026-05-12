@@ -25,7 +25,7 @@ Beyond alpha, the topology specifies:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import numpy as np
 
@@ -64,6 +64,48 @@ class LawConfig:
                 )
             else:
                 self.gamma_civic_pushback = 0.0
+
+
+@dataclass
+class RegulatorConfig:
+    """Hadfield-style government-licensed third-party regulator.
+
+    The Krier middle layer (`market_reject` / `platform_reject`) and the
+    Hadfield regulatory market are *not* the same object. The first models
+    foundation-model deployer policy and platform terms-of-service; the
+    second models government-licensed third parties competing on audit
+    quality and strictness. Conflating them is the tier-1 conflation
+    Hadfield's *Regulatory Markets: The Future of AI Governance*
+    (Jurimetrics, Winter 2026) calls out.
+
+    This config adds a second gate that fires in parallel with the
+    platform gate — a pair has to pass *both* to execute. Each stack
+    draws a regulator vendor from a pool the operator parameterises;
+    the vendor's `strength × audit_quality × (1 − capture)` becomes the
+    per-pair rejection probability. The strictest of the two endpoints'
+    regulators gates the trade (regulators are jurisdictional, and the
+    stricter jurisdiction binds).
+
+    With `enabled = False` (the default) the gate doesn't fire, no rng
+    draws are consumed, and the canonical pinned baselines stay
+    bit-identical. The `regulator_layer_tax` adds a third tax channel
+    to `matryoshka_real_tax()` parallel to `market_layer_tax` and
+    `individual_layer_alignment_tax` — it bites only on pairs that pass
+    the gate, modelling the cost of compliance with a real regulator.
+
+    See `docs/plans/hadfield_jacobs_robustness.md` (W1a).
+    """
+
+    enabled: bool = False
+    # Per-stack vendor params. Accept a scalar (same vendor for every
+    # stack) or a tuple of length `n_stacks` (per-stack vendor draws
+    # supplied by the operator). Validated at world build.
+    regulator_strength: Any = 0.15
+    regulator_capture: Any = 0.0
+    regulator_audit_quality: Any = 1.0
+    # Third tax channel; added to `matryoshka_real_tax()` when enabled.
+    # 0 = the regulator gate rejects but doesn't tax surviving surplus.
+    regulator_layer_tax: float = 0.0
 
 
 @dataclass
@@ -309,6 +351,14 @@ class TopologyConfig:
     # and policy controls.
     law: LawConfig = field(default_factory=LawConfig)
 
+    # ---- Hadfield regulator (W1a, Regulatory Markets) ------------------------
+    # Government-licensed third-party regulator running in parallel with
+    # the platform layer. Default-off keeps `market_reject` as the sole
+    # middle-layer gate so canonical baselines stay bit-identical. See
+    # `docs/plans/hadfield_jacobs_robustness.md` and the `RegulatorConfig`
+    # docstring above.
+    regulator: RegulatorConfig = field(default_factory=RegulatorConfig)
+
     # ---- Endogenous emergence mechanisms -------------------------------------
     # Default-off so historical alpha-engine scenarios keep the same execution
     # path unless they explicitly opt in.
@@ -431,8 +481,47 @@ class Topology:
         return min(base, 1.0)
 
     def matryoshka_real_tax(self) -> float:
-        """Fraction of real surplus consumed by market+individual layers."""
-        return self.cfg.market_layer_tax + self.cfg.individual_layer_alignment_tax
+        """Fraction of real surplus consumed by the middle layers.
+
+        Adds `regulator_layer_tax` when the Hadfield regulator gate is
+        enabled. With the regulator off (the canonical default), the tax
+        collapses to `market_layer_tax + individual_layer_alignment_tax`
+        — bit-identical to the pre-W1a engine.
+        """
+        tax = self.cfg.market_layer_tax + self.cfg.individual_layer_alignment_tax
+        if self.cfg.regulator.enabled:
+            tax += float(self.cfg.regulator.regulator_layer_tax)
+        return tax
+
+    def regulator_vendor_arrays(
+        self,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Per-stack (strength, capture, audit_quality) vendor arrays.
+
+        `RegulatorConfig` accepts each of the three vendor params either
+        as a scalar (same vendor for every stack) or as a length-`n_stacks`
+        sequence (operator-supplied per-stack draws from the vendor pool).
+        This helper broadcasts and validates so the inner loop can index
+        by stack id. Returns float64 arrays of shape `(n_stacks,)`.
+        """
+        reg = self.cfg.regulator
+        K = self.cfg.n_stacks
+
+        def _arr(v, name: str) -> np.ndarray:
+            if np.isscalar(v):
+                return np.full(K, float(v), dtype=np.float64)
+            arr = np.asarray(v, dtype=np.float64)
+            if arr.shape != (K,):
+                raise ValueError(
+                    f"RegulatorConfig.{name} must be a scalar or a length-{K} "
+                    f"sequence (n_stacks={K}); got shape {arr.shape}."
+                )
+            return arr
+
+        strength = _arr(reg.regulator_strength, "regulator_strength")
+        capture = _arr(reg.regulator_capture, "regulator_capture")
+        audit_quality = _arr(reg.regulator_audit_quality, "regulator_audit_quality")
+        return strength, capture, audit_quality
 
     # ---- diagnostics ------------------------------------------------------
 

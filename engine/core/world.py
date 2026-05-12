@@ -90,9 +90,10 @@ class WorldConfig:
     # pre-split engine and the canonical pinned baselines. With
     # `per_component`, `World.build` spawns one child generator per
     # subsystem boundary (`market`, `alignment`, `law`, `folding`,
-    # `population`, `demand`, `network`, `permeability`, `exo`) so a
-    # parameter that perturbs how many draws subsystem A consumes does
-    # not move the draw sequence subsystem B sees. The Sobol/Saltelli
+    # `population`, `demand`, `network`, `permeability`, `regulator`,
+    # `exo`) so a parameter that perturbs how many draws subsystem A
+    # consumes does not move the draw sequence subsystem B sees. The
+    # Sobol/Saltelli
     # sensitivity driver opts into `per_component` so its ST attribution
     # is not contaminated by draw-sequence shifts; the canonical
     # regression suite stays on `legacy` so the pinned metrics keep
@@ -110,6 +111,7 @@ _RNG_SUBSYSTEMS: tuple[str, ...] = (
     "demand",
     "network",
     "permeability",
+    "regulator",
     "exo",
 )
 
@@ -580,6 +582,7 @@ class World:
             rejected_align=tx.rejected_align,
             rejected_cost=tx.rejected_cost,
             rejected_permeability=tx.rejected_permeability,
+            rejected_regulator=tx.rejected_regulator,
             gini_every_k_steps=self.cfg.gini_every_k_steps,
             real_authentic_step=real_authentic_step,
             productive_welfare_yield=fold.productive_welfare_yield,
