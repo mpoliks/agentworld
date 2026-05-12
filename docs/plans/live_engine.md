@@ -217,87 +217,159 @@ depend on it being time-varying. A flat slider cannot represent them.
 
 ---
 
-## V2 — Visual instrument (S4 → S5)
+## V2 — Live exchange surface (S4 → S6)
 
-After V1 the UI is correct but austere. V2 turns it into the instrument
-the user actually wanted: ensemble bands instead of single seeds, live
-foldtree animation instead of a static placeholder.
+V1 surfaces aggregates; V2 surfaces the per-pair activity that
+produces them. The user's framing: "I want to see the actual
+exchanges, not just the graphs." Three views over the same substrate:
 
-### S4 — Streaming ensemble (32 seeds, p5/p95 bands)
+| View | Reads like | What it answers |
+| --- | --- | --- |
+| **Trade tape** | A Bloomberg ticker | What did this specific trade do? |
+| **Living grid** | A trading floor | Are the agents *doing things* right now? |
+| **Sector chord** | A flow diagram | Who is trading with whom at the sector level? |
 
-**Why.** Single stochastic trajectories mislead. The existing
-`engine/ensemble.py` already runs N seeds in parallel and produces
-median + p5/p95 bands, but only as a batch Parquet write at the end.
-For live mode the bands need to update per step.
+All three read from one new SSE channel — `step.pairs` — and the
+engine work is shared. The original V2 (streaming ensembles + live
+foldtree) is bumped to V2.5; per-pair visibility is a higher
+priority than statistical bands or fold-cascade animation.
+
+### S4 — Pair-sample substrate
+
+**Why.** The engine processes ~200K pairs per step but only emits
+aggregates. To show pairs the user needs a per-pair sample stream.
+`coasean_step` already has every per-pair quantity in scope at the
+return site; the work is sampling K of them and packaging records.
 
 **What to do.**
 
-1. Refactor `engine/ensemble.py` to expose a generator API:
+1. New dataclass `PairSample` in `engine/core/transactions.py`:
    ```python
-   def stream_ensemble(
-       scenario_cfg: WorldConfig,
-       n_seeds: int = 32,
-       scale: Scale = Scale.SMALL,
-   ) -> Iterator[EnsembleStepFrame]:
-       ...
+   @dataclass
+   class PairSample:
+       proto_a: int           # prototype index
+       proto_b: int
+       is_a_human: bool
+       is_b_human: bool
+       sec_a: int             # 0..N_SECTORS-1 (12 macro-sectors)
+       sec_b: int
+       cap_a: float
+       cap_b: float
+       base_surplus: float    # pre-tax surplus
+       friction: float        # cost per pair
+       real_surplus: float    # realized real welfare delta
+       executed: bool
+       reject_reason: str     # "" | "law" | "market" | "align" | "cost" | "permeability" | "regulator"
+       pair_weight: float     # pair_real_count — number of real pairs this prototype-pair stands in for
    ```
-   Internally: spawn N processes, each running a `World` with a
-   `step_callback` that pushes to a `multiprocessing.Queue`. The
-   parent drains the queue, gathers all N step-K frames, and yields
-   one `EnsembleStepFrame` (median + p5 + p95 across the N seeds) per
-   simulated step. Backpressure: if the parent falls behind, the
-   queues bound the workers to step k+2 max.
-2. New `POST /runs/ensemble` and `GET /runs/{id}/ensemble_stream`
-   endpoints. Same config-patch payload as S1.
-3. UI ensemble-mode toggle. When on, every chart renders a band
-   instead of a single line.
-4. Per-step CPU/wall budget logged. The N=32 × T=60 × small-scale run
-   should complete in ~6 s on a M4 Pro. If it does not, fall back to
-   N=16 with a UI banner.
+2. Add `pair_sample_k: int = 0` to `coasean_step` parameters. When
+   `> 0`, sample K uniform-random pair indices (using a deterministic
+   sampling rng — see RNG-isolation note below) and emit
+   `PairSample` records. Default 0 keeps the canonical scenarios
+   bit-identical.
+3. Add `pair_sample_k: int = 0` to `WorldConfig`. World.step passes
+   it through to coasean_step alongside the sampling rng. Records
+   land in `StepMetrics.pair_samples: list[PairSample] = []`.
+4. **RNG isolation.** Adding a new subsystem to `_RNG_SUBSYSTEMS`
+   would shift every per-component child stream and break the
+   pinned N=2048 Sobol output. So the sampling rng lives outside
+   the registry — `World._pair_sample_rng = default_rng(seed ^
+   0xC0DEC0DE)` — deterministic per seed, isolated from every other
+   stream.
 
-**Success criteria.**
-- `coasean_paradise` ensemble with N=32 produces visibly tighter EBI
-  bands than `recursive_simulation` (which exhibits cascade variance).
-- Cancelling a run via the existing `DELETE /runs/{id}` reaps all
-  worker processes within 200 ms.
+**Tests.** New `engine/tests/test_pair_sampling.py`:
+- K=0 yields zero records and consumes no extra RNG draws (pinned
+  output bit-identical against a recorded fixture).
+- K=50 yields 50 distinct records with the expected schema.
+- Sampled pair fields agree with the per-pair arrays at their
+  indices (proto_a, proto_b, sec_a, etc.).
+- Reject-reason precedence is deterministic when multiple masks fire
+  (law > market > align > cost > permeability > regulator).
 
 **Files touched.**
-`engine/ensemble.py`, `engine/serve.py`, `dashboard/live.html`,
-`engine/tests/test_ensemble_stream.py` (new).
+`engine/core/transactions.py`, `engine/core/world.py`,
+`engine/core/metrics.py` (StepMetrics field), `engine/tests/
+test_pair_sampling.py` (new).
 
-### S5 — Live foldtree
+### S5 — Trade tape + Living grid (UI)
 
-**Why.** `dashboard/foldtree.js` currently renders a static tree. The
-brief's central image — fractal folding as the engine's distinctive
-behaviour — is invisible in the live UI. V2 animates the tree per
-streamed frame.
+**Why.** Two views, one engine event. The tape is the literal answer
+("show me each exchange"); the grid is the visceral one ("agents are
+busy right now").
+
+**Trade tape.**
+
+- New `<div id="trade-tape">` panel in `live.html`, behind a "Tape"
+  tab alongside Charts and Fold tree.
+- One DOM row per `PairSample`, latest-first, capped to last 200.
+- Row layout (monospace): `step.idx | type | sec_a→sec_b | s=base ƒ=friction | result`
+  where `type` is one of `H↔H`, `H↔A`, `A↔A`, and `result` is either
+  `+real_surplus` for executed or the reject_reason for rejected.
+- Filter chips above the tape: pair-type filter, executed-only,
+  rejected-only.
+- Click a pair-type chip or a row → grid (S5b) filters to that
+  prototype.
+
+**Living grid.**
+
+- Fixed-size SVG (or canvas for performance) showing N_PROTOS dots
+  arranged in a 60×40 grid (the actual prototype count varies by
+  scale; we project onto a grid of slots).
+- Per step, the K sampled pairs flash:
+  - Each participant dot pulses (radius up briefly, fades back).
+  - A short edge segment between the two dots draws and fades.
+  - Colour by pair type: `--green` for H↔H, `--accent` for H↔A,
+    `--blue` for A↔A.
+- Hover a dot shows prototype index, sector, recent activity count.
+- Click a dot → tape filters to that prototype.
+- Canvas fallback if perf at K=200 × 60Hz drops below 50 fps.
+
+**Files touched.**
+`dashboard/live.html` (tape tab + grid tab), `dashboard/live_pairs.js`
+(new — renders tape + grid from `step.pairs` events),
+`engine/serve.py` (forward `pair_samples` in step SSE).
+
+### S6 — Sector chord (UI)
+
+**Why.** The third view answers a different question — not "what is
+this trade?" or "who's busy?" but "which sectors couple?". A chord
+diagram around a circle, sectors as arcs, inter-sector volume as
+ribbons that pulse per step.
 
 **What to do.**
 
-1. Extend the per-step SSE payload to include a `foldtree_delta`
-   record: nodes added this step, accumulated fold count per existing
-   node, total transaction volume on each edge this step. The data is
-   already in `World.ledger`; the work is shaping it for the wire.
-2. `foldtree.js` consumes the delta:
-   - New nodes fade in over 200 ms.
-   - Node colour interpolates from `--text-3` (cool) to `--accent`
-     (hot) as accumulated fold count climbs.
-   - Edge thickness interpolates with transaction volume on a log
-     scale.
-3. Camera anchored to the active fold frontier — nodes spawned in the
-   last 5 steps stay on-screen; older nodes drift to the periphery.
-4. Hover on a node shows: depth, accumulated folds, last-touched step,
-   parent node id.
-
-**Success criteria.**
-- A `baroque_cathedral` run shows visible recursive folding building
-  in the back half of the run.
-- A `coasean_paradise` run produces a near-flat tree of depth 0-1.
-- 60 fps on M-series Macs at default scale.
+- D3 `d3.chord()` layout over the 12 sectors
+  (`engine/core/population.py` N_SECTORS).
+- Per step, accumulate sample-derived per-sector-pair volume into a
+  12×12 matrix; redraw the chord with that matrix; ribbons fade
+  briefly on update.
+- Toggle between **per-step** (instantaneous pulse) and **cumulative**
+  (running total over the run) modes.
+- Hover a ribbon shows `sec_a × sec_b` pair, volume, executed share.
 
 **Files touched.**
-`dashboard/foldtree.js`, `engine/serve.py` (delta packing),
-`engine/core/world.py` (delta extraction helper).
+`dashboard/live.html` (chord tab), `dashboard/live_sector_chord.js`
+(new). No engine change beyond S4 — the sample stream is enough.
+
+### V2 acceptance
+
+- A run with `pair_sample_k = 200`, `n_steps = 60`, scale `small`
+  emits 12,000 pair records over the SSE stream in roughly the same
+  wall-clock as the V1 run (overhead < 5%).
+- The Tape tab shows live rows that scroll faster on high-α runs.
+- The Grid tab shows visible activity hotspots in a high-stack run
+  (e.g. `hemispherical_schism`).
+- The Chord tab shows sector decoupling under cross-stack-low-compat
+  scenarios.
+- Pinned canonical scenarios (`outputs/runs/*.json`) stay
+  bit-identical under `pair_sample_k = 0`.
+
+## V2.5 — Statistical bands + foldtree animation (deferred from V2)
+
+Streaming ensemble (32 seeds, p5/p95 bands) and live foldtree
+animation remain in the plan but at lower priority than V2 above.
+Spec preserved verbatim in `docs/plans/_archive/v2_ensemble_foldtree_deferred.md`
+when the V2 work ships.
 
 ---
 

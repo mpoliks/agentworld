@@ -78,6 +78,138 @@ def _resolve_rngs(rng: RngOrRngs) -> Mapping[str, np.random.Generator]:
 
 
 @dataclass
+class PairSample:
+    """One per-pair record emitted for the live-engine exchange views.
+
+    Engineered to be wire-cheap (~80 bytes per record) and renderable
+    without further engine lookups. The fields are everything a UI
+    needs to depict a single transaction: who, where (sector), what
+    surplus, what friction, and whether it cleared.
+
+    See `engine/core/transactions.py::_sample_pair_records` for how
+    these are produced, and `docs/plans/live_engine.md` § V2 for the
+    UI surfaces that consume them.
+    """
+
+    proto_a: int
+    proto_b: int
+    is_a_human: bool
+    is_b_human: bool
+    sec_a: int
+    sec_b: int
+    cap_a: float
+    cap_b: float
+    base_surplus: float
+    friction: float
+    real_surplus: float
+    executed: bool
+    reject_reason: str          # "" | "law" | "market" | "align" | "cost" | "permeability" | "regulator"
+    pair_weight: float          # how many real pairs this prototype-pair represents
+
+
+# Precedence order for reject reasons when multiple masks fire.
+# Earlier gates take priority — the trade dies at the first wall it hits.
+_REJECT_REASONS: tuple[str, ...] = (
+    "law",
+    "permeability",
+    "regulator",
+    "market",
+    "align",
+    "cost",
+)
+
+
+def _reject_reason_for(
+    i: int,
+    executed_mask: np.ndarray,
+    rejected_law_mask: np.ndarray,
+    rejected_market_mask: np.ndarray,
+    rejected_align_mask: np.ndarray,
+    rejected_cost_mask: np.ndarray,
+    rejected_perm_mask: np.ndarray,
+    rejected_regulator_mask: np.ndarray,
+) -> str:
+    if executed_mask[i]:
+        return ""
+    for name, mask in zip(
+        _REJECT_REASONS,
+        (
+            rejected_law_mask,
+            rejected_perm_mask,
+            rejected_regulator_mask,
+            rejected_market_mask,
+            rejected_align_mask,
+            rejected_cost_mask,
+        ),
+    ):
+        if mask[i]:
+            return name
+    return "unknown"
+
+
+def _sample_pair_records(
+    k: int,
+    sample_rng: np.random.Generator,
+    *,
+    a: np.ndarray,
+    b: np.ndarray,
+    h_a: np.ndarray,
+    h_b: np.ndarray,
+    sec_a: np.ndarray,
+    sec_b: np.ndarray,
+    cap_a: np.ndarray,
+    cap_b: np.ndarray,
+    base_surplus: np.ndarray,
+    cost: np.ndarray,
+    real_pair_surplus: np.ndarray,
+    executed_mask: np.ndarray,
+    rejected_law_mask: np.ndarray,
+    rejected_market_mask: np.ndarray,
+    rejected_align_mask: np.ndarray,
+    rejected_cost_mask: np.ndarray,
+    rejected_perm_mask: np.ndarray,
+    rejected_regulator_mask: np.ndarray,
+    pair_real_count: np.ndarray,
+) -> list[PairSample]:
+    """Sample K uniform-random pair indices and build PairSample records.
+
+    Uses `sample_rng` exclusively so it doesn't disturb the engine's
+    per-component RNG layout. When `k <= 0` or `n_pairs == 0`, returns
+    an empty list with no rng consumption.
+    """
+    n = int(a.shape[0])
+    if k <= 0 or n == 0:
+        return []
+    k = min(k, n)
+    idx = sample_rng.choice(n, size=k, replace=False)
+    out: list[PairSample] = []
+    for i in idx:
+        i = int(i)
+        out.append(PairSample(
+            proto_a=int(a[i]),
+            proto_b=int(b[i]),
+            is_a_human=bool(h_a[i]),
+            is_b_human=bool(h_b[i]),
+            sec_a=int(sec_a[i]),
+            sec_b=int(sec_b[i]),
+            cap_a=float(cap_a[i]),
+            cap_b=float(cap_b[i]),
+            base_surplus=float(base_surplus[i]),
+            friction=float(cost[i]),
+            real_surplus=float(real_pair_surplus[i]),
+            executed=bool(executed_mask[i]),
+            reject_reason=_reject_reason_for(
+                i,
+                executed_mask,
+                rejected_law_mask, rejected_market_mask, rejected_align_mask,
+                rejected_cost_mask, rejected_perm_mask, rejected_regulator_mask,
+            ),
+            pair_weight=float(pair_real_count[i]),
+        ))
+    return out
+
+
+@dataclass
 class TransactionResult:
     real_surplus_added: float
     nominal_volume: float
@@ -123,6 +255,11 @@ class TransactionResult:
     a2a_share: float = 0.0
     h2a_share: float = 0.0
     h2h_share: float = 0.0
+    # Live-engine V2: K uniform-random per-pair records (default empty).
+    # Populated by `coasean_step` only when `pair_sample_k > 0`. Each
+    # record is a `PairSample` (~80 bytes). See `engine/core/transactions.py
+    # ::_sample_pair_records` and `docs/plans/live_engine.md` § V2.
+    pair_samples: list = field(default_factory=list)
 
 
 def executed_interaction_shares(
@@ -246,6 +383,9 @@ def coasean_step(
     law_capture: float = 0.0,
     gini_wealth: float = 0.0,
     local_alpha: np.ndarray | None = None,
+    *,
+    pair_sample_k: int = 0,
+    pair_sample_rng: np.random.Generator | None = None,
 ) -> TransactionResult:
     """
     Run one step of Coasean bargaining at scale.
@@ -273,6 +413,8 @@ def coasean_step(
         return _coasean_step_chunked(
             pop, topo, rng, n_pairs, base_match_volume, chunk_size,
             law_strength, law_capture, gini_wealth, local_alpha,
+            pair_sample_k=pair_sample_k,
+            pair_sample_rng=pair_sample_rng,
         )
     n = pop.n
     a, b = _sample_partners(pop, topo, n_pairs, rngs["network"])
@@ -702,6 +844,31 @@ def coasean_step(
             pop, a, b, executed_mask, pair_real_count, norms_cfg,
         )
 
+    # Live-engine V2: sample K per-pair records for the exchange views.
+    # No work when k <= 0; the sampling rng is isolated from the per-
+    # component layout so canonical pinned outputs stay bit-identical.
+    pair_samples_out: list = []
+    if pair_sample_k > 0 and pair_sample_rng is not None:
+        pair_samples_out = _sample_pair_records(
+            pair_sample_k,
+            pair_sample_rng,
+            a=a, b=b,
+            h_a=h_a, h_b=h_b,
+            sec_a=sec_a, sec_b=sec_b,
+            cap_a=cap_a, cap_b=cap_b,
+            base_surplus=base_surplus_raw,
+            cost=cost,
+            real_pair_surplus=real_pair_surplus_to_split,
+            executed_mask=executed_mask,
+            rejected_law_mask=rejected_law_mask,
+            rejected_market_mask=rejected_market_mask,
+            rejected_align_mask=rejected_align_mask,
+            rejected_cost_mask=rejected_cost_mask,
+            rejected_perm_mask=rejected_perm_mask,
+            rejected_regulator_mask=rejected_regulator_mask,
+            pair_real_count=pair_real_count,
+        )
+
     return TransactionResult(
         real_surplus_added=real_surplus,
         nominal_volume=nominal_volume,
@@ -724,6 +891,7 @@ def coasean_step(
         human_labor_wage=human_labor_wage,
         human_wage_per_sector=human_wage_per_sector,
         forged_registration_share=forged_registration_share,
+        pair_samples=pair_samples_out,
     )
 
 
@@ -738,6 +906,9 @@ def _coasean_step_chunked(
     law_capture: float,
     gini_wealth: float,
     local_alpha: np.ndarray | None = None,
+    *,
+    pair_sample_k: int = 0,
+    pair_sample_rng: np.random.Generator | None = None,
 ) -> TransactionResult:
     """Process pairs in cache-friendly batches; aggregate exactly."""
     n = pop.n
@@ -767,8 +938,23 @@ def _coasean_step_chunked(
     wealth_delta = np.zeros(n, dtype=np.float64)
 
     remaining = n_pairs
+    remaining_k = pair_sample_k
+    pair_samples_chunks: list = []
     while remaining > 0:
         batch = min(chunk_size, remaining)
+        # Allocate pair-sample budget proportionally to chunk size; the
+        # last chunk picks up any rounding leftover so the total lands
+        # exactly at pair_sample_k.
+        if pair_sample_k > 0 and pair_sample_rng is not None:
+            is_last = (remaining == batch)
+            chunk_k = (
+                remaining_k
+                if is_last
+                else min(remaining_k, round(pair_sample_k * batch / n_pairs))
+            )
+            chunk_k = max(0, chunk_k)
+        else:
+            chunk_k = 0
         part = coasean_step(
             pop, topo, rng,
             n_pairs=batch,
@@ -778,7 +964,12 @@ def _coasean_step_chunked(
             law_capture=law_capture,
             gini_wealth=gini_wealth,
             local_alpha=local_alpha,
+            pair_sample_k=chunk_k,
+            pair_sample_rng=pair_sample_rng,
         )
+        if chunk_k > 0:
+            pair_samples_chunks.extend(part.pair_samples)
+            remaining_k -= chunk_k
         real_surplus += part.real_surplus_added
         real_surplus_authentic += part.real_surplus_authentic
         nominal_volume += part.nominal_volume
@@ -853,4 +1044,5 @@ def _coasean_step_chunked(
             if forged_share_den > 0
             else 0.0
         ),
+        pair_samples=pair_samples_chunks,
     )

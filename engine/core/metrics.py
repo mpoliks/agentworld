@@ -132,6 +132,13 @@ class StepMetrics:
     wealth_imbalance_relative: float = 0.0
     welfare_imbalance_abs: float = 0.0
 
+    # ---- Live-engine V2: per-pair sample records ----------------------------
+    # Populated only when `WorldConfig.pair_sample_k > 0`. Each record is a
+    # `PairSample` dataclass (engine/core/transactions.py). Default empty so
+    # canonical pinned StepMetrics serializations remain identical. See
+    # `docs/plans/live_engine.md` § V2.
+    pair_samples: list = field(default_factory=list)
+
     # ---- Flow-sensitive inequality metrics ------------------------------------
     # Terminal `gini_wealth` is dominated by the initial wealth distribution
     # (lognormal humans, Pareto agents) and barely moves under topology

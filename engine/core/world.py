@@ -101,6 +101,15 @@ class WorldConfig:
     # the rationale.
     rng_split_mode: Literal["legacy", "per_component"] = "legacy"
 
+    # Live-engine V2: per-step pair-sample budget. K=0 (the default)
+    # disables sampling and consumes no extra rng draws so canonical
+    # pinned outputs remain bit-identical. K>0 emits K uniform-random
+    # `PairSample` records per step (see `engine/core/transactions.py
+    # ::PairSample`) attached to `StepMetrics.pair_samples`. The
+    # sampling rng is isolated from the per-component layout — see
+    # `World.build` for how it's spawned.
+    pair_sample_k: int = 0
+
 
 _RNG_SUBSYSTEMS: tuple[str, ...] = (
     "population",
@@ -147,6 +156,11 @@ class World:
     law_strength: float
     law_capture: float
     step_idx: int = 0
+    # Live-engine V2: dedicated rng for per-pair sampling. Spawned in
+    # `World.build` from a transform of cfg.seed so it doesn't collide
+    # with any subsystem in `_RNG_SUBSYSTEMS`. `None` when
+    # `cfg.pair_sample_k <= 0`.
+    _pair_sample_rng: Optional[np.random.Generator] = None
     # Weighted-mean capability of the intermediating side of the economy.
     # Used by the productive-vs-parasitic folding split. Until the §4
     # mode-1 separation lands, we use the population-mean *agent*
@@ -212,6 +226,15 @@ class World:
             cap_inter = float((w * c).sum() / w.sum()) if w.sum() > 0 else 0.0
         else:
             cap_inter = 0.0
+        # Live-engine V2: dedicated sampling rng, isolated from the
+        # per-component layout so canonical pinned outputs stay
+        # bit-identical when pair_sample_k = 0. The XOR with a fixed
+        # constant keeps the stream deterministic per seed.
+        pair_sample_rng = (
+            np.random.default_rng(int(cfg.seed) ^ 0xC0DEC0DE)
+            if cfg.pair_sample_k > 0
+            else None
+        )
         return cls(
             cfg=cfg,
             population=pop,
@@ -229,6 +252,7 @@ class World:
                 if topo.cfg.law.enabled
                 else 0.0
             ),
+            _pair_sample_rng=pair_sample_rng,
         )
 
     # ---- per-step ---------------------------------------------------------
@@ -501,6 +525,8 @@ class World:
                 if strategy_cfg.enabled
                 else None
             ),
+            pair_sample_k=self.cfg.pair_sample_k,
+            pair_sample_rng=self._pair_sample_rng,
         )
 
         dyn_cfg = self.topology.cfg.pop_dynamics
@@ -818,6 +844,10 @@ class World:
             wealth_imbalance_relative=wealth_imbalance_relative,
             welfare_imbalance_abs=welfare_imbalance_abs,
         )
+
+        # Live-engine V2: attach the per-pair sample records (empty
+        # when `pair_sample_k = 0`).
+        m.pair_samples = tx.pair_samples
 
         self._advance_law_state()
         self.step_idx += 1

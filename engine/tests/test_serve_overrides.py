@@ -344,3 +344,51 @@ def test_post_run_with_out_of_range_alpha_schedule_400():
             },
         )
         assert r.status_code == 400
+
+
+# ---- V2 pair sampling round-trip -----------------------------------------
+
+
+def test_post_run_with_pair_sample_k_round_trips():
+    """`pair_sample_k = K` POSTs the value through to the worker and
+    PairSample records show up in StepMetrics history."""
+    with TestClient(create_app()) as client:
+        r = client.post(
+            "/runs",
+            json={
+                "scenario": "equilibrium_drift",
+                "n_steps": 2,
+                "scale": "small",
+                "pair_sample_k": 25,
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["pair_sample_k"] == 25
+        body = _wait_terminal(client, body["run_id"])
+        assert body["status"] == "done"
+        # Each StepMetrics carries K pair_samples records.
+        for step in body["history"]:
+            assert len(step["pair_samples"]) == 25
+            rec = step["pair_samples"][0]
+            assert "proto_a" in rec
+            assert "executed" in rec
+            assert "reject_reason" in rec
+
+
+def test_post_run_pair_sample_k_zero_emits_empty_lists():
+    with TestClient(create_app()) as client:
+        r = client.post(
+            "/runs",
+            json={
+                "scenario": "equilibrium_drift",
+                "n_steps": 2,
+                "scale": "small",
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["pair_sample_k"] == 0
+        body = _wait_terminal(client, body["run_id"])
+        for step in body["history"]:
+            assert step["pair_samples"] == []

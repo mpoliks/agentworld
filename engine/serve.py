@@ -72,6 +72,7 @@ class RunSession:
         overrides: Optional[dict] = None,
         alpha_schedule: Optional[list] = None,
         family: Optional[str] = None,
+        pair_sample_k: int = 0,
     ) -> None:
         self.run_id = run_id
         self.scenario = scenario
@@ -81,6 +82,7 @@ class RunSession:
         self.overrides = dict(overrides) if overrides else {}
         self.alpha_schedule = list(alpha_schedule) if alpha_schedule else None
         self.family = family
+        self.pair_sample_k = int(pair_sample_k)
 
         self.status: str = "queued"  # queued | running | done | error | cancelled
         self.error: Optional[str] = None
@@ -145,6 +147,8 @@ def _run_worker(sess: RunSession) -> None:
             _apply_overrides(cfg, sess.overrides)
         if sess.alpha_schedule is not None:
             cfg.alpha_schedule = list(sess.alpha_schedule)
+        if sess.pair_sample_k > 0:
+            cfg.pair_sample_k = sess.pair_sample_k
         cfg = apply_scale(cfg, Scale(sess.scale))
         world = World.build(cfg)
 
@@ -268,6 +272,13 @@ class RunRequest(BaseModel):
     # sampling box. Advanced/exploratory use only; the S1/ST anchor in
     # the UI is invalid outside the box.
     extend_bounds: bool = False
+    # Live-engine V2: K per-pair records emitted alongside each step's
+    # aggregate metrics. 0 (default) keeps canonical outputs
+    # bit-identical and adds no wire overhead. Reasonable interactive
+    # range is 50..500; the tape/grid/chord views consume the same
+    # stream. See `engine/core/transactions.py::PairSample` and
+    # `docs/plans/live_engine.md` § V2.
+    pair_sample_k: int = Field(default=0, ge=0, le=2000)
 
 
 def create_app():
@@ -393,6 +404,7 @@ def create_app():
                 overrides=req.overrides,
                 alpha_schedule=req.alpha_schedule,
                 family=req.family,
+                pair_sample_k=req.pair_sample_k,
             )
             sess.loop = app.state.loop
             app.state.current = sess
@@ -408,6 +420,7 @@ def create_app():
             "family": sess.family,
             "overrides": sess.overrides,
             "alpha_schedule_len": len(sess.alpha_schedule) if sess.alpha_schedule else 0,
+            "pair_sample_k": sess.pair_sample_k,
         }
 
     @app.get("/scenarios/families")
