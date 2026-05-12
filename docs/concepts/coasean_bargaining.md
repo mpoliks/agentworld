@@ -77,6 +77,11 @@ This is the punchline most readers miss. If you successfully Coasean-clear a mar
 
 A society whose policy machinery treats nominal GDP as the proxy for prosperity will *resist* smoothing. This is one of the strongest reasons to suspect that, absent deliberate intervention, we drift toward Bratton's Baroque limit and not Krier's Coasean one. Folding is what happens when GDP is the proxy.
 
+### 4. Durable Coasean clearance requires norm participation, not preference matching
+Krier's argument treats individual preferences as fixed scalars that agents bargain over. The engine before W1b had this baked in: the individual-layer gate `align_reject` fired when `|alignment_a − alignment_b|` exceeded a threshold, with `alignment` a static per-prototype value. Hadfield's *Normative Infrastructure for AI Alignment* (AIhub, May 2025) is the load-bearing objection. Alignment is not a fixed Euclidean distance between two scalars; it is participation in evolving community norms. Agents who routinely trade together converge on a shared norm space; agents who don't, don't. The binding constraint in Smoothworld (the scenarios above show it is the individual layer, not the cost or law layer) is therefore not preference-matching but norm-participation, and how that participation evolves determines whether the smooth limit is durable.
+
+W1b puts this in code. `NormsConfig.enabled` adds a per-prototype `norm_vector` of K dimensions on `Population`; `align_reject` reads L2 distance in that space, normalised by `sqrt(K)` so the legacy `[0, 2]` calibration carries over; every step each prototype's norm drifts toward the capability-weighted mean of its executed partners. Three scenarios bracket the update-rate axis: `norms_drift` (`update_rate=0.02`, slow convergence — the Hadfield default), `norms_capture` (`update_rate=0.08` plus a skewed initial distribution — the densest cluster absorbs the rest), and `norms_brittle` (`update_rate=0.50` — norms oscillate rather than converging, so a fast update is not automatically a good thing). The three together bracket what "durable Coasean clearance" can mean once the static-scalar assumption goes: not a state the economy reaches and holds, but a participation regime that has to be kept in trim — and that can degrade into capture or whiplash if the update mechanism is wrong.
+
 ---
 
 ## What the smooth attractor needs to survive
@@ -99,4 +104,5 @@ None of these are technically hard. All are politically hard. The artifact is ag
 - Hayek, F. (1945). *The Use of Knowledge in Society.*
 - Ostrom, E. (1990). *Governing the Commons.*
 - Tomašev et al. (2025). *Virtual Agent Economy.* arXiv:2509.10147.
+- Hadfield, G. K. (May 2025). *Normative infrastructure for AI alignment.* AIhub interview. The argument that alignment is participation in evolving community norms rather than preference-matching at static distance — the basis for the W1b individual-layer rewrite.
 - Levin, M. & Lyon, B. (2024). *Cognitive glue.*
