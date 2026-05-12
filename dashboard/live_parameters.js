@@ -286,6 +286,21 @@
     });
     root.appendChild(pfGroup);
 
+    // Schedule editor constants — must be initialised BEFORE the
+    // parameter loop because `buildScheduleEditor` (called during the
+    // α iteration) reads them. Function declarations hoist; `const`
+    // declarations don't, so leaving these below the loop puts the
+    // reads in the temporal dead zone and kills the loop after α.
+    const SCHED_W = 380;
+    const SCHED_H = 100;
+    const SCHED_PAD_X = 8;
+    const SCHED_PAD_Y = 10;
+    const SCHED_Y_MIN = 0.05;
+    const SCHED_Y_MAX = 0.95;
+    let scheduleSvg = null;
+    let schedulePathEl = null;
+    let schedulePointEls = [];
+
     // parameter rows — Tier-1 rendered visibly, Tier-2 collapsed in a
     // <details> expander so the panel doesn't tower over the rest of
     // the page on first load.
@@ -440,15 +455,7 @@
     // SVG editor with four fixed-x control points whose y is draggable in
     // [0.05, 0.95]. The output alpha_schedule is sampled by linear
     // interpolation at integer step positions when the run is launched.
-    const SCHED_W = 380;
-    const SCHED_H = 100;
-    const SCHED_PAD_X = 8;
-    const SCHED_PAD_Y = 10;
-    const SCHED_Y_MIN = 0.05;
-    const SCHED_Y_MAX = 0.95;
-    let scheduleSvg = null;
-    let schedulePathEl = null;
-    let schedulePointEls = [];
+    // Constants live above the parameter loop (see TDZ note up top).
 
     function scheduleXY(p) {
       // Map fractional (x, y) in [0,1] × [0.05,0.95] → SVG pixel coordinates.
