@@ -174,7 +174,11 @@ class World:
             cfg = WorldConfig()
         rngs = _build_rng_dict(cfg.seed, cfg.rng_split_mode)
         topo = Topology.build(cfg.topology)
-        pop = Population.synthesize(cfg.population, strategy_config=topo.cfg.strategy)
+        pop = Population.synthesize(
+            cfg.population,
+            strategy_config=topo.cfg.strategy,
+            registration_config=topo.cfg.registration,
+        )
         agents_mask = ~pop.is_human
         if agents_mask.any():
             w = pop.weight[agents_mask].astype(np.float64)
@@ -543,7 +547,12 @@ class World:
             if track_ledger:
                 W_post_dep = _total_wealth()
                 ledger.add_wealth_out("dynamics.depreciation", W_pre_dep - W_post_dep)
-            churn_count = entry_exit(self.population, dyn_cfg, self.rngs["population"])
+            churn_count = entry_exit(
+                self.population,
+                dyn_cfg,
+                self.rngs["population"],
+                registration_config=self.topology.cfg.registration,
+            )
             if track_ledger:
                 W_post_ee = _total_wealth()
                 ee_delta = W_post_ee - W_post_dep
@@ -552,6 +561,29 @@ class World:
                     # observed signed delta — sign tells us whether the
                     # cohort net brought wealth in or took it out.
                     ledger.add_wealth_in("dynamics.entry_exit", ee_delta)
+
+        # ---- W2a registration compliance cost ----------------------------
+        # Per-step wealth charge against registered agents (humans
+        # exempt). With `RegistrationConfig.enabled = False` or
+        # `registration_cost = 0.0` (the canonical default) the block
+        # does nothing and canonical baselines stay bit-identical.
+        reg_cfg = self.topology.cfg.registration
+        if reg_cfg.enabled and reg_cfg.registration_cost > 0.0:
+            charge = float(reg_cfg.registration_cost)
+            pay_mask = self.population.registered & (~self.population.is_human)
+            if pay_mask.any():
+                W_pre_reg = _total_wealth() if track_ledger else 0.0
+                self.population.wealth[pay_mask] = np.clip(
+                    self.population.wealth[pay_mask] - np.float32(charge),
+                    0.0,
+                    None,
+                )
+                if track_ledger:
+                    W_post_reg = _total_wealth()
+                    ledger.add_wealth_out(
+                        "registration.compliance_cost",
+                        W_pre_reg - W_post_reg,
+                    )
 
         # End-of-step ledger residuals.
         if track_ledger:

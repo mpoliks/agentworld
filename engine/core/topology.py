@@ -109,6 +109,60 @@ class RegulatorConfig:
 
 
 @dataclass
+class RegistrationConfig:
+    """Hadfield-style persistent agent identity + registration regime (W2a).
+
+    Pre-W2a every transaction in the alpha-engine is between two
+    anonymous prototype draws — there is no stable identifier across
+    steps and no `registered` bit a regulator could read. Hadfield's
+    *Legal Infrastructure for Transformative AI Governance*
+    (arXiv:2602.01474, Feb 2026) argues that registration is the
+    precondition for everything else in the regulatory stack.
+
+    With `enabled=False` (the default) the registration mechanism is
+    inert and the canonical pinned baselines stay bit-identical. With
+    `enabled=True`:
+
+    * Each agent prototype carries `Population.registered: bool`.
+      Humans are exempt (always treated as registered).
+    * `registration_cost` is charged against the wealth of every
+      registered agent every step — the compliance overhead.
+    * `registration_floor` adds to the regulator gate's per-pair
+      rejection probability when an endpoint is an unregistered agent.
+      This is the lever by which the registration regime *does work*:
+      unregistered actors can still trade but face a higher chance of
+      being blocked at the regulator layer. Requires
+      `RegulatorConfig.enabled = True` for the gate-level effect; the
+      wealth charge applies regardless.
+    * `Population.agent_id` is a stable int64 identifier issued
+      monotonically. The dynamics layer (entry/exit) re-issues fresh
+      identifiers on prototype recycle.
+
+    See `docs/concepts/registration.md` and W2a in
+    `docs/plans/hadfield_jacobs_robustness.md`.
+    """
+
+    enabled: bool = False
+    # Per-step wealth charge against registered agents. 0 = compliance
+    # is free at the unit price (the rejection-floor lever still bites).
+    registration_cost: float = 0.0
+    # Additional probability the regulator gate rejects a pair that
+    # includes at least one unregistered agent. Composes additively
+    # with the vendor's base rejection probability per endpoint and is
+    # clipped to [0, 1] in the gate.
+    registration_floor: float = 0.0
+    # Share of *agents* who carry the `registered` bit at world build.
+    # Humans are always registered. 1.0 = everyone-registered baseline
+    # (enabling the mechanism but exercising none of the asymmetry it
+    # introduces).
+    initial_registered_share: float = 1.0
+    # Random seed used to assign initial registration status at world
+    # build. Distinct from `PopulationConfig.seed` so toggling the
+    # registration mechanism doesn't perturb other population draws.
+    initial_registration_seed: int = 0
+
+
+@dataclass
 class PigouvianConfig:
     """Pigouvian automation tax configuration.
 
@@ -358,6 +412,16 @@ class TopologyConfig:
     # `docs/plans/hadfield_jacobs_robustness.md` and the `RegulatorConfig`
     # docstring above.
     regulator: RegulatorConfig = field(default_factory=RegulatorConfig)
+
+    # ---- Registration regime (W2a, Legal Infrastructure) ---------------------
+    # Persistent agent identity + the registered-bit a regulator can read.
+    # Default-off so the canonical pre-W2a engine is bit-identical; when
+    # enabled, agents carry a stable `agent_id` and a `registered` mask,
+    # pay a per-step compliance cost, and unregistered agents face an
+    # additional rejection probability at the regulator layer (couples
+    # to W1a). See `RegistrationConfig` above and
+    # `docs/concepts/registration.md`.
+    registration: RegistrationConfig = field(default_factory=RegistrationConfig)
 
     # ---- Endogenous emergence mechanisms -------------------------------------
     # Default-off so historical alpha-engine scenarios keep the same execution

@@ -202,8 +202,8 @@ Targets tier-1 issue 1 and cross-cutting epistemic-status hardening.
 | 1 | W3a, W3b, W3d, W3e, W3f | **landed** | Doc-first sweep, half a day. Surfaces the most visible omissions before code lands. |
 | 2 | W1c permeability | **landed** | One scalar on `TopologyConfig`, threads cleanly through the existing topology. |
 | 3 | W1a regulator split | **landed** | Adds `RegulatorConfig`, flagged. Canonical pins stay green. |
-| 4 | W2a registration | next | Couples to W1a (rejection floor depends on regulator layer). |
-| 5 | W2b mission economy | | Single scenario, uses existing levers, low risk. |
+| 4 | W2a registration | **landed** | Couples to W1a (rejection floor depends on regulator layer). |
+| 5 | W2b mission economy | next | Single scenario, uses existing levers, low risk. |
 | 6 | W2c labor accounting | | Output separation only, no new mechanism. |
 | 7 | W1b norm-participation | | Largest change. Behind a flag. The conceptual centerpiece for the Hadfield critique. Lands last so it can be swept against the existing baseline. |
 | 8 | W3c coasean prose | | After W1b. The prose claim needs the implementation to point at. |

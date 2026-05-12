@@ -142,6 +142,18 @@ class Population:
     last_action: np.ndarray | None = None
     firm_id: np.ndarray | None = None
     firm_next_id: int = 0
+    # Persistent agent identity (W2a, Hadfield). `agent_id[i]` is a
+    # stable int64 issued at prototype creation; `engine/core/dynamics.py`
+    # re-issues fresh identifiers on prototype recycle (entry/exit).
+    # `registered[i]` is the Hadfield bit a regulator can read; humans
+    # are exempt and always carry True. With
+    # `RegistrationConfig.enabled = False` (the canonical default) the
+    # fields are populated but no engine code reads them, so canonical
+    # baselines stay bit-identical. See `docs/concepts/registration.md`
+    # and W2a in `docs/plans/hadfield_jacobs_robustness.md`.
+    agent_id: np.ndarray | None = None
+    registered: np.ndarray | None = None
+    agent_next_id: int = 0
 
     # Sampling structures — built once at synthesize time, immutable thereafter.
     # See _build_sampling_structures. We exploit a structural property: in
@@ -166,8 +178,18 @@ class Population:
         cls,
         config: Optional[PopulationConfig] = None,
         strategy_config: Optional[Any] = None,
+        registration_config: Optional[Any] = None,
     ) -> "Population":
-        """Generate a synthetic population from a config."""
+        """Generate a synthetic population from a config.
+
+        `registration_config` (optional) is W2a's `RegistrationConfig`. When
+        provided and `enabled = True`, the `registered` mask is drawn from a
+        dedicated seed (`initial_registration_seed`) so the registration
+        bit can be toggled without perturbing any other prototype draw.
+        With `enabled = False` (or `None`) every agent is marked
+        registered, the field exists but engine code never reads it, and
+        canonical pinned baselines stay bit-identical.
+        """
         if config is None:
             config = PopulationConfig()
 
@@ -249,6 +271,35 @@ class Population:
         last_action = np.full(n, -1, dtype=np.int8)
         firm_id = np.full(n, -1, dtype=np.int32)
 
+        # W2a — persistent agent identity. Stable int64 issued
+        # monotonically; entry/exit re-issues fresh identifiers on
+        # prototype recycle. Independent of population/strategy rng so
+        # toggling W2a does not perturb other draws.
+        agent_id = np.arange(n, dtype=np.int64)
+        agent_next_id = int(n)
+        # `registered` defaults to all-True when W2a is disabled or
+        # `initial_registered_share = 1.0`, so no rng draws are
+        # consumed in the canonical default path. When the share is
+        # below 1.0, a dedicated `initial_registration_seed` rng is
+        # used so the registration toggle never moves downstream draws.
+        registration_enabled = bool(
+            getattr(registration_config, "enabled", False)
+        )
+        share = float(
+            getattr(registration_config, "initial_registered_share", 1.0)
+        )
+        registered = np.ones(n, dtype=bool)
+        if registration_enabled and share < 1.0:
+            reg_rng = np.random.default_rng(
+                int(getattr(
+                    registration_config, "initial_registration_seed", 0
+                ))
+            )
+            # Agents register with probability `share`; humans are
+            # exempt and always registered.
+            agent_slice = slice(n_h, n)
+            registered[agent_slice] = reg_rng.random(n_a) < share
+
         pop = cls(
             capability=cap,
             sector=sector,
@@ -263,6 +314,9 @@ class Population:
             bandit_counts=bandit_counts,
             last_action=last_action,
             firm_id=firm_id,
+            agent_id=agent_id,
+            registered=registered,
+            agent_next_id=agent_next_id,
             config=config,
         )
         pop._build_sampling_structures()

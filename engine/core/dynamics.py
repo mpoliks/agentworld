@@ -38,8 +38,23 @@ def wealth_depreciation(pop: Any, cfg: Any, dt: float = 1.0) -> None:
     pop.wealth *= factor
 
 
-def entry_exit(pop: Any, cfg: Any, rng: np.random.Generator) -> int:
-    """Recycle failed prototypes as new entrants."""
+def entry_exit(
+    pop: Any,
+    cfg: Any,
+    rng: np.random.Generator,
+    registration_config: Any = None,
+) -> int:
+    """Recycle failed prototypes as new entrants.
+
+    When the W2a registration mechanism is enabled, re-issue a fresh
+    `agent_id` for each exiting slot (Hadfield's persistent-identity
+    contract — a recycled prototype is a *new* actor, not the same
+    actor with reset state) and re-draw the `registered` bit with
+    probability `initial_registered_share`. Humans are exempt and stay
+    registered. With `RegistrationConfig.enabled = False` or
+    `registration_config is None` the recycler leaves `agent_id` /
+    `registered` untouched, preserving canonical bit-identity.
+    """
     exit_mask = pop.wealth < cfg.exit_wealth_threshold
     n_exit = int(exit_mask.sum())
     if n_exit == 0:
@@ -77,4 +92,34 @@ def entry_exit(pop: Any, cfg: Any, rng: np.random.Generator) -> int:
         pop.last_action[exit_mask] = -1
     if pop.firm_id is not None:
         pop.firm_id[exit_mask] = -1
+
+    # W2a — persistent identity. Re-issue fresh agent ids for every
+    # exiting slot and (conditionally) redraw the registered bit. The
+    # `enabled = False` branch leaves both fields untouched so canonical
+    # bit-identity is preserved by *not consuming any new rng draws*.
+    reg_enabled = bool(getattr(registration_config, "enabled", False))
+    if reg_enabled and pop.agent_id is not None:
+        new_ids = np.arange(
+            pop.agent_next_id,
+            pop.agent_next_id + n_exit,
+            dtype=np.int64,
+        )
+        pop.agent_id[exit_mask] = new_ids
+        pop.agent_next_id += n_exit
+        share = float(
+            getattr(registration_config, "initial_registered_share", 1.0)
+        )
+        if share < 1.0:
+            # Use the same rng the dynamics layer already holds —
+            # entry/exit lives in the population subsystem, so the
+            # `population` stream is the right home for this draw.
+            agent_entrant_mask = exit_mask & (~pop.is_human)
+            n_agent_entrants = int(agent_entrant_mask.sum())
+            if n_agent_entrants > 0:
+                pop.registered[agent_entrant_mask] = (
+                    rng.random(n_agent_entrants) < share
+                )
+        # Humans always re-enter as registered; agents above are handled
+        # by the conditional draw. With share == 1.0 the existing True
+        # value carries through (re-entrants stay registered).
     return n_exit

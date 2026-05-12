@@ -380,11 +380,29 @@ def coasean_step(
     # endpoint's stack vendor; the strictest jurisdiction binds. With
     # `regulator.enabled = False` (the default) the gate is skipped and
     # no rng draw is consumed, preserving canonical bit-identity.
+    #
+    # W2a coupling: when the registration regime is enabled, unregistered
+    # *agent* endpoints bump their per-endpoint rejection probability by
+    # `registration_floor`. Humans are exempt (registration is an
+    # agent-side concept). The floor composes additively with the
+    # vendor's base rejection and is clipped to [0, 1].
     reg_cfg = topo.cfg.regulator
     if reg_cfg.enabled:
         reg_strength, reg_capture, reg_audit = topo.regulator_vendor_arrays()
         p_reject_a = reg_strength[stk_a] * reg_audit[stk_a] * (1.0 - reg_capture[stk_a])
         p_reject_b = reg_strength[stk_b] * reg_audit[stk_b] * (1.0 - reg_capture[stk_b])
+        reg2a_cfg = topo.cfg.registration
+        if (
+            reg2a_cfg.enabled
+            and reg2a_cfg.registration_floor > 0.0
+            and pop.registered is not None
+        ):
+            floor = float(reg2a_cfg.registration_floor)
+            # Unregistered AGENT endpoints only — humans are exempt.
+            unreg_a = (~pop.is_human[a]) & (~pop.registered[a])
+            unreg_b = (~pop.is_human[b]) & (~pop.registered[b])
+            p_reject_a = p_reject_a + floor * unreg_a.astype(np.float64)
+            p_reject_b = p_reject_b + floor * unreg_b.astype(np.float64)
         p_reject = np.clip(np.maximum(p_reject_a, p_reject_b), 0.0, 1.0)
         regulator_reject = rngs["regulator"].random(n_pairs) < p_reject
     else:

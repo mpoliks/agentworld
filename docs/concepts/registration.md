@@ -2,7 +2,7 @@
 
 > *"The infrastructure of registration is the precondition for everything else."* — paraphrase of Gillian K. Hadfield, *Legal Infrastructure for Transformative AI Governance* (arXiv:2602.01474, Feb 2026)
 
-Status: forward-looking stub. The mechanism is not in code as of 2026-05. This document names the gap and the planned implementation (W2a in `docs/plans/hadfield_jacobs_robustness.md`).
+Status: **landed 2026-05.** `RegistrationConfig` is in `engine/core/topology.py`, persistent `agent_id` / `registered` fields are on `Population`, and the registration regime couples to the W1a regulator gate via `registration_floor`. Default-off so canonical baselines stay bit-identical; opt-in scenarios are still to be authored (see "What is still not modeled" below for the parts that remain stubbed even after W2a).
 
 ---
 
