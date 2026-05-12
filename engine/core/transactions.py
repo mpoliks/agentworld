@@ -95,6 +95,10 @@ class TransactionResult:
     # (the platform/deployer gate). Defaults to 0.0 so historical scenarios
     # with `RegulatorConfig.enabled = False` remain bit-identical.
     rejected_regulator: float = 0.0
+    # Human-labor wage routed by the W2c labor wedge — surplus deducted
+    # from the agent-side Nash split and disbursed to humans. Zero when
+    # `LaborConfig.enabled = False`.
+    human_labor_wage: float = 0.0
     # Demand-modulated share of the real surplus that ultimately reaches a
     # human consumer (or a human-controlled agent). Equals
     # `real_surplus_added` when `DemandConfig.enabled = False`. See
@@ -524,14 +528,61 @@ def coasean_step(
     else:
         real_surplus_authentic = real_surplus
 
-    # Wealth delta: split post-Pigouvian surplus 50/50 between the two
-    # parties (Nash bargaining). When the Pigouvian tax is off,
-    # real_pair_surplus_post_pig is identical to real_pair_surplus.
-    half_surplus = real_pair_surplus_post_pig * 0.5
+    # W2c labor wedge: a per-sector `labor_share`-fraction of cleared
+    # surplus, attenuated by `(1 − automation_gap)`, is deducted from
+    # the agent-side Nash split and routed to humans (proportional to
+    # human importance weight). With `LaborConfig.enabled = False`
+    # (the canonical default) the wedge is zero and the agent split
+    # below is bit-identical to the pre-W2c body.
+    labor_cfg = topo.cfg.labor
+    if labor_cfg.enabled:
+        labor_share_per_sector = topo.labor_share_arr()
+        # The automation gap is what couples the Pigouvian tax and the
+        # labor wedge to the same demand factor. Recompute here when
+        # Pigouvian is off; reuse if it's on.
+        if pigouvian_cfg.enabled and pigouvian_cfg.tax_rate > 0:
+            labor_auto_gap = automation_gap  # already computed above
+        else:
+            labor_df = demand_factor(
+                h_a, h_b, auto_a, auto_b, labor_cfg.a2a_floor,
+            )
+            labor_auto_gap = 1.0 - labor_df
+        wedge_pair = (
+            labor_share_per_sector[sec_a]
+            * (1.0 - labor_auto_gap)
+            * real_pair_surplus_post_pig
+        )
+        real_pair_surplus_to_split = real_pair_surplus_post_pig - wedge_pair
+        human_labor_wage = float((wedge_pair * pair_real_count).sum())
+    else:
+        wedge_pair = None
+        real_pair_surplus_to_split = real_pair_surplus_post_pig
+        human_labor_wage = 0.0
+
+    # Wealth delta: split the post-Pigouvian-post-wedge surplus 50/50
+    # between the two parties (Nash bargaining). When the Pigouvian tax
+    # and the labor wedge are both off, `real_pair_surplus_to_split` is
+    # identical to `real_pair_surplus` and the pre-W2c math holds.
+    half_surplus = real_pair_surplus_to_split * 0.5
     contrib_a = half_surplus * pair_real_count / w_a
     contrib_b = half_surplus * pair_real_count / w_b
     wealth_delta = np.bincount(a, weights=contrib_a, minlength=n)
     wealth_delta += np.bincount(b, weights=contrib_b, minlength=n)
+
+    # Disburse the labor wedge to humans, proportional to human weight.
+    # Routing is uniform across humans (not per-sector) in this first
+    # pass; per-sector labor markets are a stretch goal noted in W2c.
+    if labor_cfg.enabled and human_labor_wage > 0.0:
+        human_mask = pop.is_human
+        h_weight = pop.weight[human_mask].astype(np.float64)
+        total_h_weight = float(h_weight.sum())
+        if total_h_weight > 0:
+            # `human_labor_wage` is in real-pair-count units (already
+            # weighted). Convert to per-prototype delta:
+            # per_proto_real = wage_total * h_weight / total_h_weight;
+            # per_proto_delta = per_proto_real / h_weight = wage / total_h_weight.
+            per_proto_delta = human_labor_wage / total_h_weight
+            wealth_delta[human_mask] += per_proto_delta
 
     return TransactionResult(
         real_surplus_added=real_surplus,
@@ -552,6 +603,7 @@ def coasean_step(
         a2a_share=a2a_share,
         h2a_share=h2a_share,
         h2h_share=h2h_share,
+        human_labor_wage=human_labor_wage,
     )
 
 
@@ -579,6 +631,7 @@ def _coasean_step_chunked(
     rejected_cost = 0.0
     rejected_permeability = 0.0
     rejected_regulator = 0.0
+    human_labor_wage = 0.0
     law_weak_surplus_loss = 0.0
     law_capture_surplus_loss = 0.0
     pigouvian_revenue = 0.0
@@ -613,6 +666,7 @@ def _coasean_step_chunked(
         rejected_cost += part.rejected_cost
         rejected_permeability += part.rejected_permeability
         rejected_regulator += part.rejected_regulator
+        human_labor_wage += part.human_labor_wage
         law_weak_surplus_loss += part.law_weak_surplus_loss
         law_capture_surplus_loss += part.law_capture_surplus_loss
         pigouvian_revenue += part.pigouvian_revenue
@@ -662,4 +716,5 @@ def _coasean_step_chunked(
         a2a_share=a2a_weighted / n_real if n_real > 0 else 0.0,
         h2a_share=h2a_weighted / n_real if n_real > 0 else 0.0,
         h2h_share=h2h_weighted / n_real if n_real > 0 else 0.0,
+        human_labor_wage=human_labor_wage,
     )

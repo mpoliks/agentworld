@@ -186,6 +186,24 @@ class StepMetrics:
     log_exo_baroque_index: float = 0.0
     log_exo_baroque_authentic: float = 0.0
 
+    # ---- Human-side labor market (W2c, Jacobs) -------------------------------
+    # Real surplus routed to humans this step by the W2c labor wedge.
+    # Zero when `LaborConfig.enabled = False`. Cumulative version is
+    # `human_labor_wage_cumulative`.
+    human_labor_wage_step: float = 0.0
+    human_labor_wage_cumulative: float = 0.0
+    # Human-only wealth Gini and per-capita welfare. Computed from the
+    # human subset of the population; with W2c off, `gini_wealth_human`
+    # is just the wealth-side gini restricted to humans and
+    # `real_per_capita_welfare_human` is the per-human-capita share of
+    # total real welfare (i.e. identical denominator to
+    # `real_per_capita_welfare`, since the existing metric already
+    # divides by human population). With W2c on, the human-only Gini
+    # reflects the wage-channel redistribution and the per-capita
+    # human-welfare track tracks the wage cumulative.
+    gini_wealth_human: float = 0.0
+    real_per_capita_welfare_human: float = 0.0
+
 
 def gini_coefficient(x: np.ndarray, weights: Optional[np.ndarray] = None) -> float:
     """Weighted Gini coefficient. O(n log n)."""
@@ -297,6 +315,12 @@ class Metrics:
         self._cum_real_authentic = 0.0
         self._cum_real_from_intermediation = 0.0
         self._cum_pigouvian_revenue = 0.0
+        # W2c: cumulative wage routed to humans by the labor wedge.
+        self._cum_human_labor_wage = 0.0
+        # W2c: human-only wealth Gini, cached on the gini_every_k_steps
+        # throttle so the recompute cadence matches the population-wide
+        # Gini.
+        self._last_gini_human = 0.0
         self._last_gini = 0.0
         # Snapshot of per-prototype wealth at step 0; used to compute the
         # flow-sensitive inequality metrics. Set on the first call to
@@ -324,6 +348,7 @@ class Metrics:
         rejected_cost: float,
         rejected_permeability: float = 0.0,
         rejected_regulator: float = 0.0,
+        human_labor_wage_step: float = 0.0,
         gini_every_k_steps: int = 1,
         real_authentic_step: Optional[float] = None,
         productive_welfare_yield: float = 0.0,
@@ -358,6 +383,8 @@ class Metrics:
         self._cum_real_authentic += real_authentic_step
         self._cum_real_from_intermediation += real_added_productive
         self._cum_pigouvian_revenue += pigouvian_revenue
+        # W2c: cumulative labor wedge routed to humans.
+        self._cum_human_labor_wage += float(human_labor_wage_step)
 
         ebi = (self._cum_nominal / self._cum_real) if self._cum_real > 0 else 1.0
         ebi_authentic = (
@@ -383,6 +410,16 @@ class Metrics:
         if recompute:
             gini = gini_coefficient(pop.wealth, pop.weight)
             self._last_gini = gini
+
+            # W2c: human-only wealth Gini. Computed on the same cadence
+            # as the population-wide Gini so the throttle still applies.
+            h_mask = pop.is_human
+            if h_mask.any():
+                self._last_gini_human = gini_coefficient(
+                    pop.wealth[h_mask], pop.weight[h_mask]
+                )
+            else:
+                self._last_gini_human = 0.0
 
             # Capture the initial wealth state on the first call so the
             # flow-sensitive metrics can reference it on every subsequent
@@ -414,6 +451,13 @@ class Metrics:
 
         real_humans = float((pop.weight * pop.is_human).sum())
         per_cap = (self._cum_real / real_humans) if real_humans > 0 else 0.0
+        # W2c: per-capita human welfare = cumulative wage routed to
+        # humans / human population. With W2c off, the cumulative wage
+        # is zero by construction and this lands at 0; with W2c on, it
+        # tracks the wage-channel-only welfare.
+        per_cap_human = (
+            (self._cum_human_labor_wage / real_humans) if real_humans > 0 else 0.0
+        )
 
         total_attempted = (
             n_tx_real
@@ -579,6 +623,10 @@ class Metrics:
             gini_wealth_change_abs=float(gini_change_abs),
             log_exo_baroque_index=log_ebi,
             log_exo_baroque_authentic=log_ebi_authentic,
+            human_labor_wage_step=float(human_labor_wage_step),
+            human_labor_wage_cumulative=float(self._cum_human_labor_wage),
+            gini_wealth_human=float(self._last_gini_human),
+            real_per_capita_welfare_human=float(per_cap_human),
         )
         self.history.append(m)
         return m

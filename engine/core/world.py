@@ -705,6 +705,7 @@ class World:
             rejected_cost=tx.rejected_cost,
             rejected_permeability=tx.rejected_permeability,
             rejected_regulator=tx.rejected_regulator,
+            human_labor_wage_step=tx.human_labor_wage,
             gini_every_k_steps=self.cfg.gini_every_k_steps,
             real_authentic_step=real_authentic_step,
             productive_welfare_yield=fold.productive_welfare_yield,

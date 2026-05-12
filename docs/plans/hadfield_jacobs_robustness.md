@@ -204,8 +204,8 @@ Targets tier-1 issue 1 and cross-cutting epistemic-status hardening.
 | 3 | W1a regulator split | **landed** | Adds `RegulatorConfig`, flagged. Canonical pins stay green. |
 | 4 | W2a registration | **landed** | Couples to W1a (rejection floor depends on regulator layer). |
 | 5 | W2b mission economy | **landed** | Single scenario, uses existing levers, low risk. |
-| 6 | W2c labor accounting | next | Output separation only, no new mechanism. |
-| 7 | W1b norm-participation | | Largest change. Behind a flag. The conceptual centerpiece for the Hadfield critique. Lands last so it can be swept against the existing baseline. |
+| 6 | W2c labor accounting | **landed** | Output separation only, no new mechanism. |
+| 7 | W1b norm-participation | next | Largest change. Behind a flag. The conceptual centerpiece for the Hadfield critique. Lands last so it can be swept against the existing baseline. |
 | 8 | W3c coasean prose | | After W1b. The prose claim needs the implementation to point at. |
 
 ## Validation lift

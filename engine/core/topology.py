@@ -109,6 +109,52 @@ class RegulatorConfig:
 
 
 @dataclass
+class LaborConfig:
+    """Human-side labor market (W2c).
+
+    Jacobs's labor-displacement work (Oxford Martin AIGI) treats the
+    A2A share of an economy as the structural variable that determines
+    whether the surplus from agent-driven trade reaches human wages or
+    is captured inside the agent layer. Pre-W2c the alpha-engine has no
+    explicit price-on-human-labor: every executed pair distributes its
+    surplus 50/50 between the two endpoints by Nash bargaining, with no
+    factor-share split.
+
+    W2c adds the smallest credible version. Per-sector `labor_share` is
+    the fraction of cleared real surplus that, in a non-automated
+    world, would go to labor (wages). For each executed pair we compute
+    a labor wedge
+
+        wedge = labor_share[sec] · (1 − automation_gap) · real_surplus
+
+    where `automation_gap = 1 − demand_factor(pair)` reuses the
+    Pigouvian / demand semantics. The wedge is *deducted* from the pair
+    payouts (i.e. the Nash 50/50 splits the post-wedge residual) and
+    *routed to humans*, proportional to human importance weight. The
+    larger the automation_gap (the more A2A the pair is), the smaller
+    the human wage share — labor displacement made concrete.
+
+    With `enabled = False` (the canonical default) the wedge is zero
+    everywhere and the pre-W2c engine math holds bit-for-bit. The
+    layering with the existing Pigouvian tax is sequential: Pigouvian
+    fires first on `real_pair_surplus`; the labor wedge then bites on
+    `real_pair_surplus_post_pig`. The two mechanisms can coexist.
+
+    See `docs/plans/hadfield_jacobs_robustness.md` (W2c).
+    """
+
+    enabled: bool = False
+    # Per-sector labor share. Accept a scalar (same fraction in every
+    # sector) or a length-N_SECTORS sequence. Validated at world build.
+    labor_share: Any = 0.0
+    # Floor for the automation-gap calculation: matches the
+    # `DemandConfig.a2a_floor` / `PigouvianConfig.a2a_floor` semantics.
+    # A larger floor means even pure-A2A pairs route some wage to
+    # humans (indirect downstream benefits captured as wage).
+    a2a_floor: float = 0.15
+
+
+@dataclass
 class MissionConfig:
     """Mission-economy lever (W2b).
 
@@ -497,6 +543,15 @@ class TopologyConfig:
     # W2b in `docs/plans/hadfield_jacobs_robustness.md`.
     mission: MissionConfig = field(default_factory=MissionConfig)
 
+    # ---- Human-side labor market (W2c, Jacobs labor displacement) ------------
+    # Per-sector labor_share splits cleared real surplus between agent
+    # operators (the existing Nash 50/50) and human labourers (a new
+    # wage channel), with substitution elasticity driven by the
+    # automation gap. Default-off so canonical baselines stay bit-
+    # identical. See `LaborConfig` above and
+    # `docs/plans/hadfield_jacobs_robustness.md` (W2c).
+    labor: LaborConfig = field(default_factory=LaborConfig)
+
     # ---- Endogenous emergence mechanisms -------------------------------------
     # Default-off so historical alpha-engine scenarios keep the same execution
     # path unless they explicitly opt in.
@@ -630,6 +685,28 @@ class Topology:
         if self.cfg.regulator.enabled:
             tax += float(self.cfg.regulator.regulator_layer_tax)
         return tax
+
+    def labor_share_arr(self) -> np.ndarray:
+        """Per-sector labor-share vector for the W2c wage wedge.
+
+        Accepts `LaborConfig.labor_share` as either a scalar (same share
+        in every sector) or a length-N_SECTORS sequence (per-sector
+        Jacobs labor-share calibration). Returns a float64 array of
+        shape `(N_SECTORS,)`. The validation happens here so the
+        per-pair gate can index by sector cheaply.
+        """
+        cfg = self.cfg.labor
+        v = cfg.labor_share
+        if np.isscalar(v):
+            return np.full(N_SECTORS, float(v), dtype=np.float64)
+        arr = np.asarray(v, dtype=np.float64)
+        if arr.shape != (N_SECTORS,):
+            raise ValueError(
+                f"LaborConfig.labor_share must be a scalar or a length-"
+                f"{N_SECTORS} sequence (N_SECTORS={N_SECTORS}); got shape "
+                f"{arr.shape}."
+            )
+        return arr
 
     def regulator_vendor_arrays(
         self,
