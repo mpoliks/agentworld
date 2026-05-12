@@ -185,6 +185,7 @@ class World:
             cfg.population,
             strategy_config=topo.cfg.strategy,
             registration_config=topo.cfg.registration,
+            norms_config=topo.cfg.norms,
         )
         agents_mask = ~pop.is_human
         if agents_mask.any():
@@ -635,6 +636,7 @@ class World:
                 dyn_cfg,
                 self.rngs["population"],
                 registration_config=self.topology.cfg.registration,
+                norms_config=self.topology.cfg.norms,
             )
             if track_ledger:
                 W_post_ee = _total_wealth()

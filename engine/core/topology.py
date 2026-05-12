@@ -109,6 +109,76 @@ class RegulatorConfig:
 
 
 @dataclass
+class NormsConfig:
+    """Norm-participation alignment layer (W1b).
+
+    The largest single change in the Hadfield-Jacobs robustness round
+    and the one that carries the most epistemic load. Pre-W1b the
+    individual-layer rejection gate uses static Euclidean distance on a
+    fixed scalar `alignment`:
+
+        align_reject ~ U(0,1) < 0.03 + 0.20 · |alignment_a − alignment_b|
+                                       · (1 − 0.5 · avg_autonomy)
+
+    Hadfield's *Normative Infrastructure for AI Alignment* (AIhub, May
+    2025) argues that alignment is *participation in evolving community
+    norms*, not preference-matching at static distance. In Smoothworld
+    the individual layer is the binding constraint (~50% rejection
+    share per `docs/concepts/matryoshkan_alignment.md:71`), so the
+    binding constraint's misspecification is load-bearing.
+
+    With `enabled = True`:
+
+    * Each prototype carries `Population.norm_vector` of shape
+      `(n, n_dimensions)` — a position in a K-dim norm space that
+      generalizes the scalar alignment.
+    * `align_reject` re-uses the legacy formula but with
+      `align_dist = ||norm_a − norm_b||_2 / sqrt(K)` (normalized so it
+      lands in the same [0, 2] range as the scalar form).
+    * After each step, every prototype's norm drifts toward the
+      *capability-weighted mean of its executed partners' norms* at
+      rate `update_rate`. This is the participation-in-community-norms
+      operationalization: agents who trade together converge in norm
+      space; agents who don't, don't.
+
+    With `enabled = False` (the canonical default) the field is
+    populated but unread, so canonical pinned baselines stay bit-
+    identical. The dedicated `initial_norm_seed` keeps norm
+    initialisation isolated from any other population draw.
+
+    See `docs/plans/hadfield_jacobs_robustness.md` (W1b) and
+    `docs/concepts/matryoshkan_alignment.md`.
+    """
+
+    enabled: bool = False
+    # Dimensionality of the norm space. K=1 collapses to a near-bit-
+    # identical generalization of the scalar `alignment`; K=4 is the
+    # default — enough room for cluster structure without exploding
+    # memory at xlarge scale (4 × 88M × 4B ≈ 1.4 GB at float32).
+    n_dimensions: int = 4
+    # Initial spread of norm components, per dim. Drawn N(0, sd) then
+    # clipped to [-1, 1]. Defaults loosely match the scalar
+    # `alignment` spread for humans (0.45) so a K=1 run is comparable.
+    initial_norm_sd_human: float = 0.45
+    initial_norm_sd_agent: float = 0.25
+    # EMA factor applied each step to the norm vector. 0 = norms never
+    # update (pure static distance on the new vector); larger = faster
+    # convergence. 0.05 is a moderate default; the `norms_brittle`
+    # adversarial sibling raises this to produce whiplash.
+    update_rate: float = 0.05
+    # When True, partner norm influence is weighted by partner
+    # capability — high-capability agents shape the local norm more.
+    capability_weight: bool = True
+    # Per-pair rejection-rate calibration. Matches the legacy formula
+    # structure: `align_reject ~ U(0,1) < base + slope · dist · (1 − ½·avg_auto)`.
+    # Defaults reproduce the legacy 0.03 / 0.20 constants.
+    base_reject_rate: float = 0.03
+    distance_slope: float = 0.20
+    # Dedicated seed for initial norm-vector draw at synthesize time.
+    initial_norm_seed: int = 0
+
+
+@dataclass
 class LaborConfig:
     """Human-side labor market (W2c).
 
@@ -551,6 +621,15 @@ class TopologyConfig:
     # identical. See `LaborConfig` above and
     # `docs/plans/hadfield_jacobs_robustness.md` (W2c).
     labor: LaborConfig = field(default_factory=LaborConfig)
+
+    # ---- Norm-participation alignment (W1b, Hadfield) ------------------------
+    # Replaces static-distance `align_reject` with distance-in-norm-space
+    # plus a per-step EMA update toward executed partners. Default-off
+    # keeps the canonical baselines bit-identical at the field level
+    # (the norm_vector is populated from a dedicated seed but unread).
+    # See `NormsConfig` above and W1b in
+    # `docs/plans/hadfield_jacobs_robustness.md`.
+    norms: NormsConfig = field(default_factory=NormsConfig)
 
     # ---- Endogenous emergence mechanisms -------------------------------------
     # Default-off so historical alpha-engine scenarios keep the same execution

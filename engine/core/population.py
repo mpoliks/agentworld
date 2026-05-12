@@ -154,6 +154,14 @@ class Population:
     agent_id: np.ndarray | None = None
     registered: np.ndarray | None = None
     agent_next_id: int = 0
+    # W1b — norm-participation alignment. `norm_vector[i, k]` is
+    # prototype i's position on norm dimension k. Generalises the
+    # scalar `alignment` to a K-dim space; the per-step update toward
+    # executed partners in `engine/core/norms.py` is the mechanism.
+    # With `NormsConfig.enabled = False` (the canonical default) the
+    # field is populated but unread, so the canonical baselines stay
+    # bit-identical. See `docs/concepts/matryoshkan_alignment.md`.
+    norm_vector: np.ndarray | None = None
 
     # Sampling structures — built once at synthesize time, immutable thereafter.
     # See _build_sampling_structures. We exploit a structural property: in
@@ -179,6 +187,7 @@ class Population:
         config: Optional[PopulationConfig] = None,
         strategy_config: Optional[Any] = None,
         registration_config: Optional[Any] = None,
+        norms_config: Optional[Any] = None,
     ) -> "Population":
         """Generate a synthetic population from a config.
 
@@ -300,6 +309,30 @@ class Population:
             agent_slice = slice(n_h, n)
             registered[agent_slice] = reg_rng.random(n_a) < share
 
+        # W1b — norm-participation initial draw. Uses a dedicated rng
+        # seed so toggling the norms mechanism does not perturb any
+        # other population draw. K=1 with sd matching the alignment
+        # scalar produces a near-bit-identical generalization; the
+        # default K=4 widens the norm space. When the mechanism is
+        # disabled we still allocate the field (sized to a sensible
+        # default K=1) so downstream code can rely on it being present.
+        norms_enabled = bool(getattr(norms_config, "enabled", False))
+        K = int(getattr(norms_config, "n_dimensions", 1)) if norms_enabled else 1
+        K = max(K, 1)
+        norm_vector = np.zeros((n, K), dtype=np.float32)
+        if norms_enabled:
+            norms_rng = np.random.default_rng(
+                int(getattr(norms_config, "initial_norm_seed", 0))
+            )
+            sd_h = float(getattr(norms_config, "initial_norm_sd_human", 0.45))
+            sd_a = float(getattr(norms_config, "initial_norm_sd_agent", 0.25))
+            norm_vector[:n_h] = np.clip(
+                norms_rng.normal(0.0, sd_h, size=(n_h, K)), -1.0, 1.0
+            ).astype(np.float32)
+            norm_vector[n_h:] = np.clip(
+                norms_rng.normal(0.0, sd_a, size=(n_a, K)), -1.0, 1.0
+            ).astype(np.float32)
+
         pop = cls(
             capability=cap,
             sector=sector,
@@ -317,6 +350,7 @@ class Population:
             agent_id=agent_id,
             registered=registered,
             agent_next_id=agent_next_id,
+            norm_vector=norm_vector,
             config=config,
         )
         pop._build_sampling_structures()

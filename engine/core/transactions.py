@@ -415,8 +415,29 @@ def coasean_step(
     # Alignment layer: individual-agent refusal. Higher alignment distance →
     # more refusal. Also: if either party's autonomy is very low, the agent
     # may decline on behalf of the principal.
+    #
+    # W1b: when `NormsConfig.enabled = True`, replace the static-scalar
+    # distance `|al_a − al_b|` with the L2 distance in the K-dim norm
+    # space carried on `Population.norm_vector`. The rejection formula
+    # structure is preserved so a K=1 norm with the same initial sd as
+    # `alignment` gives back the legacy behaviour up to seed-of-init
+    # noise (still gated on the flag for full bit-identity at off).
+    # The default off path leaves `align_dist` at its scalar value.
+    norms_cfg = topo.cfg.norms
+    if norms_cfg.enabled and pop.norm_vector is not None:
+        from engine.core.norms import norm_distance
+
+        K = int(norms_cfg.n_dimensions)
+        align_dist = norm_distance(
+            pop.norm_vector[a], pop.norm_vector[b], K
+        )
+        base = float(norms_cfg.base_reject_rate)
+        slope = float(norms_cfg.distance_slope)
+    else:
+        base = 0.03
+        slope = 0.20
     align_reject = rngs["alignment"].random(n_pairs) < (
-        0.03 + 0.20 * align_dist * (1.0 - 0.5 * (auto_a + auto_b) / 2.0)
+        base + slope * align_dist * (1.0 - 0.5 * (auto_a + auto_b) / 2.0)
     )
 
     # Permeability is the first gate; subsequent rejection buckets exclude
@@ -583,6 +604,21 @@ def coasean_step(
             # per_proto_delta = per_proto_real / h_weight = wage / total_h_weight.
             per_proto_delta = human_labor_wage / total_h_weight
             wealth_delta[human_mask] += per_proto_delta
+
+    # W1b norm-participation update. Run *after* the wealth split so the
+    # norms read this step are still the pre-update ones for the gate
+    # above. When chunking is on (`_coasean_step_chunked` recursively
+    # calls `coasean_step` with `chunk_size=0`), norms update once per
+    # chunk rather than once per step — a known approximation that
+    # produces qualitatively the same convergence dynamics at slightly
+    # different numerical values. With `NormsConfig.enabled = False`
+    # (the canonical default) the call is a no-op.
+    if norms_cfg.enabled and pop.norm_vector is not None:
+        from engine.core.norms import update_norm_vectors
+
+        update_norm_vectors(
+            pop, a, b, executed_mask, pair_real_count, norms_cfg,
+        )
 
     return TransactionResult(
         real_surplus_added=real_surplus,

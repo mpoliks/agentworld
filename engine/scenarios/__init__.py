@@ -68,6 +68,7 @@ from engine.core.topology import (
     InstitutionConfig,
     LawConfig,
     MissionConfig,
+    NormsConfig,
     PigouvianConfig,
     PopulationDynamicsConfig,
     StrategyConfig,
@@ -1321,6 +1322,99 @@ def mission_competing() -> WorldConfig:
     return cfg
 
 
+# ---------- W1b: norm-participation scenarios --------------------------------
+# Three scenarios that bracket the norm-update axis. They share the
+# W1b plumbing (`NormsConfig.enabled = True`) and a mid-α background;
+# only the update rate and initial spread differ.
+
+
+def norms_drift() -> WorldConfig:
+    """Slow convergence — the Hadfield default.
+
+    A small `update_rate` so norms drift gradually toward executed
+    partners over the run, never sharply. Initial spread is moderate.
+    The expected dynamic: by the terminal step, agents who routinely
+    transact have converged in norm space and `align_reject` rates
+    fall, while disconnected sub-populations stay apart.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.70,
+            agent_capability_sd=0.16,
+            human_capability_mean=0.50,
+            human_capability_sd=0.16,
+            n_human_prototypes=6_000,
+            n_agent_prototypes=60_000,
+            seed=7101,
+        ),
+        topology=TopologyConfig(
+            alpha=0.45,
+            base_friction=0.04,
+            folding_propensity=0.30,
+            cross_stack_compat=0.70,
+            norms=NormsConfig(
+                enabled=True,
+                n_dimensions=4,
+                update_rate=0.02,
+                initial_norm_sd_human=0.45,
+                initial_norm_sd_agent=0.25,
+            ),
+        ),
+        n_steps=120,
+        seed=71,
+    )
+
+
+def norms_capture() -> WorldConfig:
+    """One cluster absorbs the rest.
+
+    A larger `update_rate` and a deliberately skewed initial
+    distribution (humans clustered around the origin, agents drawn
+    more broadly). The expected dynamic: the densest cluster acts as
+    an attractor and pulls peripheral norms toward it; the
+    `align_reject` rate falls for newcomers but the "alignment" being
+    converged on is the cluster's, not a population-wide compromise.
+    """
+    cfg = norms_drift()
+    cfg.topology.norms = NormsConfig(
+        enabled=True,
+        n_dimensions=4,
+        update_rate=0.08,
+        initial_norm_sd_human=0.15,  # tight cluster
+        initial_norm_sd_agent=0.60,  # broad agent spread
+        capability_weight=True,
+        initial_norm_seed=7102,
+    )
+    cfg.population.seed = 7102
+    cfg.seed = 72
+    return cfg
+
+
+def norms_brittle() -> WorldConfig:
+    """High update rate produces alignment whiplash.
+
+    An aggressive `update_rate` (close to 1) so each step's executed
+    partners overwhelm prior norm state. The expected dynamic:
+    populations oscillate in norm space rather than converging, and
+    `align_reject` rates fluctuate with the per-step partner draw.
+    The point of the scenario is to show that fast norm update is not
+    automatically a good thing.
+    """
+    cfg = norms_drift()
+    cfg.topology.norms = NormsConfig(
+        enabled=True,
+        n_dimensions=4,
+        update_rate=0.50,
+        initial_norm_sd_human=0.45,
+        initial_norm_sd_agent=0.25,
+        capability_weight=True,
+        initial_norm_seed=7103,
+    )
+    cfg.population.seed = 7103
+    cfg.seed = 73
+    return cfg
+
+
 SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
     "coasean_paradise": coasean_paradise,
     "baroque_cathedral": baroque_cathedral,
@@ -1359,6 +1453,9 @@ SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
     "mission_economy": mission_economy,
     "mission_captured": mission_captured,
     "mission_competing": mission_competing,
+    "norms_drift": norms_drift,
+    "norms_capture": norms_capture,
+    "norms_brittle": norms_brittle,
 }
 
 
@@ -1400,6 +1497,9 @@ SCENARIO_DESCRIPTIONS = {
     "mission_economy": "Tomašev / Jacobs's third lever beyond smooth-Coasean and baroque-folded. Health and education are tagged as coordinator sectors; a 3% mission levy on cleared real surplus drains into a public-objective pool that disburses as flat-share capability uplift in those sectors. Coordinator firms form on a 40% lower surplus bar, so the coordinating institutions actually appear. Mid-α (0.45) so the lever is doing work, not papering over an already-smooth economy.",
     "mission_captured": "Adversarial sibling of mission_economy. Same levy, same coordinator tags, but the disbursement is `regressive_pool` — capability uplift goes to already-high-capability agents in proportion to their existing capability. The Matthew effect in policy form. Read against the reference run for what capture costs at the Gini and per-capita-welfare lines.",
     "mission_competing": "Adversarial sibling of mission_economy. Six sectors tagged as coordinator (manufacturing, logistics, construction, finance, health, education) and `formation_threshold_factor` raised above 1.0 so the broader bias actually makes coordination harder than the unmissioned baseline — competing agendas raise the bar everywhere they touch. The levy still funds capability uplift but its output is spread thin and partially offsets the friction the broader bias adds.",
+    "norms_drift": "W1b reference run. Static-distance `align_reject` is replaced by distance-in-norm-space and a small EMA update toward executed partners (`update_rate=0.02`). The expected dynamic over the run: agents who routinely transact converge in norm space and their `align_reject` rate falls, while disconnected sub-populations stay apart. The Hadfield 'normative infrastructure for AI alignment' framing operationalised — alignment is participation, not preference-matching at static distance.",
+    "norms_capture": "Adversarial sibling of norms_drift. Initial norm distribution is deliberately skewed (humans tightly clustered around the origin, agents broadly drawn), and `update_rate` is raised to 0.08. The densest cluster acts as an attractor and pulls peripheral norms toward it; alignment converges on the cluster's norm rather than a population-wide compromise. Read alongside norms_drift to see what gradient capture does to the binding-constraint rejection share.",
+    "norms_brittle": "Adversarial sibling of norms_drift. `update_rate` raised to 0.50 so each step's executed partners overwhelm prior norm state. Norms oscillate rather than converging and the `align_reject` rate fluctuates with the per-step partner draw. The point: fast norm update is not automatically a good thing — there is a brittleness regime where Hadfield's alignment-as-participation flips into permanent whiplash.",
 }
 
 

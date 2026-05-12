@@ -43,6 +43,7 @@ def entry_exit(
     cfg: Any,
     rng: np.random.Generator,
     registration_config: Any = None,
+    norms_config: Any = None,
 ) -> int:
     """Recycle failed prototypes as new entrants.
 
@@ -54,6 +55,12 @@ def entry_exit(
     registered. With `RegistrationConfig.enabled = False` or
     `registration_config is None` the recycler leaves `agent_id` /
     `registered` untouched, preserving canonical bit-identity.
+
+    When the W1b norms mechanism is enabled, the new entrant's
+    `norm_vector` is redrawn from the same distribution
+    `Population.synthesize` used at world build (separate per-class
+    sd, dedicated rng), so re-entrants start at the global norm
+    distribution rather than carrying the dying prototype's stance.
     """
     exit_mask = pop.wealth < cfg.exit_wealth_threshold
     n_exit = int(exit_mask.sum())
@@ -122,4 +129,25 @@ def entry_exit(
         # Humans always re-enter as registered; agents above are handled
         # by the conditional draw. With share == 1.0 the existing True
         # value carries through (re-entrants stay registered).
+
+    # W1b — fresh norm vector for re-entrants. Uses the population
+    # stream so the draw is reproducible inside the same step that the
+    # entry/exit ran. When disabled (or the field is absent) we leave
+    # the norm_vector untouched.
+    if (
+        bool(getattr(norms_config, "enabled", False))
+        and pop.norm_vector is not None
+    ):
+        K = pop.norm_vector.shape[1]
+        sd_h = float(getattr(norms_config, "initial_norm_sd_human", 0.45))
+        sd_a = float(getattr(norms_config, "initial_norm_sd_agent", 0.25))
+        # Per-prototype sd vector based on is_human.
+        sd_per_proto = np.where(
+            pop.is_human[exit_mask], sd_h, sd_a
+        ).astype(np.float64)
+        fresh = rng.normal(
+            0.0, 1.0, size=(n_exit, K)
+        ).astype(np.float64) * sd_per_proto[:, None]
+        pop.norm_vector[exit_mask] = np.clip(fresh, -1.0, 1.0).astype(np.float32)
+
     return n_exit
