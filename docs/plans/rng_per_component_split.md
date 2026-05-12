@@ -106,30 +106,56 @@ reproduce on unmodified `main` and are unrelated to this plan.
 
 The plan's original exit condition predicted ≥70% of the params in the
 legacy noise band `0.005 < |S1| < 0.03` would collapse to `|S1| < 0.005`
-under per-component. The N=2048 sweep ran on the same SALib sampler
-seed and the same parameter problem (`ALPHA_ENGINE_PROBLEM`,
-D=15 → 34,816 simulations). Observed:
+under per-component. The N=2048 sweep ran the SALib sampler with
+`calc_second_order=False` over `ALPHA_ENGINE_PROBLEM` (D=15 → 34,816
+simulations) against both layouts. The result reframes the question.
 
-- **Legacy noise-band params:** 28 (across the six output metrics).
-- **Collapsed under `per_component`:** **14 / 28 ≈ 50%.**
-- **Stayed in or grew above the band:** 14.
+### What the magnitude threshold said
 
-Several of the "stayed" params actually grew under per-component — e.g.
-`fold_nominal_multiplier` on `log_exo_baroque_index` went from
-`+0.0142` to `+0.0222`, and `agent_capability_mean` on
-`productive_welfare_yield` went from `+0.0248` to `+0.0369`. That
-direction is consistent with real first-order signal that was
-previously *masked* by draw-sequence cross-talk now resolving to a
-cleaner estimate. Per-component RNG does not shrink real variance; it
-just removes the spurious noise that masquerades as signal.
+- Legacy params in `0.005 < |S1| < 0.03`: **28** (across six metrics).
+- Collapsed to `|S1| < 0.005` under per-component: **11 / 28 ≈ 39%.**
+- Plan threshold (≥70%): **not met.**
 
-The plan's quantitative prediction was therefore optimistic: it
-assumed most of the band was pure cross-talk noise. The empirical
-mixture is roughly half cross-talk (collapsed) and half real signal
-(stayed or grew). The *qualitative* mechanism the plan describes is
-real — variance attribution is cleaner under per-component, the
-isolation test verifies stream-level isolation — and the implementation
-is unchanged regardless of where the empirical split lands.
+### What the magnitude threshold was missing
+
+`|S1| < 0.005` conflates "magnitude is small" with "value is
+statistically indistinguishable from zero." The proper noise test is
+whether the bootstrap CI on S1 straddles zero (i.e. `|S1| < S1_conf`).
+Classifying every band param under both layouts gives four transitions:
+
+| Transition | Count | What it means |
+|---|---|---|
+| `noise → noise` | 10 | CI included 0 both ways; legacy didn't lie. |
+| `signal → noise` | **3** | Legacy looked like signal but the apparent S1 was draw-cross-talk artifact — exactly what the plan was meant to catch. |
+| `noise → signal` | **7** | Legacy hid real first-order signal in the noise band; per-component reveals it (and S1 *grows*). |
+| `signal → signal` | 8 | Genuine first-order effects; stable across layout. |
+
+Mean `|S1|` in the band: legacy 0.0107 → per-component 0.0122 (slight
+increase). The per-component split does not shrink real signal; it
+reclassifies it. The plan's "noise floor drops" intuition was right
+in spirit but wrong in mechanism — what drops is the *misattribution*,
+not the magnitude.
+
+### Why the plan's 70% prediction was optimistic
+
+The plan assumed most of the band was pure cross-talk noise. The
+empirical mixture is: 3/28 (11%) were genuine cross-talk artifact that
+the RNG split correctly unmasked; 7/28 (25%) were masked real signal
+the legacy noise was hiding; 8/28 (29%) were stable real signal;
+10/28 (36%) were noise in both layouts (still inside the
+`|S1| ≈ S1_conf` regime even with the split — these would only resolve
+under a tighter Sobol CI, i.e. larger N).
+
+The implementation contract — *streams are isolated so a parameter's
+draw consumption cannot perturb another subsystem's sequence* — is
+verified independently by `engine/tests/test_rng_isolation.py`. The
+empirical Sobol comparison is a downstream consequence of that
+contract, not a test of it. The honest takeaway is: the per-component
+layout makes the signal/noise classifier defensible per-parameter,
+which is what the dashboard needs in order to label `fold_nominal_multiplier`
+on `log_exo_baroque_authentic` as `noise → signal` (real but legacy
+hid it) vs `agent_capability_mean` on `productive_welfare_yield` as
+`signal → noise` (legacy lied about it).
 
 The legacy-canonical pinned output at
 `outputs/sensitivity/sobol_indices.json` stays untouched; the
