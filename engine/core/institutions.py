@@ -47,10 +47,34 @@ def formation_step(
     cfg: Any,
     rng: np.random.Generator,
     surplus_per_proto: np.ndarray,
+    mission_config: Any = None,
 ) -> int:
-    """Form new firms from independent same-sector/same-stack prototypes."""
+    """Form new firms from independent same-sector/same-stack prototypes.
+
+    `mission_config` (optional, W2b) modulates the per-prototype
+    `formation_surplus_threshold` for prototypes in
+    `mission_config.coordinator_sectors`. Defaults preserve the pre-W2b
+    behaviour bit-identically: when the mission lever is off, every
+    candidate is held to the single scalar threshold from `cfg`.
+    """
     firm_id = pop.firm_id
-    independent = (firm_id == -1) & (surplus_per_proto >= cfg.formation_surplus_threshold)
+    mission_enabled = bool(getattr(mission_config, "enabled", False))
+    if (
+        mission_enabled
+        and len(getattr(mission_config, "coordinator_sectors", ()) or ()) > 0
+    ):
+        thresh = np.full(
+            pop.sector.shape, float(cfg.formation_surplus_threshold),
+            dtype=np.float64,
+        )
+        factor = float(mission_config.formation_threshold_factor)
+        coord = np.isin(pop.sector, np.asarray(
+            mission_config.coordinator_sectors, dtype=pop.sector.dtype,
+        ))
+        thresh[coord] = thresh[coord] * factor
+        independent = (firm_id == -1) & (surplus_per_proto >= thresh)
+    else:
+        independent = (firm_id == -1) & (surplus_per_proto >= cfg.formation_surplus_threshold)
     if not independent.any() or pop.firm_next_id >= cfg.max_firms:
         return 0
 

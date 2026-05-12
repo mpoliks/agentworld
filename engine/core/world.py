@@ -157,6 +157,13 @@ class World:
     # Pigouvian friction subsidy: accumulated revenue available for
     # reducing human-involving transaction costs next step.
     _pigouvian_friction_pool: float = 0.0
+    # Mission-economy pool (W2b): real surplus levied from executed
+    # pairs and accumulated step-over-step. Each step the levy adds
+    # `mission_levy * real_surplus_added`; the disbursement step then
+    # converts a fraction of the pool to capability uplift on
+    # coordinator-sector agents. With `MissionConfig.enabled = False`
+    # the pool is never touched.
+    _mission_pool: float = 0.0
 
     @property
     def rng(self) -> np.random.Generator:
@@ -305,6 +312,65 @@ class World:
                 pop.capability[h_mask] + np.float32(cap_boost),
                 0.01, 0.99,
             )
+
+    def _disburse_mission_pool(self) -> float:
+        """Drain `_mission_pool` toward coordinator-sector capability.
+
+        Disbursement rate is `capability_uplift_per_unit_pool`; the
+        amount disbursed reduces the pool. `levy_target` selects the
+        targeting:
+          "coordinator_uplift" — flat per-agent share within coordinator
+            sectors (the policy ideal).
+          "regressive_pool"   — share proportional to current
+            capability (the captured mode).
+
+        Returns the disbursed amount (for the ledger).
+        """
+        cfg = self.topology.cfg.mission
+        if (
+            not cfg.enabled
+            or self._mission_pool <= 0.0
+            or cfg.capability_uplift_per_unit_pool <= 0.0
+            or not cfg.coordinator_sectors
+        ):
+            return 0.0
+
+        pop = self.population
+        coord = np.isin(
+            pop.sector,
+            np.asarray(cfg.coordinator_sectors, dtype=pop.sector.dtype),
+        )
+        # Agents only — the mission lever targets capability of the
+        # intermediating side, not humans.
+        target_mask = coord & (~pop.is_human)
+        if not target_mask.any():
+            return 0.0
+
+        disbursed = self._mission_pool * float(cfg.capability_uplift_per_unit_pool)
+        disbursed = min(disbursed, self._mission_pool)
+        self._mission_pool -= disbursed
+
+        if cfg.levy_target == "regressive_pool":
+            caps = pop.capability[target_mask].astype(np.float64)
+            denom = float(caps.sum())
+            if denom <= 0:
+                share = np.zeros_like(caps)
+            else:
+                share = caps / denom
+        else:  # "coordinator_uplift"
+            share = np.full(int(target_mask.sum()), 1.0 / float(target_mask.sum()))
+        # Convert share-of-disbursement to capability delta. Divide by
+        # the prototype weight so the disbursement scales correctly: a
+        # prototype represents many real agents, so the per-prototype
+        # capability nudge corresponds to the same per-real-agent nudge.
+        w = pop.weight[target_mask].astype(np.float64)
+        per_proto_real = disbursed * share
+        per_proto_delta = (per_proto_real / np.maximum(w, 1.0)).astype(np.float32)
+        pop.capability[target_mask] = np.clip(
+            pop.capability[target_mask] + per_proto_delta,
+            0.01, 0.99,
+        )
+        return float(disbursed)
 
     def step(self) -> StepMetrics:
         # Apply schedules if present.
@@ -457,10 +523,23 @@ class World:
             if law_enabled
             else 0.0
         )
+        # W2b mission levy: a fraction of cleared real surplus routed
+        # into a world-level public-objective pool. Bites only when
+        # `MissionConfig.enabled = True`; off by default so the canonical
+        # baselines stay bit-identical at the welfare-accounting level.
+        mission_cfg = self.topology.cfg.mission
+        if mission_cfg.enabled and mission_cfg.mission_levy > 0.0:
+            mission_levy_step = float(
+                mission_cfg.mission_levy * tx.real_surplus_added
+            )
+            self._mission_pool += mission_levy_step
+        else:
+            mission_levy_step = 0.0
         real_step = max(
             0.0,
             tx.real_surplus_added
             - law_upkeep_cost
+            - mission_levy_step
             - fold.real_subtracted
             + fold.real_added_productive,
         )
@@ -473,6 +552,7 @@ class World:
             0.0,
             tx.real_surplus_authentic
             - law_upkeep_cost
+            - mission_levy_step
             - fold.real_subtracted
             + fold.real_added_productive,
         )
@@ -488,6 +568,8 @@ class World:
             ledger.add_welfare_in("transactions", float(tx.real_surplus_added))
             if law_enabled and law_upkeep_cost > 0:
                 ledger.add_welfare_out("law.upkeep", float(law_upkeep_cost))
+            if mission_levy_step > 0:
+                ledger.add_welfare_out("mission.levy", float(mission_levy_step))
             if fold.real_subtracted > 0:
                 ledger.add_welfare_out("fold.overhead", float(fold.real_subtracted))
             if fold.real_added_productive > 0:
@@ -514,6 +596,7 @@ class World:
             formation_step(
                 self.population, inst_cfg, self.rngs["population"],
                 surplus_per_proto=tx.wealth_delta,
+                mission_config=self.topology.cfg.mission,
             )
             merge_step(self.population, inst_cfg, self.rngs["population"])
             firm_overhead_step(self.population, inst_cfg)
@@ -561,6 +644,13 @@ class World:
                     # observed signed delta — sign tells us whether the
                     # cohort net brought wealth in or took it out.
                     ledger.add_wealth_in("dynamics.entry_exit", ee_delta)
+
+        # ---- W2b mission pool disbursement -------------------------------
+        # Drain the mission pool toward coordinator-sector capability.
+        # No-op when `MissionConfig.enabled = False` or the pool is
+        # empty. Logged as a capability transfer (no wealth change), so
+        # the stock-flow ledger only needs to see the levy at intake.
+        self._disburse_mission_pool()
 
         # ---- W2a registration compliance cost ----------------------------
         # Per-step wealth charge against registered agents (humans

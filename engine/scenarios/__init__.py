@@ -67,6 +67,7 @@ from engine.core.topology import (
     DemandConfig,
     InstitutionConfig,
     LawConfig,
+    MissionConfig,
     PigouvianConfig,
     PopulationDynamicsConfig,
     StrategyConfig,
@@ -1207,6 +1208,119 @@ def baroque_with_high_welfare() -> WorldConfig:
     )
 
 
+# ---------- W2b: mission economy scenarios -----------------------------------
+# Smallest credible "third lever" beyond smooth-Coasean / baroque-folded.
+# Sector indices (see engine/core/population.SECTOR_NAMES):
+#   9 = health, 10 = education. These are the coordinator-tagged sectors
+# in the Hadfield/Jacobs mission-economy reading. Two adversarial
+# siblings — mission_captured and mission_competing — make the point
+# that the lever isn't free.
+_MISSION_COORDINATOR_SECTORS = (9, 10)  # health, education
+
+
+def mission_economy() -> WorldConfig:
+    """Coordinator-sector mission economy, the W2b reference run.
+
+    A small mission levy (3% of cleared real surplus) is skimmed into a
+    public-objective pool that disburses as capability uplift in health
+    and education. Coordinator-sector firms also form on a lower
+    surplus bar (`formation_threshold_factor = 0.4`) so the
+    coordinating institutions actually appear. Mid-α (0.45) so the
+    scenario sits squarely between the two attractors — the mission
+    lever is being asked to do real work, not paper over an already-
+    smooth economy.
+
+    Read against `mission_captured` and `mission_competing` for the
+    adversarial controls: with the captured-pool target, the same
+    levy concentrates capability gains on already-high-capability
+    agents; with `mission_competing`, multiple agendas raise the
+    formation bar and the lever is diluted.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            agent_capability_mean=0.70,
+            agent_capability_sd=0.16,
+            human_capability_mean=0.50,
+            human_capability_sd=0.16,
+            n_human_prototypes=6_000,
+            n_agent_prototypes=60_000,
+            seed=4501,
+        ),
+        topology=TopologyConfig(
+            alpha=0.45,
+            base_friction=0.04,
+            folding_propensity=0.35,
+            folding_branching=2.5,
+            cross_stack_compat=0.65,
+            institutions=InstitutionConfig(
+                enabled=True,
+                formation_surplus_threshold=0.0005,
+                formation_check_every_k=2,
+            ),
+            mission=MissionConfig(
+                enabled=True,
+                coordinator_sectors=_MISSION_COORDINATOR_SECTORS,
+                formation_threshold_factor=0.4,
+                mission_levy=0.03,
+                capability_uplift_per_unit_pool=2.0e-6,
+                levy_target="coordinator_uplift",
+            ),
+        ),
+        n_steps=120,
+        seed=45,
+    )
+
+
+def mission_captured() -> WorldConfig:
+    """Adversarial sibling — same mission levy, captured disbursement.
+
+    Same lever pulls as `mission_economy` but `levy_target` is set to
+    `regressive_pool`: instead of equal per-agent capability uplift in
+    coordinator sectors, the pool disburses proportionally to current
+    capability. The pool funds the already-skilled — the Matthew
+    effect in policy form. Read off the Gini and the per-capita
+    welfare gap against the reference run to see what capture costs.
+    """
+    cfg = mission_economy()
+    cfg.topology.mission = MissionConfig(
+        enabled=True,
+        coordinator_sectors=_MISSION_COORDINATOR_SECTORS,
+        formation_threshold_factor=0.4,
+        mission_levy=0.03,
+        capability_uplift_per_unit_pool=2.0e-6,
+        levy_target="regressive_pool",
+    )
+    cfg.population.seed = 4502
+    cfg.seed = 46
+    return cfg
+
+
+def mission_competing() -> WorldConfig:
+    """Adversarial sibling — competing mission agendas dilute the lever.
+
+    Six sectors tagged as coordinator (vs two in the reference run),
+    and `formation_threshold_factor` raised above 1.0 so the broader
+    set actually makes coordination *harder* than the unmissioned
+    baseline — competing agendas raise the bar everywhere they touch.
+    The levy still fires but its capability-uplift output is spread
+    thin and partially offsets the friction the broader bias adds.
+    Read against `mission_economy` for the cost of agenda dilution.
+    """
+    cfg = mission_economy()
+    competing_sectors = (2, 4, 5, 7, 9, 10)  # manufacturing, logistics, construction, finance, health, education
+    cfg.topology.mission = MissionConfig(
+        enabled=True,
+        coordinator_sectors=competing_sectors,
+        formation_threshold_factor=1.4,  # competing agendas raise the bar
+        mission_levy=0.03,
+        capability_uplift_per_unit_pool=2.0e-6,
+        levy_target="coordinator_uplift",
+    )
+    cfg.population.seed = 4503
+    cfg.seed = 47
+    return cfg
+
+
 SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
     "coasean_paradise": coasean_paradise,
     "baroque_cathedral": baroque_cathedral,
@@ -1242,6 +1356,9 @@ SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
     "endogenous_baroque": endogenous_baroque,
     "institutional_emergence": institutional_emergence,
     "full_emergence": full_emergence,
+    "mission_economy": mission_economy,
+    "mission_captured": mission_captured,
+    "mission_competing": mission_competing,
 }
 
 
@@ -1280,6 +1397,9 @@ SCENARIO_DESCRIPTIONS = {
     "endogenous_baroque": "Fractal configuration with the same learning layer enabled. Tests what α agents converge to when they are free to choose. Empirically the learning settles in the upper-mid range, not at the high-α extreme — the cathedral takes external scaffolding to sustain.",
     "institutional_emergence": "Adds firm formation and dissolution on top of strategic learning. Coalitions form when within-coalition trades become cheaper than market trades and dissolve when the cost advantage decays. Tests whether the modern firm's existence is robust to a near-zero transaction-cost technology, or whether firms re-emerge in different shapes (smaller, more fluid, sector-specific).",
     "full_emergence": "All four feedback layers on at once: strategic learning, firm formation, population churn, and accumulating fold pressure. The maximal-richness configuration in the scenario set. A kind of stress test for whether the diagnostic story here can survive heavy compounding rather than a specific regime to plan for.",
+    "mission_economy": "Tomašev / Jacobs's third lever beyond smooth-Coasean and baroque-folded. Health and education are tagged as coordinator sectors; a 3% mission levy on cleared real surplus drains into a public-objective pool that disburses as flat-share capability uplift in those sectors. Coordinator firms form on a 40% lower surplus bar, so the coordinating institutions actually appear. Mid-α (0.45) so the lever is doing work, not papering over an already-smooth economy.",
+    "mission_captured": "Adversarial sibling of mission_economy. Same levy, same coordinator tags, but the disbursement is `regressive_pool` — capability uplift goes to already-high-capability agents in proportion to their existing capability. The Matthew effect in policy form. Read against the reference run for what capture costs at the Gini and per-capita-welfare lines.",
+    "mission_competing": "Adversarial sibling of mission_economy. Six sectors tagged as coordinator (manufacturing, logistics, construction, finance, health, education) and `formation_threshold_factor` raised above 1.0 so the broader bias actually makes coordination harder than the unmissioned baseline — competing agendas raise the bar everywhere they touch. The levy still funds capability uplift but its output is spread thin and partially offsets the friction the broader bias adds.",
 }
 
 

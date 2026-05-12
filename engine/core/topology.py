@@ -109,6 +109,72 @@ class RegulatorConfig:
 
 
 @dataclass
+class MissionConfig:
+    """Mission-economy lever (W2b).
+
+    The artifact's default reading is "two attractors and a basin between
+    them"; the Tomašev / Jacobs *Virtual Agent Economies* paper warns
+    against exactly that framing — there are coordination paths that
+    don't reduce to either smooth-Coasean or baroque-folded equilibria.
+    W2b adds the smallest credible third lever using mechanisms that
+    already exist in the engine:
+
+    * `coordinator_sectors` is a tuple of sector indices treated as
+      mission-tagged. In `engine/core/institutions.py:formation_step`,
+      candidates in those sectors see their `formation_surplus_threshold`
+      multiplied by `formation_threshold_factor` (< 1.0 makes
+      coordination cheaper there). With institutions disabled the bias
+      is a no-op.
+    * `mission_levy` skims a fraction of cleared real surplus into a
+      world-level `_mission_pool` — analogous to the Pigouvian revenue
+      channel but routed to a *public-objective* sink rather than a
+      redistributive transfer.
+    * `capability_uplift_per_unit_pool` then disburses the pool by
+      raising the capability of agents in coordinator sectors. The
+      `levy_target` choice controls *which* agents receive the uplift:
+      `"coordinator_uplift"` (the policy ideal — flat per-agent share),
+      `"regressive_pool"` (the captured mode — uplift concentrates on
+      already-high-capability agents).
+
+    Default-off so canonical baselines stay bit-identical. Siblings
+    `mission_captured` and `mission_competing` in
+    `engine/scenarios/__init__.py` make the point that the lever isn't
+    free — capture and competing agendas can flip the welfare sign even
+    with the levy on.
+
+    See `docs/plans/hadfield_jacobs_robustness.md` (W2b).
+    """
+
+    enabled: bool = False
+    # Sector indices to treat as mission-tagged. Empty = the lever has
+    # nowhere to bite (still legal; produces a useful adversarial
+    # control). See `engine/core/population.SECTOR_NAMES`.
+    coordinator_sectors: tuple = ()
+    # Multiplier on `InstitutionConfig.formation_surplus_threshold` for
+    # candidates inside `coordinator_sectors`. 1.0 = no bias. Values <
+    # 1.0 lower the bar in coordinator sectors (mission firms form
+    # more easily); values > 1.0 raise it (the "competing agendas"
+    # adversarial sibling).
+    formation_threshold_factor: float = 1.0
+    # Fraction of cleared real surplus routed to the mission pool. 0 =
+    # no levy. Acts like a small flat tax on every executed pair, but
+    # the revenue is *not* recycled to humans (cf. Pigouvian); it funds
+    # capability uplift in coordinator sectors.
+    mission_levy: float = 0.0
+    # Capability boost per unit of accumulated pool, applied each step
+    # to agents in `coordinator_sectors`. The disbursed amount is
+    # subtracted from the pool, so the pool drains as it disburses.
+    capability_uplift_per_unit_pool: float = 0.0
+    # Disbursement targeting.
+    #   "coordinator_uplift" — equal share to every coordinator-sector
+    #     agent (the policy ideal).
+    #   "regressive_pool"     — share is proportional to current
+    #     capability (the captured mode: existing elites absorb the
+    #     mission investment).
+    levy_target: Literal["coordinator_uplift", "regressive_pool"] = "coordinator_uplift"
+
+
+@dataclass
 class RegistrationConfig:
     """Hadfield-style persistent agent identity + registration regime (W2a).
 
@@ -422,6 +488,14 @@ class TopologyConfig:
     # to W1a). See `RegistrationConfig` above and
     # `docs/concepts/registration.md`.
     registration: RegistrationConfig = field(default_factory=RegistrationConfig)
+
+    # ---- Mission economy (W2b, Virtual Agent Economies) ----------------------
+    # Third lever beyond smooth-Coasean / baroque-folded: coordinator
+    # sectors form firms more easily, a small levy on cleared surplus
+    # funds capability uplift in those sectors. Default-off keeps the
+    # canonical baselines bit-identical. See `MissionConfig` above and
+    # W2b in `docs/plans/hadfield_jacobs_robustness.md`.
+    mission: MissionConfig = field(default_factory=MissionConfig)
 
     # ---- Endogenous emergence mechanisms -------------------------------------
     # Default-off so historical alpha-engine scenarios keep the same execution
