@@ -678,7 +678,7 @@
       presetSelect.disabled = running;
       metricSelect.disabled = running;
       pfToggle.disabled = running;
-      familyRadioBox.querySelectorAll('input').forEach((r) => { r.disabled = running; });
+      familyPillRow.querySelectorAll('.pt-family-pill').forEach((p) => { p.disabled = running; });
       Object.values(rowControls).forEach((ctl) => { ctl.input.disabled = running || (state.productiveFolding === false && ctl.meta.name === 'max_productive_real_share'); });
     }
 
