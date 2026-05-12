@@ -56,6 +56,16 @@
     details.pt-bounds-help summary { cursor: pointer; color: var(--text-2); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
     details.pt-bounds-help[open] summary { margin-bottom: 6px; }
     .pt-preset { width: 100%; }
+    .pt-mode-btn { font-family: var(--mono); font-size: 10px; padding: 3px 8px; background: var(--panel-2); color: var(--text-2); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em; }
+    .pt-mode-btn.active { background: var(--accent); color: #1a1208; border-color: var(--accent); }
+    .pt-schedule-wrap { padding: 8px 0 10px; }
+    .pt-schedule-svg { width: 100%; height: 110px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; cursor: crosshair; }
+    .pt-schedule-svg .grid { stroke: var(--border); stroke-width: 1; }
+    .pt-schedule-svg .curve { stroke: var(--accent); stroke-width: 2; fill: none; }
+    .pt-schedule-svg .pt-point { fill: var(--accent); stroke: var(--bg); stroke-width: 2; cursor: ns-resize; }
+    .pt-schedule-svg .pt-point:hover { fill: var(--text); }
+    .pt-schedule-svg .axis-label { fill: var(--text-3); font-family: var(--mono); font-size: 10px; }
+    .pt-schedule-hint { font-size: 11px; color: var(--text-3); margin-top: 4px; font-family: var(--sans); }
   `;
 
   // ---- helpers ------------------------------------------------------------
@@ -135,6 +145,15 @@
       paramValues: Object.fromEntries(parameters.map((p) => [p.name, p.default])),
       productiveFolding: false,  // gates base_variance_absorption + max_productive_real_share
       sobolByName: {},            // populated after /sobol_indices fetch
+      alphaMode: 'constant',      // 'constant' | 'schedule'
+      // Four fractional control points along the run, y ∈ [0.05, 0.95].
+      // Default: flat at the α slider's value.
+      alphaSchedulePoints: [
+        { x: 0.0, y: 0.5 },
+        { x: 1 / 3, y: 0.5 },
+        { x: 2 / 3, y: 0.5 },
+        { x: 1.0, y: 0.5 },
+      ],
     };
 
     // ---- panel sections ---------------------------------------------------
@@ -277,6 +296,43 @@
         row.classList.add('coupled');
       }
 
+      // α gets a constant/schedule mode toggle and an inline SVG curve editor.
+      // The schedule editor is built once and hidden until mode flips.
+      let scheduleWrap = null;
+      if (p.name === 'alpha') {
+        const modeBtn = el('button', { class: 'pt-mode-btn', type: 'button' }, 'schedule α(t)');
+        // Place the toggle next to the bounds label.
+        row.querySelector('.pt-slider-cell').appendChild(modeBtn);
+        scheduleWrap = el('div', { class: 'pt-schedule-wrap', style: 'display: none;' });
+        wrap.appendChild(scheduleWrap);
+        buildScheduleEditor(scheduleWrap);
+        modeBtn.addEventListener('click', () => {
+          if (state.alphaMode === 'constant') {
+            state.alphaMode = 'schedule';
+            modeBtn.classList.add('active');
+            modeBtn.textContent = 'use constant α';
+            input.style.display = 'none';
+            row.querySelector('.pt-bounds').style.display = 'none';
+            valueCell.style.display = 'none';
+            scheduleWrap.style.display = '';
+            // Seed schedule with the current slider value if untouched.
+            const sliderVal = state.paramValues['alpha'];
+            if (state.alphaSchedulePoints.every((q) => q.y === 0.5)) {
+              state.alphaSchedulePoints.forEach((q) => { q.y = sliderVal; });
+              redrawSchedule();
+            }
+          } else {
+            state.alphaMode = 'constant';
+            modeBtn.classList.remove('active');
+            modeBtn.textContent = 'schedule α(t)';
+            input.style.display = '';
+            row.querySelector('.pt-bounds').style.display = '';
+            valueCell.style.display = '';
+            scheduleWrap.style.display = 'none';
+          }
+        });
+      }
+
       input.addEventListener('input', () => {
         const v = Number(input.value);
         state.paramValues[p.name] = v;
@@ -326,6 +382,136 @@
     root.appendChild(boundsHelp);
 
     // ---- behaviour --------------------------------------------------------
+
+    // ---- schedule editor (S3) --------------------------------------------
+    // SVG editor with four fixed-x control points whose y is draggable in
+    // [0.05, 0.95]. The output alpha_schedule is sampled by linear
+    // interpolation at integer step positions when the run is launched.
+    const SCHED_W = 380;
+    const SCHED_H = 100;
+    const SCHED_PAD_X = 8;
+    const SCHED_PAD_Y = 10;
+    const SCHED_Y_MIN = 0.05;
+    const SCHED_Y_MAX = 0.95;
+    let scheduleSvg = null;
+    let schedulePathEl = null;
+    let schedulePointEls = [];
+
+    function scheduleXY(p) {
+      // Map fractional (x, y) in [0,1] × [0.05,0.95] → SVG pixel coordinates.
+      const xPx = SCHED_PAD_X + p.x * (SCHED_W - 2 * SCHED_PAD_X);
+      const yNorm = (SCHED_Y_MAX - p.y) / (SCHED_Y_MAX - SCHED_Y_MIN);
+      const yPx = SCHED_PAD_Y + yNorm * (SCHED_H - 2 * SCHED_PAD_Y);
+      return { xPx, yPx };
+    }
+
+    function pixelToY(yPx) {
+      const yNorm = (yPx - SCHED_PAD_Y) / (SCHED_H - 2 * SCHED_PAD_Y);
+      let y = SCHED_Y_MAX - yNorm * (SCHED_Y_MAX - SCHED_Y_MIN);
+      y = Math.max(SCHED_Y_MIN, Math.min(SCHED_Y_MAX, y));
+      return Math.round(y * 200) / 200;  // 0.005 resolution
+    }
+
+    function buildScheduleEditor(host) {
+      const NS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('class', 'pt-schedule-svg');
+      svg.setAttribute('viewBox', `0 0 ${SCHED_W} ${SCHED_H}`);
+      svg.setAttribute('preserveAspectRatio', 'none');
+      // grid: 4 horizontal lines at y = 0.2, 0.4, 0.6, 0.8
+      [0.2, 0.4, 0.6, 0.8].forEach((yv) => {
+        const { yPx } = scheduleXY({ x: 0, y: yv });
+        const line = document.createElementNS(NS, 'line');
+        line.setAttribute('x1', SCHED_PAD_X);
+        line.setAttribute('x2', SCHED_W - SCHED_PAD_X);
+        line.setAttribute('y1', yPx);
+        line.setAttribute('y2', yPx);
+        line.setAttribute('class', 'grid');
+        svg.appendChild(line);
+      });
+      // axis labels (y)
+      ['0.2', '0.5', '0.8'].forEach((yv) => {
+        const t = document.createElementNS(NS, 'text');
+        const { yPx } = scheduleXY({ x: 0, y: parseFloat(yv) });
+        t.setAttribute('x', 2);
+        t.setAttribute('y', yPx + 3);
+        t.setAttribute('class', 'axis-label');
+        t.textContent = yv;
+        svg.appendChild(t);
+      });
+      // path
+      schedulePathEl = document.createElementNS(NS, 'polyline');
+      schedulePathEl.setAttribute('class', 'curve');
+      svg.appendChild(schedulePathEl);
+      // points
+      schedulePointEls = [];
+      state.alphaSchedulePoints.forEach((p, i) => {
+        const c = document.createElementNS(NS, 'circle');
+        c.setAttribute('r', 5);
+        c.setAttribute('class', 'pt-point');
+        c.dataset.index = String(i);
+        svg.appendChild(c);
+        schedulePointEls.push(c);
+      });
+      host.appendChild(svg);
+      host.appendChild(el('div', { class: 'pt-schedule-hint' },
+        'drag a control point vertically. y range [0.05, 0.95]. four equally spaced steps over the run.',
+      ));
+      scheduleSvg = svg;
+
+      // Dragging.
+      let dragging = -1;
+      function svgPointFromEvent(ev) {
+        const rect = svg.getBoundingClientRect();
+        const clientX = ev.touches ? ev.touches[0].clientX : ev.clientX;
+        const clientY = ev.touches ? ev.touches[0].clientY : ev.clientY;
+        // Translate viewBox coordinates.
+        const xPx = ((clientX - rect.left) / rect.width) * SCHED_W;
+        const yPx = ((clientY - rect.top) / rect.height) * SCHED_H;
+        return { xPx, yPx };
+      }
+      svg.addEventListener('mousedown', (ev) => {
+        const idx = ev.target.dataset && ev.target.dataset.index;
+        if (idx == null) return;
+        dragging = Number(idx);
+        ev.preventDefault();
+      });
+      window.addEventListener('mousemove', (ev) => {
+        if (dragging < 0) return;
+        const { yPx } = svgPointFromEvent(ev);
+        state.alphaSchedulePoints[dragging].y = pixelToY(yPx);
+        redrawSchedule();
+      });
+      window.addEventListener('mouseup', () => { dragging = -1; });
+      redrawSchedule();
+    }
+
+    function redrawSchedule() {
+      if (!scheduleSvg) return;
+      const pts = state.alphaSchedulePoints.map(scheduleXY);
+      schedulePathEl.setAttribute('points', pts.map((p) => `${p.xPx},${p.yPx}`).join(' '));
+      schedulePointEls.forEach((c, i) => {
+        c.setAttribute('cx', pts[i].xPx);
+        c.setAttribute('cy', pts[i].yPx);
+      });
+    }
+
+    function sampleSchedule(nSteps) {
+      // Linearly interpolate the 4 control points over [0, nSteps-1].
+      const out = new Array(nSteps);
+      const pts = state.alphaSchedulePoints;
+      for (let i = 0; i < nSteps; i++) {
+        const t = nSteps === 1 ? 0 : i / (nSteps - 1);
+        // Find the segment.
+        let j = 0;
+        while (j < pts.length - 2 && t > pts[j + 1].x) j += 1;
+        const a = pts[j];
+        const b = pts[j + 1];
+        const segT = (t - a.x) / Math.max(b.x - a.x, 1e-9);
+        out[i] = a.y + (b.y - a.y) * segT;
+      }
+      return out;
+    }
 
     function applyProductiveFoldingCoupling() {
       const bva = rowControls['base_variance_absorption'];
@@ -397,14 +583,23 @@
     }
 
     function getRunConfig() {
-      return {
+      const n_steps = parseInt(nStepsInp.value, 10) || 0;
+      const cfg = {
         scenario: state.scenario,
         family: state.family,
         overrides: buildOverrides(),
-        n_steps: parseInt(nStepsInp.value, 10) || 0,
+        n_steps,
         scale: scaleSel.value,
         seed: parseInt(seedInp.value, 10),
       };
+      if (state.alphaMode === 'schedule' && n_steps > 0) {
+        cfg.alpha_schedule = sampleSchedule(n_steps);
+        // Drop the per-step `alpha` override since the schedule takes precedence.
+        // Leaving it would still be applied first; the server then overwrites
+        // per step from alpha_schedule. Cleaner to omit.
+        delete cfg.overrides.alpha;
+      }
+      return cfg;
     }
 
     runBtn.addEventListener('click', () => onSubmit(getRunConfig()));

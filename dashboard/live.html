@@ -241,9 +241,29 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
   makeChart('chart-rwpc', '#5fa572', 'real / capita');
 
   function resetCharts() {
+    // Drop any schedule overlay from a prior run, then clear the trace.
+    const ac = document.getElementById('chart-alpha');
+    if (ac && ac.data && ac.data.length > 1) {
+      Plotly.deleteTraces('chart-alpha', [1]);
+    }
     Plotly.restyle('chart-alpha', { x: [[]], y: [[]] });
     Plotly.restyle('chart-ebi', { x: [[]], y: [[]] });
     Plotly.restyle('chart-rwpc', { x: [[]], y: [[]] });
+  }
+
+  function drawAlphaSchedule(alphaSchedule) {
+    if (!alphaSchedule || !alphaSchedule.length) return;
+    const xs = alphaSchedule.map((_, i) => i);
+    Plotly.addTraces('chart-alpha', [{
+      x: xs,
+      y: alphaSchedule,
+      type: 'scatter',
+      mode: 'lines',
+      line: { color: '#b89a55', width: 1, dash: 'dot' },
+      opacity: 0.5,
+      name: 'scheduled',
+      hoverinfo: 'skip',
+    }]);
   }
 
   function appendStep(elId, x, y) {
@@ -367,6 +387,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
   async function onPanelSubmit(body) {
     closeStream();
     resetCharts();
+    if (body.alpha_schedule) drawAlphaSchedule(body.alpha_schedule);
     if (foldTree) { foldTree.reset(); }
     clearLog();
     sStep.textContent = '0';
