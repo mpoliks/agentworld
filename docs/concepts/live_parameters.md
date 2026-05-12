@@ -182,28 +182,35 @@ The editor emits a `WorldConfig.alpha_schedule: list[float]` of length
 
 ## Scenario families (chosen before run, not toggled mid-run)
 
-The 33 canonical scenarios decompose into five families along
+The 40 canonical scenarios decompose into seven families along
 structural-toggle lines. The live UI presents these as a radio group at
 the top of the parameter panel; selecting a family fixes which engine
 modules are active for the run. Families are not toggleable mid-run —
 they change which equations the engine evaluates, not just parameter
-values.
+values. The canonical taxonomy is encoded in
+`engine/scenarios/families.py`; this table is the human-readable mirror.
 
 | Family | Scenarios | Structural switches |
 | --- | --- | --- |
-| **Alpha-engine baseline** | 1–17 | All productive/demand/Pigouvian/law/strategy off. The original 15 plus the two networked variants. |
-| **Demand & intermediation** | 18–22 | `demand.enabled = True`; `base_variance_absorption > 0`. Productive folding + demand-side feedback on. |
+| **Alpha-engine baseline** | 1–17, 34 (`baroque_with_high_welfare`) | All productive/demand/Pigouvian/law/strategy/mission/norms off. The original 15, the two networked variants, and the adversarial-search baroque counter-example. |
+| **Demand & intermediation** | 18–22 | `demand.enabled = True` and/or `base_variance_absorption > 0`. Productive folding + demand-side feedback on. |
 | **Dynamic law** | 23–25 | `law.enabled = True`. Law strength evolves; capture and renewal mechanisms run. |
-| **Pigouvian automation** | 26–29 | `pigouvian.enabled = True`. Per-pair A2A tax recycled to humans. |
-| **Emergent strategy / institutions** | 30–33 | `strategy.enabled` and/or `population_dynamics.enabled` and/or `institutions.enabled = True`. Agents learn α; firms form. |
+| **Pigouvian automation** | 26–29 | `pigouvian.enabled = True`. Per-pair A2A tax recycled to humans or as H2A friction subsidy. |
+| **Emergent strategy / institutions** | 30–33 | `strategy.enabled` and/or `pop_dynamics.enabled` and/or `institutions.enabled = True`. Agents learn α; firms form. |
+| **Mission economy** | 35–37 | `mission.enabled = True`. Coordinator-sector capability uplift funded by a real-surplus levy (Tomašev / Jacobs's third lever). |
+| **Norms layer** | 38–40 | `norms.enabled = True`. Alignment as participation rather than static distance; norms drift, capture, or oscillate. |
 
 Inside each family, the eight numeric parameters above are the live
-sliders. Family-specific knobs (e.g. `law.decay_rate`, `pigouvian.tau`)
-appear as a small secondary section that only renders when the relevant
-family is selected. Tier-3 numeric parameters from the Sobol problem
-(`a2a_floor`, `coase_exp`, `cap_slope`, `cross_stack_compat`,
-`productive_decay`, `market_layer_tax`, `fold_real_efficiency`) live in
-the Advanced drawer and apply across all families.
+sliders. Family-specific knobs (e.g. `law.decay_rate`, `pigouvian.tau`,
+`mission.levy_rate`, `norms.update_rate`) appear as a small secondary
+section that only renders when the relevant family is selected.
+Tier-3 numeric parameters from the Sobol problem (`a2a_floor`,
+`coase_exp`, `cap_slope`, `cross_stack_compat`, `productive_decay`,
+`market_layer_tax`, `fold_real_efficiency`) live in the Advanced
+drawer and apply across all families.
+
+`_anchored` variants of base scenarios (substrate-wrapped: SBM network
++ t-copula noise + Hawkes folding) inherit the family of their base.
 
 ---
 

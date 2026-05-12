@@ -23,6 +23,7 @@ Design choices (per docs/plans/_archive/validation_lift_plus_live_viz.plan.md, B
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import threading
 import time
@@ -68,12 +69,18 @@ class RunSession:
         n_steps: int,
         scale: str,
         seed: Optional[int],
+        overrides: Optional[dict] = None,
+        alpha_schedule: Optional[list] = None,
+        family: Optional[str] = None,
     ) -> None:
         self.run_id = run_id
         self.scenario = scenario
         self.n_steps = n_steps
         self.scale = scale
         self.seed = seed
+        self.overrides = dict(overrides) if overrides else {}
+        self.alpha_schedule = list(alpha_schedule) if alpha_schedule else None
+        self.family = family
 
         self.status: str = "queued"  # queued | running | done | error | cancelled
         self.error: Optional[str] = None
@@ -134,6 +141,10 @@ def _run_worker(sess: RunSession) -> None:
             cfg.n_steps = sess.n_steps
         if sess.seed is not None:
             cfg.seed = int(sess.seed)
+        if sess.overrides:
+            _apply_overrides(cfg, sess.overrides)
+        if sess.alpha_schedule is not None:
+            cfg.alpha_schedule = list(sess.alpha_schedule)
         cfg = apply_scale(cfg, Scale(sess.scale))
         world = World.build(cfg)
 
@@ -172,6 +183,62 @@ class _Cancelled(Exception):
     """Internal: raised by the step callback to unwind a cancelled run."""
 
 
+class OverrideError(ValueError):
+    """A POST /runs override could not be applied."""
+
+
+def _apply_overrides(cfg: Any, overrides: dict, *, extend_bounds: bool = False) -> None:
+    """Apply a flat key → value override dict to a `WorldConfig`.
+
+    Override keys may name a field on `WorldConfig` itself (e.g.
+    `pairs_per_step`, `gini_every_k_steps`), a field on `cfg.topology`
+    (e.g. `alpha`, `folding_propensity`), or a field on `cfg.population`
+    (e.g. `agent_capability_mean`). Keys are resolved in that order; the
+    first config carrying a dataclass field of that name wins.
+
+    Live-engine parameters (the eight rows from
+    `engine/data/live_parameter_meta.py`) are additionally bounds-checked
+    against the N=2048 Sobol sampling box. Pass `extend_bounds=True` to
+    skip the bounds check (advanced/exploratory mode).
+
+    Raises `OverrideError` on unknown keys or out-of-bounds values.
+    """
+    from engine.data.live_parameter_meta import (
+        LIVE_PARAMETERS_BY_NAME,
+        is_within_bounds,
+    )
+
+    pop_fields = {f.name for f in dataclasses.fields(cfg.population)}
+    topo_fields = {f.name for f in dataclasses.fields(cfg.topology)}
+    world_fields = {f.name for f in dataclasses.fields(cfg)}
+
+    for key, value in overrides.items():
+        if not extend_bounds and key in LIVE_PARAMETERS_BY_NAME:
+            try:
+                fvalue = float(value)
+            except (TypeError, ValueError) as exc:
+                raise OverrideError(f"{key}={value!r}: not a number") from exc
+            if not is_within_bounds(key, fvalue):
+                p = LIVE_PARAMETERS_BY_NAME[key]
+                raise OverrideError(
+                    f"{key}={fvalue} outside Sobol bounds "
+                    f"[{p['sobol_min']}, {p['sobol_max']}]"
+                )
+
+        # Resolution order: WorldConfig top-level → topology → population.
+        if key in world_fields:
+            setattr(cfg, key, value)
+        elif key in topo_fields:
+            setattr(cfg.topology, key, value)
+        elif key in pop_fields:
+            setattr(cfg.population, key, value)
+        else:
+            raise OverrideError(
+                f"unknown override key {key!r} "
+                "(not a field of WorldConfig, TopologyConfig, or PopulationConfig)"
+            )
+
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
@@ -185,6 +252,22 @@ class RunRequest(BaseModel):
     n_steps: int = Field(default=0, ge=0, description="0 = use scenario default")
     scale: str = Field(default="small")
     seed: Optional[int] = None
+    # Live-engine parameter patch applied on top of the scenario's
+    # WorldConfig. Keys are dataclass field names on WorldConfig,
+    # TopologyConfig, or PopulationConfig. See engine/serve.py::
+    # _apply_overrides for resolution order. Empty dict ⇒ no patch.
+    overrides: dict = Field(default_factory=dict)
+    # Piecewise-linear α(t) schedule. If provided, length must equal the
+    # resolved n_steps (after scenario default if n_steps == 0). Overrides
+    # topology.alpha per step. See engine/core/world.py for the consumer.
+    alpha_schedule: Optional[list[float]] = None
+    # Optional family hint. When provided, the server validates that the
+    # chosen scenario lives in this family. Mismatch returns 400.
+    family: Optional[str] = None
+    # When True, override values are not checked against the Sobol
+    # sampling box. Advanced/exploratory use only; the S1/ST anchor in
+    # the UI is invalid outside the box.
+    extend_bounds: bool = False
 
 
 def create_app():
@@ -238,8 +321,61 @@ def create_app():
     @app.post("/runs")
     def start_run(req: RunRequest = Body(...)):
         from engine.scenarios import SCENARIOS
+        from engine.scenarios.families import family_for, FAMILY_IDS
+
         if req.scenario not in SCENARIOS:
             raise HTTPException(status_code=404, detail=f"unknown scenario: {req.scenario}")
+
+        # Family validation: if the request names a family, verify the
+        # scenario belongs to it. Unknown family ids are also rejected.
+        if req.family is not None:
+            if req.family not in FAMILY_IDS:
+                raise HTTPException(
+                    status_code=400, detail=f"unknown family: {req.family}"
+                )
+            try:
+                scenario_family = family_for(req.scenario)
+            except KeyError:
+                # Scenario exists but is not in the family registry
+                # (likely an _anchored variant of a new scenario).
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"scenario {req.scenario!r} has no registered family",
+                )
+            if scenario_family != req.family:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"scenario {req.scenario!r} is in family "
+                        f"{scenario_family!r}, not {req.family!r}"
+                    ),
+                )
+
+        # Validate the override dict shape before spawning a worker so the
+        # client gets a synchronous 400 instead of a deferred SSE error.
+        if req.overrides or req.alpha_schedule is not None:
+            from engine.scenarios import get_scenario as _get_scenario
+            probe_cfg = _get_scenario(req.scenario)
+            if req.overrides:
+                try:
+                    _apply_overrides(probe_cfg, req.overrides, extend_bounds=req.extend_bounds)
+                except OverrideError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+            if req.alpha_schedule is not None:
+                expected_len = req.n_steps if req.n_steps > 0 else probe_cfg.n_steps
+                if len(req.alpha_schedule) != expected_len:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"alpha_schedule length {len(req.alpha_schedule)} "
+                            f"!= n_steps {expected_len}"
+                        ),
+                    )
+                if any(not (0.0 <= float(v) <= 1.0) for v in req.alpha_schedule):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="alpha_schedule values must each lie in [0, 1]",
+                    )
 
         with app.state.lock:
             prior = app.state.current
@@ -254,6 +390,9 @@ def create_app():
                 n_steps=req.n_steps,
                 scale=req.scale,
                 seed=req.seed,
+                overrides=req.overrides,
+                alpha_schedule=req.alpha_schedule,
+                family=req.family,
             )
             sess.loop = app.state.loop
             app.state.current = sess
@@ -266,7 +405,65 @@ def create_app():
             "scenario": sess.scenario,
             "n_steps": sess.n_steps,
             "scale": sess.scale,
+            "family": sess.family,
+            "overrides": sess.overrides,
+            "alpha_schedule_len": len(sess.alpha_schedule) if sess.alpha_schedule else 0,
         }
+
+    @app.get("/scenarios/families")
+    def scenario_families():
+        from engine.scenarios import SCENARIOS
+        from engine.scenarios.families import families_with_scenarios
+
+        return families_with_scenarios(SCENARIOS.keys())
+
+    @app.get("/parameter_meta")
+    def parameter_meta():
+        """Return the eight live-engine parameter records. The UI imports
+        labels, tooltips, and Sobol bounds from here so the doc and the UI
+        cannot drift. See `engine/data/live_parameter_meta.py`.
+        """
+        from engine.data.live_parameter_meta import (
+            LIVE_PARAMETERS,
+            SOBOL_METRICS,
+        )
+
+        return {
+            "parameters": list(LIVE_PARAMETERS),
+            "sobol_metrics": list(SOBOL_METRICS),
+        }
+
+    @app.get("/sobol_indices")
+    def sobol_indices(metric: str = "log_exo_baroque_index"):
+        """Return the pinned N=2048 Sobol indices for the requested metric.
+
+        Reads `outputs/sensitivity/sobol_indices.n2048.json` once and
+        caches in process memory. Returns S1, S1_conf, ST, ST_conf
+        vectors per parameter name. The UI uses this for the badge
+        attached to each slider row.
+        """
+        path = REPO_ROOT / "outputs" / "sensitivity" / "sobol_indices.n2048.json"
+        if not path.exists():
+            raise HTTPException(status_code=503, detail="sobol indices artifact missing")
+
+        cache = getattr(app.state, "_sobol_cache", None)
+        if cache is None:
+            with path.open() as fh:
+                cache = json.load(fh)
+            app.state._sobol_cache = cache
+
+        for entry in cache["indices"]:
+            if entry["metric"] == metric:
+                return {
+                    "metric": metric,
+                    "parameter_names": entry["parameter_names"],
+                    "S1": entry["S1"],
+                    "S1_conf": entry["S1_conf"],
+                    "ST": entry["ST"],
+                    "ST_conf": entry["ST_conf"],
+                    "n_base_samples": cache.get("n_base_samples"),
+                }
+        raise HTTPException(status_code=404, detail=f"unknown sobol metric: {metric}")
 
     @app.post("/runs/{run_id}/cancel")
     def cancel_run(run_id: str):
