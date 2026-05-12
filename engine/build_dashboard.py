@@ -130,6 +130,16 @@ def _load_sobol(path: Path) -> dict | None:
         return None
 
 
+def _load_validation_json(path: Path) -> dict | None:
+    """Load a permeability / norms / other validation artifact. None when absent."""
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 def _load_provenance() -> list[dict]:
     """Return the empirical-anchor provenance list for the About panel."""
     try:
@@ -218,6 +228,8 @@ def build_html(
     sobol_alpha: dict | None = None,
     sobol_exo: dict | None = None,
     convergence_stability: dict | None = None,
+    permeability_sweep: dict | None = None,
+    norms_sensitivity: dict | None = None,
 ) -> str:
     payload = {
         "scenarios": {
@@ -239,6 +251,12 @@ def build_html(
         "sobol_exo": sobol_exo,
         "provenance": _load_provenance(),
         "convergence_stability": convergence_stability or {},
+        # H-J validation lift: permeability + norms sensitivity sweeps.
+        # Either may be None until the corresponding `agentworld validate`
+        # subcommand has run; the dashboard panels read these to render
+        # the basin-shift and rejection-share-shift figures.
+        "permeability_sweep": permeability_sweep,
+        "norms_sensitivity": norms_sensitivity,
     }
     payload_json = json.dumps(payload)
 
@@ -2609,6 +2627,10 @@ def main():
     ensembles_dir = here / "outputs" / "ensembles"
     sobol_alpha_path = here / "outputs" / "sensitivity" / "sobol_indices.json"
     sobol_exo_path = here / "outputs" / "sensitivity" / "exo_sobol_indices.json"
+    permeability_path = (
+        here / "outputs" / "validation" / "permeability_sweep.json"
+    )
+    norms_path = here / "outputs" / "validation" / "norms_sensitivity.json"
     out = here / "dashboard" / "index.html"
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -2620,6 +2642,8 @@ def main():
     sobol_exo = _load_sobol(sobol_exo_path)
     sensitivity = _load_sensitivity(sensitivity_path)
     convergence_stability = _load_convergence_stability(here / "outputs")
+    permeability_sweep = _load_validation_json(permeability_path)
+    norms_sensitivity = _load_validation_json(norms_path)
 
     html = build_html(
         runs,
@@ -2628,6 +2652,8 @@ def main():
         sobol_alpha=sobol_alpha,
         sobol_exo=sobol_exo,
         convergence_stability=convergence_stability,
+        permeability_sweep=permeability_sweep,
+        norms_sensitivity=norms_sensitivity,
     )
     out.write_text(html)
     print(
@@ -2635,7 +2661,9 @@ def main():
         f"{len(runs)} scenarios, {len(ensembles)} ensembles, "
         f"sobol_alpha={'yes' if sobol_alpha else 'no'}, "
         f"sobol_exo={'yes' if sobol_exo else 'no'}, "
-        f"cs_flags={len(convergence_stability)})"
+        f"cs_flags={len(convergence_stability)}, "
+        f"permeability={'yes' if permeability_sweep else 'no'}, "
+        f"norms={'yes' if norms_sensitivity else 'no'})"
     )
 
 

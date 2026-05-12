@@ -482,6 +482,94 @@ def validate_adversarial_cmd(n_evals, seed, out, n_steps, n_replicate_seeds, no_
         )
 
 
+@validate_group.command("permeability")
+@click.option("--samples", "n_samples", default=128, show_default=True, type=int,
+              help="Sobol samples per permeability grid point. "
+                   "11 grid points × N samples = 11N simulations.")
+@click.option("--seed", default=0, show_default=True, type=int)
+@click.option("--n-steps", default=24, show_default=True, type=int,
+              help="Steps per evaluation.")
+@click.option("--pairs", default=20_000, show_default=True, type=int)
+@click.option("--humans", default=600, show_default=True, type=int)
+@click.option("--agents", default=6_000, show_default=True, type=int)
+@click.option("--out", default="outputs/validation/permeability_sweep.json",
+              show_default=True)
+@click.option("--no-progress", is_flag=True)
+def validate_permeability_cmd(
+    n_samples, seed, n_steps, pairs, humans, agents, out, no_progress,
+):
+    """Sweep `cross_stack_permeability` over the wide prior; pin basin shifts."""
+    from engine.validation.sweeps import (
+        run_permeability_sweep, write_permeability_summary,
+    )
+    out_path = Path(out)
+    summary = run_permeability_sweep(
+        n_samples_per_point=n_samples,
+        seed=seed,
+        n_steps=n_steps,
+        pairs_per_step=pairs,
+        n_human_prototypes=humans,
+        n_agent_prototypes=agents,
+        progress=not no_progress,
+    )
+    write_permeability_summary(summary, out_path)
+    n_runs = len(summary.permeability_values) * summary.n_samples_per_point
+    click.echo(
+        f"\n[permeability] {n_runs} sims in {summary.elapsed_sec:.1f}s -> "
+        f"{out_path}"
+    )
+    # Sandboxed vs open: basin share at the two ends.
+    sandbox = summary.basin_distribution[0]
+    open_end = summary.basin_distribution[-1]
+    click.echo(
+        f"             p=0.0  smooth={sandbox['smooth']:.0%} "
+        f"baroque={sandbox['baroque']:.0%}; "
+        f"p=1.0  smooth={open_end['smooth']:.0%} "
+        f"baroque={open_end['baroque']:.0%}"
+    )
+
+
+@validate_group.command("norms")
+@click.option("--samples", "n_samples", default=128, show_default=True, type=int,
+              help="Sobol samples per configuration. "
+                   "2 configurations × N samples = 2N simulations.")
+@click.option("--seed", default=0, show_default=True, type=int)
+@click.option("--n-steps", default=24, show_default=True, type=int)
+@click.option("--pairs", default=20_000, show_default=True, type=int)
+@click.option("--humans", default=600, show_default=True, type=int)
+@click.option("--agents", default=6_000, show_default=True, type=int)
+@click.option("--out", default="outputs/validation/norms_sensitivity.json",
+              show_default=True)
+@click.option("--no-progress", is_flag=True)
+def validate_norms_cmd(
+    n_samples, seed, n_steps, pairs, humans, agents, out, no_progress,
+):
+    """Toggle norm-participation vs static-distance; pin the alignment-share swing."""
+    from engine.validation.sweeps import (
+        run_norms_sensitivity, write_norms_summary,
+    )
+    out_path = Path(out)
+    summary = run_norms_sensitivity(
+        n_samples=n_samples,
+        seed=seed,
+        n_steps=n_steps,
+        pairs_per_step=pairs,
+        n_human_prototypes=humans,
+        n_agent_prototypes=agents,
+        progress=not no_progress,
+    )
+    write_norms_summary(summary, out_path)
+    delta = summary.alignment_share_delta
+    click.echo(
+        f"\n[norms] 2x{summary.n_samples} sims in {summary.elapsed_sec:.1f}s -> "
+        f"{out_path}"
+    )
+    click.echo(
+        f"       align-share delta (norms - static): "
+        f"p10={delta['p10']:+.3f}  p50={delta['p50']:+.3f}  p90={delta['p90']:+.3f}"
+    )
+
+
 @main.command("convergence")
 @click.option("--scales", multiple=True, default=("small", "medium"),
               show_default=True, type=click.Choice(SCALE_CHOICES),
