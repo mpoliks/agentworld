@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>agentworld · live</title>
+<title>agentworld · cockpit</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
@@ -12,31 +12,17 @@
 <script src="live_pairs.js" defer></script>
 <script src="live_flow.js" defer></script>
 <script src="live_graph.js" defer></script>
-<script src="live_orbit.js" defer></script>
-<script src="live_sector_chord.js" defer></script>
 <link rel="stylesheet" href="_tokens.css">
 <style>
-header {
-  padding: 32px 0 20px;
-  border-bottom: 1px solid var(--border);
-}
-header .super { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-3); margin-bottom: 10px; }
-header h1 { font-family: var(--serif); font-weight: 400; font-size: 30px; line-height: 1.05; margin: 0; letter-spacing: -0.01em; }
+header { padding: 20px 0 12px; border-bottom: 1px solid var(--border); }
+header .super { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-3); margin-bottom: 6px; }
+header h1 { font-family: var(--serif); font-weight: 400; font-size: 22px; line-height: 1.1; margin: 0; letter-spacing: -0.01em; }
 header h1 em { font-style: italic; color: var(--accent); }
-header .lead { font-family: var(--serif); font-size: 14px; line-height: 1.55; color: var(--text-2); margin: 8px 0 0; max-width: 720px; }
+header .lead { font-family: var(--serif); font-size: 13px; line-height: 1.55; color: var(--text-2); margin: 6px 0 0; max-width: 720px; }
 
-main { padding: 24px 0 80px; }
+main { padding: 12px 0 64px; }
 
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 16px 20px; }
-
-.controls {
-  display: grid;
-  grid-template-columns: 1fr auto auto auto auto;
-  gap: 12px;
-  align-items: center;
-  margin: 24px 0 16px;
-}
-@media (max-width: 720px) { .controls { grid-template-columns: 1fr 1fr; } }
 
 select, input, button {
   font-family: var(--mono);
@@ -71,62 +57,63 @@ button.ghost:hover { color: var(--text); border-style: solid; border-color: var(
 
 label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 4px; }
 
-.status-bar {
+/* Sticky cockpit stats strip — six welfare-focused numbers always visible. */
+.cockpit-stats {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 8px;
+  padding: 10px 0;
+  background: linear-gradient(var(--bg), rgba(12,13,16,0.92));
+  border-bottom: 1px solid var(--border);
 }
-.stat {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 12px 16px;
-}
-.stat .label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; margin: 0; }
-.stat .value { font-family: var(--mono); font-size: 18px; color: var(--text); margin-top: 4px; }
-.stat .value.tinted { color: var(--accent); }
-.stat .value.green { color: var(--green); }
-.stat .value.red { color: var(--red); }
-.stat .value.muted { color: var(--text-3); }
+.cockpit-stat { background: var(--panel); border: 1px solid var(--border); border-radius: 3px; padding: 8px 12px; }
+.cockpit-stat .label { font-size: 9px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; }
+.cockpit-stat .value { font-family: var(--mono); font-size: 16px; color: var(--text); margin-top: 4px; line-height: 1.1; }
+.cockpit-stat .value.headline { color: var(--accent); font-size: 18px; }
+.cockpit-stat .value.muted { color: var(--text-3); }
+.cockpit-stat .value.green { color: var(--green); }
+.cockpit-stat .value.red { color: var(--red); }
+.cockpit-stat .value.tinted { color: var(--accent); }
+.cockpit-stat.headline { border-color: rgba(184,154,85,0.5); }
 
-.charts-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
-@media (max-width: 1100px) { .charts-grid { grid-template-columns: 1fr; } }
-.chart-box { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 8px; }
-.chart-title { font-size: 11px; color: var(--text-3); padding: 8px 12px 0; text-transform: uppercase; letter-spacing: 0.08em; }
-.chart-caption { font-family: var(--serif); font-size: 12px; line-height: 1.45; color: var(--text-2); padding: 4px 12px 4px; }
-
-.scenario-desc { font-family: var(--serif); font-size: 13px; color: var(--text-2); line-height: 1.5; margin-top: 6px; }
-
-.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
-.tab {
-  padding: 10px 18px;
-  cursor: pointer;
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  position: relative;
-  text-transform: uppercase;
+/* Cockpit section: scrolling, no tabs. */
+.cockpit-section { margin: 28px 0 0; }
+.cockpit-section > h2 {
+  font-family: var(--mono);
+  font-size: 11px;
   color: var(--text-3);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  user-select: none;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--border);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
 }
-.tab:hover { color: var(--text-2); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-.tab[data-has-data="true"]::after {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--green);
-  margin-left: 8px;
-  vertical-align: middle;
-  box-shadow: 0 0 6px rgba(95, 165, 114, 0.6);
+.cockpit-section > h2 .sub {
+  font-family: var(--serif);
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: none;
+  letter-spacing: 0;
+  font-style: italic;
 }
 
-.foldtree-panel { min-height: 480px; padding: 24px; font-family: var(--mono); font-size: 12px; color: var(--text-3); text-align: center; }
-.foldtree-panel a { color: var(--accent); }
+/* Macro grid — 12 small charts, 3 across. */
+.macro-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+@media (max-width: 1100px) { .macro-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 720px) { .macro-grid { grid-template-columns: 1fr; } }
+.macro-cell { background: var(--panel); border: 1px solid var(--border); border-radius: 3px; padding: 4px 8px; }
+.macro-cell.headline { border-left: 3px solid var(--accent); }
+.macro-cell-title { font-family: var(--mono); font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; padding: 4px 4px 0; display: flex; justify-content: space-between; align-items: baseline; }
+.macro-cell-title .now { color: var(--text); font-size: 11px; }
+.macro-cell-chart { height: 130px; }
+
+.chart-caption { font-family: var(--serif); font-size: 12px; line-height: 1.45; color: var(--text-2); padding: 4px 12px 4px; }
 
 .event-log {
   font-family: var(--mono);
@@ -135,9 +122,9 @@ label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   margin-top: 24px;
-  max-height: 160px;
+  max-height: 120px;
   overflow-y: auto;
 }
 .event-log .row { padding: 2px 0; }
@@ -153,9 +140,9 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
 
 <header>
   <div class="wrap">
-    <div class="super">Agentworld · Live</div>
-    <h1>Streaming run · <em>step-by-step</em> over SSE</h1>
-    <p class="lead">Pick a scenario, hit run, and watch the alpha-engine produce step metrics in real time. The page reads <code>/runs/{id}/stream</code> as Server-Sent Events. Charts redraw incrementally; the foldtree tab is filled in by B4.</p>
+    <div class="super">Agentworld · Cockpit</div>
+    <h1>How do we <em>maximize human welfare</em> in these scenarios?</h1>
+    <p class="lead">Tune the parameter panel, run, watch every dynamic at once. Authentic welfare (the share of real welfare that actually reaches humans) is the headline; population distributions and mechanism panels read off the same step stream.</p>
   </div>
 </header>
 
@@ -164,117 +151,74 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
 
     <div id="param-panel" class="panel" style="padding: 0; background: transparent; border: none;"></div>
 
-    <div class="tabs">
-      <div class="tab active" data-tab="charts">Charts</div>
-      <div class="tab" data-tab="tape">Tape</div>
-      <div class="tab" data-tab="flow">Flow</div>
-      <div class="tab" data-tab="graph">Graph</div>
-      <div class="tab" data-tab="orbit">Orbit</div>
-      <div class="tab" data-tab="chord">Sector chord</div>
-      <div class="tab" data-tab="foldtree">Fold tree</div>
-    </div>
-
-    <div id="tab-charts">
-      <div class="status-bar">
-        <div class="stat"><p class="label">Status</p><div class="value muted" id="s-status">idle</div></div>
-        <div class="stat"><p class="label">Step</p><div class="value tinted" id="s-step">—</div></div>
-        <div class="stat"><p class="label">Wall time</p><div class="value" id="s-elapsed">—</div></div>
-        <div class="stat"><p class="label">α (current)</p><div class="value" id="s-alpha">—</div></div>
-        <div class="stat"><p class="label">EBI (current)</p><div class="value" id="s-ebi">—</div></div>
-        <div class="stat"><p class="label">Real welfare / capita</p><div class="value" id="s-rwpc">—</div></div>
-        <div class="stat"><p class="label">Topology label</p><div class="value muted" id="s-label">—</div></div>
+    <!-- Sticky six-number status strip. -->
+    <div class="cockpit-stats">
+      <div class="cockpit-stat headline">
+        <div class="label">Authentic welfare / cap</div>
+        <div class="value headline" id="s-auth-rwpc">—</div>
       </div>
-
-      <div class="charts-grid">
-        <div class="chart-box">
-          <div class="chart-title">α · control variable</div>
-          <p class="chart-caption">Where the run sits on the smooth → striated dial. Low α is Krier-style mediation collapse; high α is Bratton-style fractal lift.</p>
-          <div id="chart-alpha" style="height: 320px;"></div>
-        </div>
-        <div class="chart-box">
-          <div class="chart-title">EBI · nominal / real</div>
-          <p class="chart-caption">Exo-Baroque Index. Above 1: every dollar of GDP carries machine-internal accounting weight that no human consumed.</p>
-          <div id="chart-ebi" style="height: 320px;"></div>
-        </div>
-        <div class="chart-box">
-          <div class="chart-title">Real welfare / capita</div>
-          <p class="chart-caption">The denominator that matters: cumulative real welfare per agent-equivalent, across the run.</p>
-          <div id="chart-rwpc" style="height: 320px;"></div>
-        </div>
+      <div class="cockpit-stat">
+        <div class="label">Welfare share to humans</div>
+        <div class="value" id="s-welfare-share">—</div>
       </div>
-
-      <div id="event-log" class="event-log"><div class="row"><b>idle</b>no run yet · pick a scenario and hit Run</div></div>
+      <div class="cockpit-stat">
+        <div class="label">Wealth Gini</div>
+        <div class="value" id="s-gini">—</div>
+      </div>
+      <div class="cockpit-stat">
+        <div class="label">Human legibility</div>
+        <div class="value" id="s-legibility">—</div>
+      </div>
+      <div class="cockpit-stat">
+        <div class="label">α · step k/N</div>
+        <div class="value" id="s-alpha-step">—</div>
+      </div>
+      <div class="cockpit-stat">
+        <div class="label">Status · wall</div>
+        <div class="value muted" id="s-status">idle</div>
+      </div>
     </div>
 
-    <div id="tab-tape" style="display: none;">
-      <div id="tape-host"></div>
-      <p class="chart-caption" style="padding: 8px 0;">
-        K sampled trades per step (default 200 of the ~200K processed). Newest first.
-        Filter by pair type or executed/rejected. "ƒ" is friction; "+" is real surplus
-        delivered; "✕" is the gate that killed the trade.
-      </p>
-    </div>
+    <!-- Macro grid: 12 welfare-focused trajectories. -->
+    <section class="cockpit-section">
+      <h2>Macro trajectories <span class="sub">welfare, equity, mechanism diagnostics — all on the same x-axis</span></h2>
+      <div class="macro-grid" id="macro-grid"></div>
+    </section>
 
-    <div id="tab-flow" style="display: none;">
+    <!-- Live exchanges: the visual anchor. -->
+    <section class="cockpit-section">
+      <h2>Live exchanges <span class="sub">deck.gl particle field · K sampled pairs per step → arcs</span></h2>
       <div id="flow-host"></div>
-      <p class="chart-caption" style="padding: 8px 0;">
-        WebGL particle field via deck.gl. Each sampled pair launches a particle
-        that travels from its origin sector to its destination over ~900ms,
-        leaving an arc trail. Particle colour encodes pair type (H↔H green,
-        H↔A accent, A↔A blue); trail colour follows the origin sector palette.
-        Width scales with the prototype-pair's real-world weight.
-      </p>
-    </div>
+    </section>
 
-    <div id="tab-graph" style="display: none;">
+    <!-- Prototype social network. -->
+    <section class="cockpit-section">
+      <h2>Prototype network <span class="sub">d3-force · who is trading with whom right now</span></h2>
       <div id="graph-host"></div>
-      <p class="chart-caption" style="padding: 8px 0;">
-        ForceAtlas2 social network via Sigma.js. Each prototype that trades
-        becomes a node positioned near its sector anchor; each executed pair
-        adds a transient edge that fades after ~2.5s. Idle nodes evict at
-        10s. Sector clusters tighten under high-α regimes.
-      </p>
-    </div>
+    </section>
 
-    <div id="tab-orbit" style="display: none;">
-      <div id="orbit-host"></div>
-      <p class="chart-caption" style="padding: 8px 0;">
-        Three.js 3D sector orbit. Twelve sector glyphs on a circle; each
-        executed pair fires a bloom-blended arc between source and destination
-        over ~1.4s. Drag to rotate, scroll to zoom; auto-rotate is on by default.
-        This is the atmospheric view — for precise per-pair detail, use Flow or
-        Tape.
-      </p>
-    </div>
-
-    <div id="tab-chord" style="display: none;">
-      <div id="chord-host"></div>
-      <p class="chart-caption" style="padding: 8px 0;">
-        Twelve sectors arranged around a circle. Ribbon thickness encodes the
-        weighted volume of cleared trades between sector pairs, derived from
-        the K-pair-per-step sample. Per-step mode shows the instantaneous
-        snapshot; cumulative mode shows the structure that emerges over the
-        whole run.
-      </p>
-    </div>
-
-    <div id="tab-foldtree" style="display: none;">
+    <!-- Fold cascade. -->
+    <section class="cockpit-section">
+      <h2>Fold cascade <span class="sub">per-step nominal contribution by depth</span></h2>
       <div class="panel" style="padding: 0;">
-        <div id="foldtree-host" style="height: 480px;"></div>
+        <div id="foldtree-host" style="height: 280px;"></div>
       </div>
-      <p class="chart-caption" style="padding: 8px 0;">
-        Each column is one step. Within a column, bars stack from the base (depth 1, accent) to the
-        top (deepest, red). Column height is logarithmic in step total fold-nominal; a Hawkes
-        overshoot lights up its deepest bar. Folding-off scenarios show empty columns.
-      </p>
-    </div>
+    </section>
+
+    <!-- Trade tape. -->
+    <section class="cockpit-section">
+      <h2>Trade tape <span class="sub">latest K sampled trades · filter by type or outcome</span></h2>
+      <div id="tape-host"></div>
+    </section>
+
+    <div id="event-log" class="event-log"><div class="row"><b>idle</b>no run yet · pick a scenario and hit Run</div></div>
 
   </div>
 </main>
 
 <footer>
   <div class="wrap">
-    agentworld serve · dev only · 127.0.0.1:8765 · the engine remains transport-unaware
+    agentworld serve · dev only · 127.0.0.1:8765 · cockpit · authentic-welfare focused
   </div>
 </footer>
 
@@ -284,127 +228,217 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
   const $ = (id) => document.getElementById(id);
   const eventLog = $('event-log');
 
+  // The new sticky strip — six numbers focused on human welfare.
+  const sAuthRwpc = $('s-auth-rwpc');
+  const sWelfareShare = $('s-welfare-share');
+  const sGini = $('s-gini');
+  const sLegibility = $('s-legibility');
+  const sAlphaStep = $('s-alpha-step');
   const sStatus = $('s-status');
-  const sStep = $('s-step');
-  const sElapsed = $('s-elapsed');
-  const sAlpha = $('s-alpha');
-  const sEbi = $('s-ebi');
-  const sRwpc = $('s-rwpc');
-  const sLabel = $('s-label');
+
+  // ---- macro grid definitions (12 charts) ----------------------------
+  // Each entry: { id, title, headline?, src: (StepMetrics → number)
+  // OR stacked: [{name, src, color}], format: (n) => string }
+  const CHARTS = [
+    // Welfare goal row (border-left accent on these three).
+    {
+      id: 'chart-auth-cum', title: 'Authentic welfare · cumulative', headline: true, color: '#5fa572',
+      src: (m) => m.real_welfare_authentic_cumulative ?? m.real_welfare_cumulative,
+      format: (n) => Number.isFinite(n) ? n.toExponential(2) : '—',
+    },
+    {
+      id: 'chart-auth-rwpc', title: 'Real welfare / capita', headline: true, color: '#5fa572',
+      src: (m) => m.real_per_capita_welfare,
+      format: (n) => Number.isFinite(n) ? n.toExponential(2) : '—',
+    },
+    {
+      id: 'chart-welfare-share', title: 'Welfare share to humans', headline: true, color: '#b89a55',
+      src: (m) => (m.h2h_share ?? 0) + (m.h2a_share ?? 0),
+      format: (n) => Number.isFinite(n) ? (n * 100).toFixed(1) + '%' : '—',
+    },
+    // Equity row.
+    {
+      id: 'chart-gini', title: 'Wealth Gini', color: '#c25a5a',
+      src: (m) => m.gini_wealth,
+      format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—',
+    },
+    {
+      id: 'chart-wealth-floor', title: 'Wealth floor (min)', color: '#5fa572',
+      src: (m) => m.wealth_floor,
+      format: (n) => Number.isFinite(n) ? n.toExponential(2) : '—',
+    },
+    {
+      id: 'chart-legibility', title: 'Human legibility', color: '#5b8ec4',
+      src: (m) => m.human_legibility_index,
+      format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—',
+    },
+    // Mechanism / leverage row.
+    {
+      id: 'chart-alpha', title: 'α · control variable', color: '#b89a55',
+      src: (m) => m.alpha,
+      format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—',
+    },
+    {
+      id: 'chart-ebi-auth', title: 'Authentic EBI (log)', color: '#c25a5a',
+      src: (m) => {
+        const v = m.exo_baroque_authentic ?? m.exo_baroque_index;
+        return Number.isFinite(v) && v > 0 ? Math.log10(v) : null;
+      },
+      format: (n) => Number.isFinite(n) ? n.toFixed(2) : '—',
+    },
+    {
+      id: 'chart-pairs', title: 'Pair shares · H/H · H/A · A/A', stacked: [
+        { name: 'h2h', src: (m) => m.h2h_share, color: '#5fa572' },
+        { name: 'h2a', src: (m) => m.h2a_share, color: '#b89a55' },
+        { name: 'a2a', src: (m) => m.a2a_share, color: '#5b8ec4' },
+      ],
+    },
+    // Cascade / friction row.
+    {
+      id: 'chart-fold', title: 'Fold max depth', color: '#9077c2',
+      src: (m) => m.fold_max_depth,
+      format: (n) => Number.isFinite(n) ? n.toString() : '—',
+    },
+    {
+      id: 'chart-productive', title: 'Productive welfare yield', color: '#5fa572',
+      src: (m) => m.productive_welfare_yield,
+      format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—',
+    },
+    {
+      id: 'chart-rejects', title: 'Rejected · law/market/align/cost', stacked: [
+        { name: 'law', src: (m) => m.rejected_law, color: '#c25a5a' },
+        { name: 'market', src: (m) => m.rejected_market, color: '#b89a55' },
+        { name: 'align', src: (m) => m.rejected_align, color: '#9077c2' },
+        { name: 'cost', src: (m) => m.rejected_cost, color: '#5b8ec4' },
+      ],
+    },
+  ];
 
   // ---- chart setup ----------------------------------------------------
   const layoutBase = {
     paper_bgcolor: 'transparent',
     plot_bgcolor: 'transparent',
-    font: { family: 'JetBrains Mono, SF Mono, Menlo, monospace', size: 11, color: '#9ea2a8' },
-    margin: { l: 56, r: 16, t: 16, b: 36 },
-    xaxis: { title: 'step', gridcolor: '#2a2d33', zerolinecolor: '#2a2d33' },
-    yaxis: { gridcolor: '#2a2d33', zerolinecolor: '#2a2d33' },
+    font: { family: 'JetBrains Mono, SF Mono, Menlo, monospace', size: 9, color: '#9ea2a8' },
+    margin: { l: 36, r: 8, t: 8, b: 22 },
+    xaxis: { gridcolor: '#2a2d33', zerolinecolor: '#2a2d33', showgrid: true, tickfont: { size: 9 } },
+    yaxis: { gridcolor: '#2a2d33', zerolinecolor: '#2a2d33', showgrid: true, tickfont: { size: 9 } },
     showlegend: false,
   };
-  const PCFG = { displayModeBar: false, responsive: true };
+  const PCFG = { displayModeBar: false, responsive: true, staticPlot: false };
 
-  function makeChart(elId, color, yTitle) {
-    const trace = { x: [], y: [], type: 'scatter', mode: 'lines', line: { color, width: 2 } };
+  // Build the macro grid DOM and instantiate each Plotly chart.
+  const grid = $('macro-grid');
+  const nowSpans = {};            // chart id → "now" badge span
+  CHARTS.forEach((c) => {
+    const cell = document.createElement('div');
+    cell.className = 'macro-cell' + (c.headline ? ' headline' : '');
+    const title = document.createElement('div');
+    title.className = 'macro-cell-title';
+    const titleText = document.createElement('span');
+    titleText.textContent = c.title;
+    const nowBadge = document.createElement('span');
+    nowBadge.className = 'now';
+    nowBadge.textContent = '—';
+    title.appendChild(titleText);
+    title.appendChild(nowBadge);
+    cell.appendChild(title);
+    const chart = document.createElement('div');
+    chart.id = c.id;
+    chart.className = 'macro-cell-chart';
+    cell.appendChild(chart);
+    grid.appendChild(cell);
+    nowSpans[c.id] = nowBadge;
+
     const layout = JSON.parse(JSON.stringify(layoutBase));
-    layout.yaxis.title = yTitle;
-    Plotly.newPlot(elId, [trace], layout, PCFG);
-  }
-  makeChart('chart-alpha', '#b89a55', 'α');
-  makeChart('chart-ebi', '#c25a5a', 'EBI');
-  makeChart('chart-rwpc', '#5fa572', 'real / capita');
+    if (c.stacked) {
+      const traces = c.stacked.map((s) => ({
+        x: [], y: [],
+        type: 'scatter', mode: 'lines',
+        stackgroup: 'one',
+        line: { color: s.color, width: 0 },
+        fillcolor: s.color,
+        name: s.name,
+        hoverinfo: 'name+y',
+      }));
+      Plotly.newPlot(c.id, traces, layout, PCFG);
+    } else {
+      const trace = { x: [], y: [], type: 'scatter', mode: 'lines', line: { color: c.color, width: 2 } };
+      Plotly.newPlot(c.id, [trace], layout, PCFG);
+    }
+  });
 
   function resetCharts() {
-    // Drop any schedule overlay from a prior run, then clear the trace.
-    const ac = document.getElementById('chart-alpha');
-    if (ac && ac.data && ac.data.length > 1) {
-      Plotly.deleteTraces('chart-alpha', [1]);
-    }
-    Plotly.restyle('chart-alpha', { x: [[]], y: [[]] });
-    Plotly.restyle('chart-ebi', { x: [[]], y: [[]] });
-    Plotly.restyle('chart-rwpc', { x: [[]], y: [[]] });
+    CHARTS.forEach((c) => {
+      // Drop any overlays (e.g. alpha schedule on chart-alpha) before reset.
+      const el = document.getElementById(c.id);
+      if (el && el.data && el.data.length > (c.stacked ? c.stacked.length : 1)) {
+        const extra = el.data.length - (c.stacked ? c.stacked.length : 1);
+        const idx = [];
+        for (let i = 0; i < extra; i += 1) idx.push(el.data.length - 1 - i);
+        Plotly.deleteTraces(c.id, idx);
+      }
+      if (c.stacked) {
+        const xs = c.stacked.map(() => []);
+        const ys = c.stacked.map(() => []);
+        Plotly.restyle(c.id, { x: xs, y: ys });
+      } else {
+        Plotly.restyle(c.id, { x: [[]], y: [[]] });
+      }
+      nowSpans[c.id].textContent = '—';
+    });
   }
 
   function drawAlphaSchedule(alphaSchedule) {
     if (!alphaSchedule || !alphaSchedule.length) return;
     const xs = alphaSchedule.map((_, i) => i);
     Plotly.addTraces('chart-alpha', [{
-      x: xs,
-      y: alphaSchedule,
-      type: 'scatter',
-      mode: 'lines',
+      x: xs, y: alphaSchedule,
+      type: 'scatter', mode: 'lines',
       line: { color: '#b89a55', width: 1, dash: 'dot' },
-      opacity: 0.5,
-      name: 'scheduled',
-      hoverinfo: 'skip',
+      opacity: 0.5, name: 'scheduled', hoverinfo: 'skip',
     }]);
   }
 
-  function appendStep(elId, x, y) {
-    Plotly.extendTraces(elId, { x: [[x]], y: [[y]] }, [0]);
+  function appendChartStep(c, step, m) {
+    if (c.stacked) {
+      const xs = c.stacked.map(() => [step.step]);
+      const ys = c.stacked.map((s) => [s.src(step) ?? 0]);
+      const idx = c.stacked.map((_, i) => i);
+      Plotly.extendTraces(c.id, { x: xs, y: ys }, idx);
+      // "now" badge: show the largest stack component.
+      const vals = c.stacked.map((s) => s.src(step) ?? 0);
+      const top = c.stacked[vals.indexOf(Math.max(...vals))].name;
+      nowSpans[c.id].textContent = top;
+    } else {
+      const v = c.src(step);
+      Plotly.extendTraces(c.id, { x: [[step.step]], y: [[v ?? null]] }, [0]);
+      nowSpans[c.id].textContent = c.format(v);
+    }
   }
 
-  // ---- tabs -----------------------------------------------------------
-  document.querySelectorAll('.tab').forEach((t) => {
-    t.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
-      t.classList.add('active');
-      const which = t.dataset.tab;
-      $('tab-charts').style.display = which === 'charts' ? '' : 'none';
-      $('tab-tape').style.display = which === 'tape' ? '' : 'none';
-      $('tab-flow').style.display = which === 'flow' ? '' : 'none';
-      $('tab-graph').style.display = which === 'graph' ? '' : 'none';
-      $('tab-orbit').style.display = which === 'orbit' ? '' : 'none';
-      $('tab-chord').style.display = which === 'chord' ? '' : 'none';
-      $('tab-foldtree').style.display = which === 'foldtree' ? '' : 'none';
-    });
-  });
-
-  // ---- live exchange views (V2 S5 + S6) -------------------------------
+  // ---- live exchange views --------------------------------------------
   let tape = null;
   let flow = null;
   let graph = null;
-  let orbit = null;
-  let chord = null;
   function ensureExchangeViews() {
     if (!tape && typeof window.createTape === 'function') {
       tape = window.createTape($('tape-host'));
     }
     if (!flow && typeof window.createFlow === 'function') {
-      // createFlow is async (loads deck.gl from CDN); the rest of the
-      // page proceeds while the canvas spins up.
       window.createFlow($('flow-host')).then((f) => { flow = f; }).catch((e) => {
         const host = $('flow-host');
-        if (host) {
-          host.innerHTML = `<p style="color: var(--red); padding: 12px; font-family: var(--mono); font-size: 12px;">flow init failed: ${e.message || e}</p>`;
-        }
+        if (host) host.innerHTML = `<p style="color: var(--red); padding: 12px; font-family: var(--mono); font-size: 12px;">flow init failed: ${e.message || e}</p>`;
       });
     }
     if (!graph && typeof window.createGraph === 'function') {
       window.createGraph($('graph-host')).then((g) => { graph = g; }).catch((e) => {
         const host = $('graph-host');
-        if (host) {
-          host.innerHTML = `<p style="color: var(--red); padding: 12px; font-family: var(--mono); font-size: 12px;">graph init failed: ${e.message || e}</p>`;
-        }
+        if (host) host.innerHTML = `<p style="color: var(--red); padding: 12px; font-family: var(--mono); font-size: 12px;">graph init failed: ${e.message || e}</p>`;
       });
-    }
-    if (!orbit && typeof window.createOrbit === 'function') {
-      window.createOrbit($('orbit-host')).then((o) => { orbit = o; }).catch((e) => {
-        const host = $('orbit-host');
-        if (host) {
-          host.innerHTML = `<p style="color: var(--red); padding: 12px; font-family: var(--mono); font-size: 12px;">orbit init failed: ${e.message || e}</p>`;
-        }
-      });
-    }
-    if (!chord && typeof window.createSectorChord === 'function') {
-      chord = window.createSectorChord($('chord-host'));
     }
   }
 
-  // ---- parameter panel (S2) -------------------------------------------
-  // The panel owns scenario/family/overrides/scale/n_steps/seed/run/cancel.
-  // We hand it an onSubmit/onCancel pair and read getRunConfig() back when
-  // the user hits Run.
+  // ---- parameter panel ------------------------------------------------
   let panel = null;
 
   // ---- event log ------------------------------------------------------
@@ -422,6 +456,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
   let activeRunId = null;
   let startedAt = 0;
   let elapsedTimer = null;
+  let runNSteps = 0;             // target for the k/N display
 
   function setRunning(running) {
     if (panel) panel.setRunning(running);
@@ -430,7 +465,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
   function tickElapsed() {
     if (!startedAt) return;
     const sec = ((Date.now() - startedAt) / 1000).toFixed(1);
-    sElapsed.textContent = sec + 's';
+    sStatus.textContent = `running · ${sec}s`;
   }
 
   function closeStream() {
@@ -448,50 +483,38 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     return foldTree;
   }
 
-  function markTabHasData(tabName) {
-    const t = document.querySelector(`.tab[data-tab="${tabName}"]`);
-    if (t) t.setAttribute('data-has-data', 'true');
-  }
-  function clearTabIndicators() {
-    document.querySelectorAll('.tab[data-has-data]').forEach((t) => t.removeAttribute('data-has-data'));
-  }
+  // ---- per-step apply -------------------------------------------------
+  function fmtRwpc(v) { return Number.isFinite(v) ? v.toExponential(2) : '—'; }
+  function fmtPct(v) { return Number.isFinite(v) ? (v * 100).toFixed(1) + '%' : '—'; }
+  function fmtGini(v) { return Number.isFinite(v) ? v.toFixed(3) : '—'; }
 
   function applyStep(step) {
-    sStep.textContent = step.step;
-    sAlpha.textContent = step.alpha != null ? step.alpha.toFixed(3) : '—';
-    sEbi.textContent = step.exo_baroque_index != null ? step.exo_baroque_index.toFixed(3) : '—';
-    sRwpc.textContent = step.real_per_capita_welfare != null ? step.real_per_capita_welfare.toExponential(2) : '—';
-    appendStep('chart-alpha', step.step, step.alpha);
-    appendStep('chart-ebi', step.step, step.exo_baroque_index);
-    appendStep('chart-rwpc', step.step, step.real_per_capita_welfare);
-    markTabHasData('charts');
+    // Sticky strip — six welfare-focused numbers.
+    const auth_rwpc_proxy = step.real_per_capita_welfare;  // until phase 2 splits authentic per cap out
+    sAuthRwpc.textContent = fmtRwpc(auth_rwpc_proxy);
+    const welfareShare = (step.h2h_share ?? 0) + (step.h2a_share ?? 0);
+    sWelfareShare.textContent = fmtPct(welfareShare);
+    sGini.textContent = fmtGini(step.gini_wealth);
+    sLegibility.textContent = fmtGini(step.human_legibility_index);
+    sAlphaStep.textContent = `${(step.alpha ?? 0).toFixed(2)} · ${step.step}${runNSteps ? '/' + runNSteps : ''}`;
+
+    // Macro grid traces.
+    CHARTS.forEach((c) => appendChartStep(c, step, null));
+
+    // Foldtree.
     const ft = ensureFoldTree();
-    if (ft) {
-      ft.appendStep(step.step, step.fold_per_depth_contribution || []);
-      if ((step.fold_per_depth_contribution || []).some((v) => v > 0)) {
-        markTabHasData('foldtree');
-      }
-    }
+    if (ft) ft.appendStep(step.step, step.fold_per_depth_contribution || []);
+
+    // Live exchanges.
     ensureExchangeViews();
-    const hasPairs = (step.pair_samples || []).length > 0;
     if (tape) tape.applyStep(step);
     if (flow) flow.applyStep(step);
     if (graph) graph.applyStep(step);
-    if (orbit) orbit.applyStep(step);
-    if (chord) chord.applyStep(step);
-    if (hasPairs) {
-      markTabHasData('tape');
-      markTabHasData('flow');
-      markTabHasData('graph');
-      markTabHasData('orbit');
-      markTabHasData('chord');
-    }
   }
 
   function onTerminal(kind, payload) {
     sStatus.textContent = kind;
     sStatus.className = 'value ' + (kind === 'done' ? 'green' : kind === 'error' ? 'red' : 'muted');
-    if (payload && payload.label) { sLabel.textContent = payload.label; }
     if (payload && payload.error) { logRow('error', payload.error); }
     setRunning(false);
     closeStream();
@@ -500,22 +523,18 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
   function startStream(runId) {
     activeRunId = runId;
     activeES = new EventSource(`/runs/${runId}/stream`);
-
     activeES.addEventListener('hello', (e) => {
       const meta = JSON.parse(e.data);
-      logRow('hello', `run ${meta.run_id} · ${meta.scenario} · target ${meta.n_steps_target} steps · history_len=${meta.history_len}`);
+      runNSteps = meta.n_steps_target || 0;
+      logRow('hello', `run ${meta.run_id} · ${meta.scenario} · target ${meta.n_steps_target} steps`);
     });
-    activeES.addEventListener('step', (e) => {
-      const step = JSON.parse(e.data);
-      applyStep(step);
-    });
+    activeES.addEventListener('step', (e) => applyStep(JSON.parse(e.data)));
     activeES.addEventListener('done', (e) => {
       const payload = JSON.parse(e.data);
       logRow('done', `${payload.n_steps} steps · label=${payload.label}`);
       onTerminal('done', payload);
     });
     activeES.addEventListener('error', (e) => {
-      // SSE-level error (transport) or server-published "error" event.
       let payload = {};
       try { payload = JSON.parse(e.data); } catch (_) {}
       if (payload && payload.error) { logRow('error', payload.error); onTerminal('error', payload); }
@@ -539,17 +558,16 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     if (tape) tape.reset();
     if (flow) flow.reset();
     if (graph) graph.reset();
-    if (orbit) orbit.reset();
-    if (chord) chord.reset();
-    clearTabIndicators();
     clearLog();
-    sStep.textContent = '0';
-    sAlpha.textContent = '—';
-    sEbi.textContent = '—';
-    sRwpc.textContent = '—';
-    sLabel.textContent = '—';
+
+    sAuthRwpc.textContent = '—';
+    sWelfareShare.textContent = '—';
+    sGini.textContent = '—';
+    sLegibility.textContent = '—';
+    sAlphaStep.textContent = '—';
     sStatus.textContent = 'starting…';
     sStatus.className = 'value muted';
+    runNSteps = body.n_steps || 0;
 
     setRunning(true);
     startedAt = Date.now();
@@ -570,7 +588,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       const ans = await r.json();
       sStatus.textContent = 'running';
       sStatus.className = 'value tinted';
-      logRow('post', `started run ${ans.run_id} · ${ans.scenario} · family=${ans.family || '—'}`);
+      logRow('post', `started ${ans.run_id} · ${ans.scenario} · family=${ans.family || '—'}`);
       startStream(ans.run_id);
     } catch (e) {
       logRow('error', `network: ${e.message}`);
@@ -588,8 +606,6 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     }
   }
 
-  // The parameter panel is loaded via `live_parameters.js` (defer), so
-  // window.createParameterPanel is available once DOMContentLoaded fires.
   function mountPanel() {
     if (typeof window.createParameterPanel !== 'function') {
       logRow('error', 'parameter panel module failed to load');
