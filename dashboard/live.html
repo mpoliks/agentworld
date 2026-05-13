@@ -11,6 +11,7 @@
 <script src="live_parameters.js" defer></script>
 <script src="live_pairs.js" defer></script>
 <script src="live_flow.js" defer></script>
+<script src="live_graph.js" defer></script>
 <script src="live_sector_chord.js" defer></script>
 <link rel="stylesheet" href="_tokens.css">
 <style>
@@ -166,6 +167,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       <div class="tab active" data-tab="charts">Charts</div>
       <div class="tab" data-tab="tape">Tape</div>
       <div class="tab" data-tab="flow">Flow</div>
+      <div class="tab" data-tab="graph">Graph</div>
       <div class="tab" data-tab="chord">Sector chord</div>
       <div class="tab" data-tab="foldtree">Fold tree</div>
     </div>
@@ -219,6 +221,16 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
         leaving an arc trail. Particle colour encodes pair type (H↔H green,
         H↔A accent, A↔A blue); trail colour follows the origin sector palette.
         Width scales with the prototype-pair's real-world weight.
+      </p>
+    </div>
+
+    <div id="tab-graph" style="display: none;">
+      <div id="graph-host"></div>
+      <p class="chart-caption" style="padding: 8px 0;">
+        ForceAtlas2 social network via Sigma.js. Each prototype that trades
+        becomes a node positioned near its sector anchor; each executed pair
+        adds a transient edge that fades after ~2.5s. Idle nodes evict at
+        10s. Sector clusters tighten under high-α regimes.
       </p>
     </div>
 
@@ -328,6 +340,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       $('tab-charts').style.display = which === 'charts' ? '' : 'none';
       $('tab-tape').style.display = which === 'tape' ? '' : 'none';
       $('tab-flow').style.display = which === 'flow' ? '' : 'none';
+      $('tab-graph').style.display = which === 'graph' ? '' : 'none';
       $('tab-chord').style.display = which === 'chord' ? '' : 'none';
       $('tab-foldtree').style.display = which === 'foldtree' ? '' : 'none';
     });
@@ -336,6 +349,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
   // ---- live exchange views (V2 S5 + S6) -------------------------------
   let tape = null;
   let flow = null;
+  let graph = null;
   let chord = null;
   function ensureExchangeViews() {
     if (!tape && typeof window.createTape === 'function') {
@@ -348,6 +362,14 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
         const host = $('flow-host');
         if (host) {
           host.innerHTML = `<p style="color: var(--red); padding: 12px; font-family: var(--mono); font-size: 12px;">flow init failed: ${e.message || e}</p>`;
+        }
+      });
+    }
+    if (!graph && typeof window.createGraph === 'function') {
+      window.createGraph($('graph-host')).then((g) => { graph = g; }).catch((e) => {
+        const host = $('graph-host');
+        if (host) {
+          host.innerHTML = `<p style="color: var(--red); padding: 12px; font-family: var(--mono); font-size: 12px;">graph init failed: ${e.message || e}</p>`;
         }
       });
     }
@@ -431,10 +453,12 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     const hasPairs = (step.pair_samples || []).length > 0;
     if (tape) tape.applyStep(step);
     if (flow) flow.applyStep(step);
+    if (graph) graph.applyStep(step);
     if (chord) chord.applyStep(step);
     if (hasPairs) {
       markTabHasData('tape');
       markTabHasData('flow');
+      markTabHasData('graph');
       markTabHasData('chord');
     }
   }
@@ -489,6 +513,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     ensureExchangeViews();
     if (tape) tape.reset();
     if (flow) flow.reset();
+    if (graph) graph.reset();
     if (chord) chord.reset();
     clearTabIndicators();
     clearLog();
