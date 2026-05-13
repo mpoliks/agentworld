@@ -433,13 +433,27 @@
     scaleSel.value = 'small';
     const nStepsInp = el('input', { type: 'number', min: '1', max: '500', value: '60' });
     const seedInp = el('input', { type: 'number', value: '0' });
+    const continuousChk = el('input', { type: 'checkbox' });
+    continuousChk.checked = true;          // continuous-by-default for the cockpit
+    const continuousLabel = el('label', { class: 'pt-toggle' },
+      continuousChk,
+      el('span', {}, 'Continuous'),
+    );
     const runBtn = el('button', { class: '' }, 'Run');
     const cancelBtn = el('button', { class: 'ghost' }, 'Cancel');
     cancelBtn.disabled = true;
     runGroup.appendChild(el('div', {}, el('label', {}, 'Scale'), scaleSel));
-    runGroup.appendChild(el('div', {}, el('label', {}, 'Steps'), nStepsInp));
+    runGroup.appendChild(el('div', {}, el('label', {}, 'Steps (fixed)'), nStepsInp));
     runGroup.appendChild(el('div', {}, el('label', {}, 'Seed'), seedInp));
+    runGroup.appendChild(el('div', { style: 'align-self: center;' }, continuousLabel));
     runGroup.appendChild(el('div', { class: 'pt-run-actions' }, runBtn, cancelBtn));
+    // n_steps input greys out in continuous mode.
+    function syncContinuousUi() {
+      nStepsInp.disabled = continuousChk.checked;
+      nStepsInp.style.opacity = continuousChk.checked ? '0.4' : '1';
+    }
+    continuousChk.addEventListener('change', syncContinuousUi);
+    syncContinuousUi();
     root.appendChild(runGroup);
 
     // "about the bounds" expander
@@ -644,25 +658,29 @@
 
     function getRunConfig() {
       const n_steps = parseInt(nStepsInp.value, 10) || 0;
+      const continuous = continuousChk.checked;
+      const overrides = buildOverrides();
+      // In continuous mode the engine should produce steps fast and often
+      // rather than slow and big — drop pairs_per_step to ~20k so each
+      // step is ~10ms and the stream feels continuous.
+      if (continuous) {
+        overrides.pairs_per_step = 20_000;
+      }
       const cfg = {
         scenario: state.scenario,
         family: state.family,
-        overrides: buildOverrides(),
+        overrides,
         n_steps,
         scale: scaleSel.value,
         seed: parseInt(seedInp.value, 10),
-        // V2: enable per-pair sampling by default. The Flow / Graph /
-        // Orbit panels are GPU-accelerated and read from this stream;
+        continuous,
         // K=1500 lets the deck.gl canvas feel full without forcing
-        // ghost-particle interpolation. Wire cost is roughly 80 bytes
-        // × K × n_steps ≈ 7 MB per default run.
+        // ghost-particle interpolation. Wire cost ≈ 80 bytes × K per step.
         pair_sample_k: 1500,
       };
-      if (state.alphaMode === 'schedule' && n_steps > 0) {
+      if (state.alphaMode === 'schedule' && n_steps > 0 && !continuous) {
         cfg.alpha_schedule = sampleSchedule(n_steps);
         // Drop the per-step `alpha` override since the schedule takes precedence.
-        // Leaving it would still be applied first; the server then overwrites
-        // per step from alpha_schedule. Cleaner to omit.
         delete cfg.overrides.alpha;
       }
       return cfg;

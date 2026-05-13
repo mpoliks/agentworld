@@ -652,13 +652,13 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
         const xs = c.stacked.map(() => [step.step]);
         const ys = c.stacked.map((s) => [s.src(step) ?? 0]);
         const idx = c.stacked.map((_, i) => i);
-        Plotly.extendTraces(c.id, { x: xs, y: ys }, idx);
+        Plotly.extendTraces(c.id, { x: xs, y: ys }, idx, CHART_MAX_POINTS);
         const vals = c.stacked.map((s) => s.src(step) ?? 0);
         const top = c.stacked[vals.indexOf(Math.max(...vals))].name;
         mechNowSpans[c.id].textContent = top;
       } else {
         const v = c.src(step);
-        Plotly.extendTraces(c.id, { x: [[step.step]], y: [[v ?? null]] }, [0]);
+        Plotly.extendTraces(c.id, { x: [[step.step]], y: [[v ?? null]] }, [0], CHART_MAX_POINTS);
         mechNowSpans[c.id].textContent = c.format(v);
       }
     });
@@ -700,22 +700,73 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     }]);
   }
 
+  // Sliding-window cap — bounded memory for continuous mode runs.
+  // 600 points at ~10 steps/sec = 60s of trace history visible.
+  const CHART_MAX_POINTS = 600;
+
   function appendChartStep(c, step, m) {
     if (c.stacked) {
       const xs = c.stacked.map(() => [step.step]);
       const ys = c.stacked.map((s) => [s.src(step) ?? 0]);
       const idx = c.stacked.map((_, i) => i);
-      Plotly.extendTraces(c.id, { x: xs, y: ys }, idx);
+      Plotly.extendTraces(c.id, { x: xs, y: ys }, idx, CHART_MAX_POINTS);
       // "now" badge: show the largest stack component.
       const vals = c.stacked.map((s) => s.src(step) ?? 0);
       const top = c.stacked[vals.indexOf(Math.max(...vals))].name;
       nowSpans[c.id].textContent = top;
     } else {
       const v = c.src(step);
-      Plotly.extendTraces(c.id, { x: [[step.step]], y: [[v ?? null]] }, [0]);
+      Plotly.extendTraces(c.id, { x: [[step.step]], y: [[v ?? null]] }, [0], CHART_MAX_POINTS);
       nowSpans[c.id].textContent = c.format(v);
     }
   }
+
+  // ---- pair-event pacing (Pass 1 continuous mode) ----------------------
+  // Engine arrives in step bursts; the cockpit smooths them into a
+  // continuous stream. Pairs queue up, an animation-frame loop drains a
+  // bounded batch every tick. If incoming exceeds drain, the queue caps
+  // to PAIR_QUEUE_MAX (oldest drop) so memory stays bounded under
+  // forever-running continuous mode.
+  const pairQueue = [];
+  const PAIR_QUEUE_MAX = 6000;
+  let lastPairDispatch = 0;
+  function enqueuePairs(stepIdx, pairs) {
+    if (!pairs || !pairs.length) return;
+    for (let i = 0; i < pairs.length; i += 1) {
+      pairQueue.push({ stepIdx, rec: pairs[i] });
+    }
+    if (pairQueue.length > PAIR_QUEUE_MAX) {
+      pairQueue.splice(0, pairQueue.length - PAIR_QUEUE_MAX);
+    }
+  }
+  function dispatchPairsTick() {
+    requestAnimationFrame(dispatchPairsTick);
+    if (!pairQueue.length) return;
+    const now = performance.now();
+    const dt = now - lastPairDispatch;
+    lastPairDispatch = now;
+    // Target ~6000 events/sec when the queue is full; scale linearly with
+    // queue depth so a small queue drains slowly (smoother visual) while
+    // a deep queue catches up faster.
+    const baseRate = Math.min(6000, Math.max(120, pairQueue.length * 3));
+    const take = Math.max(1, Math.min(pairQueue.length, Math.ceil(baseRate * dt / 1000)));
+    const batch = pairQueue.splice(0, take);
+    // Group by stepIdx so views still see step boundaries cleanly.
+    const byStep = new Map();
+    for (let i = 0; i < batch.length; i += 1) {
+      const it = batch[i];
+      let arr = byStep.get(it.stepIdx);
+      if (!arr) { arr = []; byStep.set(it.stepIdx, arr); }
+      arr.push(it.rec);
+    }
+    for (const [stepIdx, recs] of byStep) {
+      const partial = { step: stepIdx, pair_samples: recs };
+      if (tape) tape.applyStep(partial);
+      if (flow) flow.applyStep(partial);
+      if (graph) graph.applyStep(partial);
+    }
+  }
+  requestAnimationFrame(dispatchPairsTick);
 
   // ---- live exchange views --------------------------------------------
   let tape = null;
@@ -812,11 +863,10 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     const ft = ensureFoldTree();
     if (ft) ft.appendStep(step.step, step.fold_per_depth_contribution || []);
 
-    // Live exchanges.
+    // Live exchanges — pair events go through the pacer so views see a
+    // smooth stream, not a burst per step.
     ensureExchangeViews();
-    if (tape) tape.applyStep(step);
-    if (flow) flow.applyStep(step);
-    if (graph) graph.applyStep(step);
+    enqueuePairs(step.step, step.pair_samples || []);
   }
 
   function onTerminal(kind, payload) {
@@ -865,6 +915,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     if (tape) tape.reset();
     if (flow) flow.reset();
     if (graph) graph.reset();
+    pairQueue.length = 0;
     clearLog();
 
     sAuthRwpc.textContent = '—';

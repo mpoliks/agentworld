@@ -73,6 +73,7 @@ class RunSession:
         alpha_schedule: Optional[list] = None,
         family: Optional[str] = None,
         pair_sample_k: int = 0,
+        continuous: bool = False,
     ) -> None:
         self.run_id = run_id
         self.scenario = scenario
@@ -83,6 +84,7 @@ class RunSession:
         self.alpha_schedule = list(alpha_schedule) if alpha_schedule else None
         self.family = family
         self.pair_sample_k = int(pair_sample_k)
+        self.continuous = bool(continuous)
 
         self.status: str = "queued"  # queued | running | done | error | cancelled
         self.error: Optional[str] = None
@@ -139,13 +141,18 @@ def _run_worker(sess: RunSession) -> None:
         sess.status = "running"
         sess.started_at = time.time()
         cfg = get_scenario(sess.scenario)
-        if sess.n_steps > 0:
+        if sess.continuous:
+            # 0 is the engine's continuous-mode signal; alpha_schedule is
+            # incompatible (it has a finite length) so we strip it.
+            cfg.n_steps = 0
+            cfg.alpha_schedule = None
+        elif sess.n_steps > 0:
             cfg.n_steps = sess.n_steps
         if sess.seed is not None:
             cfg.seed = int(sess.seed)
         if sess.overrides:
             _apply_overrides(cfg, sess.overrides)
-        if sess.alpha_schedule is not None:
+        if sess.alpha_schedule is not None and not sess.continuous:
             cfg.alpha_schedule = list(sess.alpha_schedule)
         if sess.pair_sample_k > 0:
             cfg.pair_sample_k = sess.pair_sample_k
@@ -279,6 +286,11 @@ class RunRequest(BaseModel):
     # stream. See `engine/core/transactions.py::PairSample` and
     # `docs/plans/live_engine.md` § V2.
     pair_sample_k: int = Field(default=0, ge=0, le=5000)
+    # Continuous mode: when True, the server runs the engine indefinitely
+    # (until POST /runs/{id}/cancel arrives or a new run preempts).
+    # Overrides `n_steps`. Combine with smaller `pairs_per_step` overrides
+    # to make per-step work cheap so the stream feels continuous.
+    continuous: bool = False
 
 
 def create_app():
@@ -405,6 +417,7 @@ def create_app():
                 alpha_schedule=req.alpha_schedule,
                 family=req.family,
                 pair_sample_k=req.pair_sample_k,
+                continuous=req.continuous,
             )
             sess.loop = app.state.loop
             app.state.current = sess
@@ -421,6 +434,7 @@ def create_app():
             "overrides": sess.overrides,
             "alpha_schedule_len": len(sess.alpha_schedule) if sess.alpha_schedule else 0,
             "pair_sample_k": sess.pair_sample_k,
+            "continuous": sess.continuous,
         }
 
     @app.get("/scenarios/families")

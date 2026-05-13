@@ -866,8 +866,21 @@ class World:
         step's `StepMetrics` after the step completes. Used by the streaming
         layer (`agentworld serve`). When `None`, the run is bit-identical to
         the no-callback path.
+
+        **Continuous mode.** If the resolved step budget is `<= 0`, the run
+        loops indefinitely. Termination relies on the step callback (the
+        serve layer raises a `_Cancelled` from inside the callback to stop
+        the loop cooperatively). Without a callback the loop never exits —
+        the engine itself doesn't decide when to stop in this mode.
         """
         n = n_steps if n_steps is not None else self.cfg.n_steps
+        if n <= 0:
+            # Continuous mode — relies on a cooperatively-cancelling
+            # step_callback to terminate.
+            while True:
+                m = self.step()
+                if step_callback is not None:
+                    step_callback(m)
         if progress:
             try:
                 from tqdm import trange
