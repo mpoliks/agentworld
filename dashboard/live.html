@@ -211,6 +211,13 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       </div>
     </section>
 
+    <!-- Mechanism panel: rendered only when the active family has one. -->
+    <section class="cockpit-section" id="mechanism-section" style="display: none;">
+      <h2>Active mechanism · <span id="mech-family-label" class="sub" style="color: var(--accent); font-style: normal;"></span></h2>
+      <p id="mech-family-blurb" class="chart-caption" style="padding-bottom: 8px;"></p>
+      <div class="macro-grid" id="mech-charts"></div>
+    </section>
+
     <!-- Live exchanges: the visual anchor. -->
     <section class="cockpit-section">
       <h2>Live exchanges <span class="sub">deck.gl particle field · K sampled pairs per step → arcs</span></h2>
@@ -468,6 +475,205 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     Plotly.restyle('chart-sector-welfare', { y: [new Array(SECTOR_NAMES.length).fill(0)] });
   }
 
+  // ---- Mechanism panels (Phase 3) -------------------------------------
+  // Family → mechanism chart definitions. Each chart is rendered as a
+  // macro-grid cell (Plotly line/stacked). On run-start we read the
+  // family from the POST /runs response, instantiate the right charts,
+  // and extend their traces per step. Families with no mechanism
+  // (alpha_baseline) hide the section.
+  const FAMILY_MECH = {
+    alpha_baseline: null,
+    demand_intermediation: {
+      label: 'Demand & intermediation',
+      blurb: 'Demand-side feedback weights welfare by whether a human ends up consuming it; productive folding splits fold output into welfare-creating vs parasitic shares. Track the authentic vs raw gap and the productive yield over time.',
+      charts: [
+        { id: 'mech-auth-vs-real', title: 'Authentic vs raw real (cum)', stacked: [
+          { name: 'authentic', src: (m) => m.real_welfare_authentic_cumulative ?? 0, color: '#5fa572' },
+          { name: 'gap to raw', src: (m) => Math.max(0, (m.real_welfare_cumulative ?? 0) - (m.real_welfare_authentic_cumulative ?? 0)), color: '#c25a5a' },
+        ] },
+        { id: 'mech-ebi-auth', title: 'Authentic EBI (log)', color: '#c25a5a',
+          src: (m) => { const v = m.exo_baroque_authentic; return Number.isFinite(v) && v > 0 ? Math.log10(v) : null; },
+          format: (n) => Number.isFinite(n) ? n.toFixed(2) : '—' },
+        { id: 'mech-prod-yield', title: 'Productive welfare yield', color: '#5fa572',
+          src: (m) => m.productive_welfare_yield,
+          format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—' },
+        { id: 'mech-intermed-cum', title: 'Welfare from intermediation · cum', color: '#b89a55',
+          src: (m) => m.real_welfare_from_intermediation_cumulative,
+          format: (n) => Number.isFinite(n) ? n.toExponential(2) : '—' },
+      ],
+    },
+    dynamic_law: {
+      label: 'Dynamic law',
+      blurb: 'Law strength evolves over the run; capture concentrates with wealth; both reduce surplus that would otherwise clear. Track how much welfare the law layer is *costing* this run.',
+      charts: [
+        { id: 'mech-law-strcap', title: 'Law strength + capture', stacked: [
+          { name: 'strength', src: (m) => m.law_strength, color: '#5fa572' },
+          { name: 'capture', src: (m) => m.law_capture, color: '#c25a5a' },
+        ] },
+        { id: 'mech-law-loss', title: 'Law surplus-loss fraction', color: '#c25a5a',
+          src: (m) => m.law_surplus_loss_fraction,
+          format: (n) => Number.isFinite(n) ? (n * 100).toFixed(1) + '%' : '—' },
+        { id: 'mech-law-upkeep', title: 'Law upkeep cost · step', color: '#b89a55',
+          src: (m) => m.law_upkeep_cost_step,
+          format: (n) => Number.isFinite(n) ? n.toExponential(2) : '—' },
+        { id: 'mech-law-weakcap', title: 'Loss · weak + capture (step)', stacked: [
+          { name: 'weak', src: (m) => m.law_weak_surplus_loss_step ?? 0, color: '#b89a55' },
+          { name: 'capture', src: (m) => m.law_capture_surplus_loss_step ?? 0, color: '#c25a5a' },
+        ] },
+      ],
+    },
+    pigouvian: {
+      label: 'Pigouvian automation tax',
+      blurb: 'Per-pair A2A tax on nominal volume, recycled either to human wealth or as an H2A friction subsidy. Headline question: does the tax shift activity back toward human-involving trades, and at what welfare cost?',
+      charts: [
+        { id: 'mech-pig-rev', title: 'Pigouvian revenue · cumulative', color: '#5fa572',
+          src: (m) => m.pigouvian_revenue_cumulative,
+          format: (n) => Number.isFinite(n) ? n.toExponential(2) : '—' },
+        { id: 'mech-pig-eff', title: 'Effective tax rate', color: '#b89a55',
+          src: (m) => m.pigouvian_effective_rate,
+          format: (n) => Number.isFinite(n) ? (n * 100).toFixed(1) + '%' : '—' },
+        { id: 'mech-pig-pairs', title: 'H↔A share (does tax shift trades?)', color: '#5b8ec4',
+          src: (m) => m.h2a_share,
+          format: (n) => Number.isFinite(n) ? (n * 100).toFixed(1) + '%' : '—' },
+        { id: 'mech-pig-leg', title: 'Human legibility', color: '#5fa572',
+          src: (m) => m.human_legibility_index,
+          format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—' },
+      ],
+    },
+    emergent_strategy: {
+      label: 'Emergent strategy / institutions',
+      blurb: 'Agents learn an intermediation preference; firms form and dissolve; populations churn. Where does the learned α settle, and how concentrated does the firm distribution get?',
+      charts: [
+        { id: 'mech-endo-alpha', title: 'Learned α (population mean)', color: '#b89a55',
+          src: (m) => m.endogenous_alpha >= 0 ? m.endogenous_alpha : null,
+          format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—' },
+        { id: 'mech-pref-shares', title: 'Smooth ↔ baroque pref shares', stacked: [
+          { name: 'smooth', src: (m) => m.pref_smooth_share ?? 0, color: '#5fa572' },
+          { name: 'striated', src: (m) => m.pref_striated_share ?? 0, color: '#c25a5a' },
+        ] },
+        { id: 'mech-firms', title: 'Firm count', color: '#5b8ec4',
+          src: (m) => m.n_firms,
+          format: (n) => Number.isFinite(n) ? String(n) : '—' },
+        { id: 'mech-firm-conc', title: 'Firm concentration (HHI)', color: '#9077c2',
+          src: (m) => m.firm_concentration,
+          format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—' },
+      ],
+    },
+    mission_economy: {
+      label: 'Mission economy',
+      blurb: 'Real-surplus levy funds coordinator-sector capability uplift. Watch human legibility and welfare share lift if the mission is working; watch sector welfare bars to see where uplift lands.',
+      charts: [
+        { id: 'mech-mission-rwpc', title: 'Real welfare / capita', color: '#5fa572',
+          src: (m) => m.real_per_capita_welfare,
+          format: (n) => Number.isFinite(n) ? n.toExponential(2) : '—' },
+        { id: 'mech-mission-leg', title: 'Human legibility', color: '#5b8ec4',
+          src: (m) => m.human_legibility_index,
+          format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—' },
+        { id: 'mech-mission-gini', title: 'Wealth Gini', color: '#c25a5a',
+          src: (m) => m.gini_wealth,
+          format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—' },
+        { id: 'mech-mission-prod', title: 'Productive welfare yield', color: '#b89a55',
+          src: (m) => m.productive_welfare_yield,
+          format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—' },
+      ],
+    },
+    norms_layer: {
+      label: 'Norms layer',
+      blurb: 'Alignment-as-participation: norms drift toward executed-partner average; capture pulls toward dense cluster; brittle-update oscillates. Watch align-rejection rate as the population converges or fragments.',
+      charts: [
+        { id: 'mech-norms-align', title: 'Rejected · align (norm-driven)', color: '#c25a5a',
+          src: (m) => m.rejected_align,
+          format: (n) => Number.isFinite(n) ? n.toExponential(2) : '—' },
+        { id: 'mech-norms-leg', title: 'Human legibility', color: '#5b8ec4',
+          src: (m) => m.human_legibility_index,
+          format: (n) => Number.isFinite(n) ? n.toFixed(3) : '—' },
+        { id: 'mech-norms-gov', title: 'Governance overhead fraction', color: '#9077c2',
+          src: (m) => m.governance_overhead_fraction,
+          format: (n) => Number.isFinite(n) ? (n * 100).toFixed(1) + '%' : '—' },
+        { id: 'mech-norms-h2h', title: 'H↔H share', color: '#5fa572',
+          src: (m) => m.h2h_share,
+          format: (n) => Number.isFinite(n) ? (n * 100).toFixed(1) + '%' : '—' },
+      ],
+    },
+  };
+
+  let mechCharts = [];          // active mechanism CHARTS array
+  let mechNowSpans = {};
+  function mountMechanismPanels(familyId) {
+    const def = FAMILY_MECH[familyId];
+    const section = $('mechanism-section');
+    const host = $('mech-charts');
+    host.innerHTML = '';
+    mechCharts = [];
+    mechNowSpans = {};
+    if (!def) {
+      section.style.display = 'none';
+      return;
+    }
+    $('mech-family-label').textContent = def.label;
+    $('mech-family-blurb').textContent = def.blurb;
+    section.style.display = '';
+    def.charts.forEach((c) => {
+      const cell = document.createElement('div');
+      cell.className = 'macro-cell';
+      const title = document.createElement('div');
+      title.className = 'macro-cell-title';
+      const t = document.createElement('span'); t.textContent = c.title;
+      const now = document.createElement('span'); now.className = 'now'; now.textContent = '—';
+      title.appendChild(t); title.appendChild(now);
+      cell.appendChild(title);
+      const chart = document.createElement('div');
+      chart.id = c.id; chart.className = 'macro-cell-chart';
+      cell.appendChild(chart);
+      host.appendChild(cell);
+      mechNowSpans[c.id] = now;
+
+      const layout = JSON.parse(JSON.stringify(layoutBase));
+      if (c.stacked) {
+        const traces = c.stacked.map((s) => ({
+          x: [], y: [],
+          type: 'scatter', mode: 'lines',
+          stackgroup: 'one',
+          line: { color: s.color, width: 0 },
+          fillcolor: s.color,
+          name: s.name,
+          hoverinfo: 'name+y',
+        }));
+        Plotly.newPlot(c.id, traces, layout, PCFG);
+      } else {
+        Plotly.newPlot(c.id, [{ x: [], y: [], type: 'scatter', mode: 'lines', line: { color: c.color, width: 2 } }], layout, PCFG);
+      }
+      mechCharts.push(c);
+    });
+  }
+  function appendMechanismStep(step) {
+    mechCharts.forEach((c) => {
+      if (c.stacked) {
+        const xs = c.stacked.map(() => [step.step]);
+        const ys = c.stacked.map((s) => [s.src(step) ?? 0]);
+        const idx = c.stacked.map((_, i) => i);
+        Plotly.extendTraces(c.id, { x: xs, y: ys }, idx);
+        const vals = c.stacked.map((s) => s.src(step) ?? 0);
+        const top = c.stacked[vals.indexOf(Math.max(...vals))].name;
+        mechNowSpans[c.id].textContent = top;
+      } else {
+        const v = c.src(step);
+        Plotly.extendTraces(c.id, { x: [[step.step]], y: [[v ?? null]] }, [0]);
+        mechNowSpans[c.id].textContent = c.format(v);
+      }
+    });
+  }
+  function resetMechanismCharts() {
+    mechCharts.forEach((c) => {
+      if (c.stacked) {
+        Plotly.restyle(c.id, { x: c.stacked.map(() => []), y: c.stacked.map(() => []) });
+      } else {
+        Plotly.restyle(c.id, { x: [[]], y: [[]] });
+      }
+      mechNowSpans[c.id].textContent = '—';
+    });
+  }
+
   function applyDistributions(step) {
     if (step.wealth_lorenz && step.wealth_lorenz.length === 11) {
       const xs = step.wealth_lorenz.map((_, i) => i * 10);
@@ -596,6 +802,9 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     // Macro grid traces.
     CHARTS.forEach((c) => appendChartStep(c, step, null));
 
+    // Mechanism panels (family-specific).
+    if (mechCharts.length) appendMechanismStep(step);
+
     // Distributions.
     applyDistributions(step);
 
@@ -687,6 +896,9 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       sStatus.textContent = 'running';
       sStatus.className = 'value tinted';
       logRow('post', `started ${ans.run_id} · ${ans.scenario} · family=${ans.family || '—'}`);
+      // Mount mechanism panels for the active family (after reset so the
+      // freshly-mounted charts start empty).
+      mountMechanismPanels(ans.family || 'alpha_baseline');
       startStream(ans.run_id);
     } catch (e) {
       logRow('error', `network: ${e.message}`);
