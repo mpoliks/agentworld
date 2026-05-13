@@ -130,7 +130,7 @@
     canvasWrap.appendChild(canvas);
     const empty = document.createElement('div');
     empty.className = 'lc-empty';
-    empty.textContent = 'cast appears once the run produces its first snapshot';
+    empty.innerHTML = '<div style="text-align: center;"><div style="font-size: 14px; color: var(--accent); margin-bottom: 6px;">Live world map</div><div>Click Run with Continuous on. ~150 agents appear in the sector grid below; trades fire as they move.</div></div>';
     canvasWrap.appendChild(empty);
     const tooltip = document.createElement('div');
     tooltip.className = 'lc-tooltip';
@@ -383,21 +383,22 @@
       step(now);
       ctx.clearRect(0, 0, W, H);
 
-      // Sector regions: soft fill + label.
+      // Sector regions: soft fill + label. Visible enough that the
+      // structure of the map reads even before the first cast snapshot.
       for (let s = 0; s < N_SECTORS; s += 1) {
         const r = sectorRect(s);
         const color = sectorColor(s);
-        ctx.fillStyle = color + '11';     // very faint
-        ctx.strokeStyle = color + '55';
-        ctx.lineWidth = 1;
+        ctx.fillStyle = color + '22';
+        ctx.strokeStyle = color + '99';
+        ctx.lineWidth = 1.2;
         ctx.fillRect(r.x, r.y, r.w, r.h);
         ctx.strokeRect(r.x, r.y, r.w, r.h);
-        ctx.font = 'bold 11px "JetBrains Mono", monospace';
+        ctx.font = 'bold 12px "JetBrains Mono", monospace';
         ctx.fillStyle = color;
-        ctx.globalAlpha = 0.85;
+        ctx.globalAlpha = 0.95;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
-        ctx.fillText(SECTOR_NAMES[s].toUpperCase(), r.x + 8, r.y + 6);
+        ctx.fillText(SECTOR_NAMES[s].toUpperCase(), r.x + 10, r.y + 8);
         ctx.globalAlpha = 1.0;
       }
 
