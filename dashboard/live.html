@@ -10,6 +10,7 @@
 <script src="foldtree.js" defer></script>
 <script src="live_parameters.js" defer></script>
 <script src="live_pairs.js" defer></script>
+<script src="live_flow.js" defer></script>
 <script src="live_sector_chord.js" defer></script>
 <link rel="stylesheet" href="_tokens.css">
 <style>
@@ -164,7 +165,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     <div class="tabs">
       <div class="tab active" data-tab="charts">Charts</div>
       <div class="tab" data-tab="tape">Tape</div>
-      <div class="tab" data-tab="grid">Grid</div>
+      <div class="tab" data-tab="flow">Flow</div>
       <div class="tab" data-tab="chord">Sector chord</div>
       <div class="tab" data-tab="foldtree">Fold tree</div>
     </div>
@@ -210,13 +211,14 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       </p>
     </div>
 
-    <div id="tab-grid" style="display: none;">
-      <div id="grid-host"></div>
+    <div id="tab-flow" style="display: none;">
+      <div id="flow-host"></div>
       <p class="chart-caption" style="padding: 8px 0;">
-        Twelve sector columns. Per step, the K sampled pairs light up two slots
-        (one per sector endpoint) and draw an arc between them if the trade
-        executed. Rejected pairs flash dim with no arc. Slot positions are
-        deterministic per prototype index.
+        WebGL particle field via deck.gl. Each sampled pair launches a particle
+        that travels from its origin sector to its destination over ~900ms,
+        leaving an arc trail. Particle colour encodes pair type (H↔H green,
+        H↔A accent, A↔A blue); trail colour follows the origin sector palette.
+        Width scales with the prototype-pair's real-world weight.
       </p>
     </div>
 
@@ -325,7 +327,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       const which = t.dataset.tab;
       $('tab-charts').style.display = which === 'charts' ? '' : 'none';
       $('tab-tape').style.display = which === 'tape' ? '' : 'none';
-      $('tab-grid').style.display = which === 'grid' ? '' : 'none';
+      $('tab-flow').style.display = which === 'flow' ? '' : 'none';
       $('tab-chord').style.display = which === 'chord' ? '' : 'none';
       $('tab-foldtree').style.display = which === 'foldtree' ? '' : 'none';
     });
@@ -333,14 +335,21 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
 
   // ---- live exchange views (V2 S5 + S6) -------------------------------
   let tape = null;
-  let grid = null;
+  let flow = null;
   let chord = null;
   function ensureExchangeViews() {
     if (!tape && typeof window.createTape === 'function') {
       tape = window.createTape($('tape-host'));
     }
-    if (!grid && typeof window.createGrid === 'function') {
-      grid = window.createGrid($('grid-host'));
+    if (!flow && typeof window.createFlow === 'function') {
+      // createFlow is async (loads deck.gl from CDN); the rest of the
+      // page proceeds while the canvas spins up.
+      window.createFlow($('flow-host')).then((f) => { flow = f; }).catch((e) => {
+        const host = $('flow-host');
+        if (host) {
+          host.innerHTML = `<p style="color: var(--red); padding: 12px; font-family: var(--mono); font-size: 12px;">flow init failed: ${e.message || e}</p>`;
+        }
+      });
     }
     if (!chord && typeof window.createSectorChord === 'function') {
       chord = window.createSectorChord($('chord-host'));
@@ -421,11 +430,11 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     ensureExchangeViews();
     const hasPairs = (step.pair_samples || []).length > 0;
     if (tape) tape.applyStep(step);
-    if (grid) grid.applyStep(step);
+    if (flow) flow.applyStep(step);
     if (chord) chord.applyStep(step);
     if (hasPairs) {
       markTabHasData('tape');
-      markTabHasData('grid');
+      markTabHasData('flow');
       markTabHasData('chord');
     }
   }
@@ -479,7 +488,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     if (foldTree) { foldTree.reset(); }
     ensureExchangeViews();
     if (tape) tape.reset();
-    if (grid) grid.reset();
+    if (flow) flow.reset();
     if (chord) chord.reset();
     clearTabIndicators();
     clearLog();

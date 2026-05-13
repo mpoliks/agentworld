@@ -278,7 +278,7 @@ class RunRequest(BaseModel):
     # range is 50..500; the tape/grid/chord views consume the same
     # stream. See `engine/core/transactions.py::PairSample` and
     # `docs/plans/live_engine.md` § V2.
-    pair_sample_k: int = Field(default=0, ge=0, le=2000)
+    pair_sample_k: int = Field(default=0, ge=0, le=5000)
 
 
 def create_app():
