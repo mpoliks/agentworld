@@ -110,6 +110,14 @@ class WorldConfig:
     # `World.build` for how it's spawned.
     pair_sample_k: int = 0
 
+    # Cockpit Pass 2: persistent cast of prototype indices the live
+    # surface follows from step 0 onward. 0 (default) disables; >0
+    # samples that many prototype indices at build time weighted by
+    # importance, splits ~50/50 humans/agents, and emits per-step
+    # `StepMetrics.cast_snapshot` with each cast member's wealth,
+    # capability, autonomy, firm membership, and sector.
+    cast_size: int = 0
+
 
 _RNG_SUBSYSTEMS: tuple[str, ...] = (
     "population",
@@ -161,6 +169,10 @@ class World:
     # with any subsystem in `_RNG_SUBSYSTEMS`. `None` when
     # `cfg.pair_sample_k <= 0`.
     _pair_sample_rng: Optional[np.random.Generator] = None
+    # Cockpit Pass 2: persistent cast indices selected at build time.
+    # None when `cfg.cast_size == 0`. Cast prototypes don't churn;
+    # their wealth / capability / firm state evolves over the run.
+    cast_indices: Optional[np.ndarray] = None
     # Weighted-mean capability of the intermediating side of the economy.
     # Used by the productive-vs-parasitic folding split. Until the §4
     # mode-1 separation lands, we use the population-mean *agent*
@@ -235,6 +247,38 @@ class World:
             if cfg.pair_sample_k > 0
             else None
         )
+        # Cockpit Pass 2: pick a persistent cast of prototypes the live
+        # surface follows. Split roughly 50/50 humans/agents, weighted
+        # within each side by importance. Deterministic per seed via a
+        # second XOR'd rng so it doesn't disturb pair_sample_rng or
+        # any per-component subsystem stream.
+        cast_indices: Optional[np.ndarray] = None
+        if cfg.cast_size > 0:
+            cast_rng = np.random.default_rng(int(cfg.seed) ^ 0xCA57CA57)
+            target = min(int(cfg.cast_size), pop.n)
+            human_target = target // 2
+            agent_target = target - human_target
+            h_mask = pop.is_human.astype(bool)
+            a_mask = ~h_mask
+            h_idx = np.where(h_mask)[0]
+            a_idx = np.where(a_mask)[0]
+            h_w = pop.weight[h_idx].astype(np.float64)
+            a_w = pop.weight[a_idx].astype(np.float64)
+            picked: list = []
+            if h_idx.size > 0 and h_w.sum() > 0:
+                k = min(human_target, h_idx.size)
+                p = h_w / h_w.sum()
+                picked.extend(
+                    int(x) for x in cast_rng.choice(h_idx, size=k, replace=False, p=p)
+                )
+            if a_idx.size > 0 and a_w.sum() > 0:
+                k = min(agent_target, a_idx.size)
+                p = a_w / a_w.sum()
+                picked.extend(
+                    int(x) for x in cast_rng.choice(a_idx, size=k, replace=False, p=p)
+                )
+            if picked:
+                cast_indices = np.asarray(picked, dtype=np.int64)
         return cls(
             cfg=cfg,
             population=pop,
@@ -253,6 +297,7 @@ class World:
                 else 0.0
             ),
             _pair_sample_rng=pair_sample_rng,
+            cast_indices=cast_indices,
         )
 
     # ---- per-step ---------------------------------------------------------
@@ -849,6 +894,30 @@ class World:
         # Live-engine V2: attach the per-pair sample records (empty
         # when `pair_sample_k = 0`).
         m.pair_samples = tx.pair_samples
+
+        # Cockpit Pass 2: snapshot the persistent cast (empty when
+        # `cfg.cast_size == 0`). Each cast member emits a compact
+        # record with current wealth, capability, firm_id, autonomy,
+        # and sector — everything the live canvas needs to render the
+        # member as a dot and animate state changes step-to-step.
+        if self.cast_indices is not None:
+            ci = self.cast_indices
+            pop = self.population
+            firm_arr = pop.firm_id if pop.firm_id is not None else None
+            snap = []
+            for i in ci:
+                ii = int(i)
+                snap.append({
+                    "idx": ii,
+                    "is_human": bool(pop.is_human[ii]),
+                    "sector": int(pop.sector[ii]),
+                    "wealth": float(pop.wealth[ii]),
+                    "capability": float(pop.capability[ii]),
+                    "autonomy": float(pop.autonomy[ii]),
+                    "firm_id": int(firm_arr[ii]) if firm_arr is not None else -1,
+                    "stack": int(pop.stack[ii]),
+                })
+            m.cast_snapshot = snap
 
         self._advance_law_state()
         self.step_idx += 1

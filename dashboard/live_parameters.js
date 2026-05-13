@@ -677,6 +677,10 @@
         // K=1500 lets the deck.gl canvas feel full without forcing
         // ghost-particle interpolation. Wire cost ≈ 80 bytes × K per step.
         pair_sample_k: 1500,
+        // Cockpit Pass 2: persistent cast of 150 prototypes the live
+        // canvas follows from step 0. Wire cost ≈ 150 × 80 bytes per
+        // step; negligible at 10 steps/sec.
+        cast_size: 150,
       };
       if (state.alphaMode === 'schedule' && n_steps > 0 && !continuous) {
         cfg.alpha_schedule = sampleSchedule(n_steps);

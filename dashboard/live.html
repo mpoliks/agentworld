@@ -10,6 +10,7 @@
 <script src="foldtree.js" defer></script>
 <script src="live_parameters.js" defer></script>
 <script src="live_pairs.js" defer></script>
+<script src="live_cast.js" defer></script>
 <script src="live_flow.js" defer></script>
 <script src="live_graph.js" defer></script>
 <link rel="stylesheet" href="_tokens.css">
@@ -185,6 +186,21 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
         <div class="value muted" id="s-status">idle</div>
       </div>
     </div>
+
+    <!-- Live world: persistent cast follows ~150 prototypes. -->
+    <section class="cockpit-section">
+      <h2>Live world <span class="sub">~150 prototypes followed from step 0 · dots evolve, trades arc, laws fire, firms form</span></h2>
+      <div id="cast-host"></div>
+      <p class="chart-caption" style="padding: 8px 0;">
+        Each dot is a prototype the engine pins at run start: humans are
+        circles, agents are squares. Sector → colour. Dot size grows with
+        wealth. Trade arcs flash when cast members exchange; red ✕ overlays
+        mark rejected trades and the gate that killed them (L law, P
+        permeability, R regulator, M market, N alignment-norms, $ cost). Dashed
+        hulls outline firm membership when institutions are active. Hover for
+        full state.
+      </p>
+    </section>
 
     <!-- Macro grid: 12 welfare-focused trajectories. -->
     <section class="cockpit-section">
@@ -764,15 +780,20 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       if (tape) tape.applyStep(partial);
       if (flow) flow.applyStep(partial);
       if (graph) graph.applyStep(partial);
+      if (cast) cast.applyStep(partial);
     }
   }
   requestAnimationFrame(dispatchPairsTick);
 
   // ---- live exchange views --------------------------------------------
+  let cast = null;
   let tape = null;
   let flow = null;
   let graph = null;
   function ensureExchangeViews() {
+    if (!cast && typeof window.createLiveCast === 'function') {
+      cast = window.createLiveCast($('cast-host'));
+    }
     if (!tape && typeof window.createTape === 'function') {
       tape = window.createTape($('tape-host'));
     }
@@ -864,8 +885,13 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     if (ft) ft.appendStep(step.step, step.fold_per_depth_contribution || []);
 
     // Live exchanges — pair events go through the pacer so views see a
-    // smooth stream, not a burst per step.
+    // smooth stream, not a burst per step. Cast also takes the
+    // cast_snapshot directly (no pacing on snapshot; the cast canvas
+    // wants the latest state immediately).
     ensureExchangeViews();
+    if (cast && step.cast_snapshot && step.cast_snapshot.length) {
+      cast.applyStep({ step: step.step, cast_snapshot: step.cast_snapshot });
+    }
     enqueuePairs(step.step, step.pair_samples || []);
   }
 
@@ -912,6 +938,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     if (body.alpha_schedule) drawAlphaSchedule(body.alpha_schedule);
     if (foldTree) { foldTree.reset(); }
     ensureExchangeViews();
+    if (cast) cast.reset();
     if (tape) tape.reset();
     if (flow) flow.reset();
     if (graph) graph.reset();

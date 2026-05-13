@@ -158,6 +158,14 @@ class StepMetrics:
     # `real_welfare_step` (modulo rounding).
     real_welfare_per_sector_step: list = field(default_factory=list)
 
+    # Cockpit Pass 2: persistent cast snapshot. List of dicts, one per
+    # cast member; each carries {idx, is_human, sector, wealth,
+    # capability, autonomy, firm_id, stack}. Empty when
+    # `WorldConfig.cast_size == 0` (the default), so legacy pinned
+    # StepMetrics serialisations stay identical. Attached by World.step
+    # after `step_metrics()` returns.
+    cast_snapshot: list = field(default_factory=list)
+
     # ---- Flow-sensitive inequality metrics ------------------------------------
     # Terminal `gini_wealth` is dominated by the initial wealth distribution
     # (lognormal humans, Pareto agents) and barely moves under topology

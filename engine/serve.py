@@ -74,6 +74,7 @@ class RunSession:
         family: Optional[str] = None,
         pair_sample_k: int = 0,
         continuous: bool = False,
+        cast_size: int = 0,
     ) -> None:
         self.run_id = run_id
         self.scenario = scenario
@@ -85,6 +86,7 @@ class RunSession:
         self.family = family
         self.pair_sample_k = int(pair_sample_k)
         self.continuous = bool(continuous)
+        self.cast_size = int(cast_size)
 
         self.status: str = "queued"  # queued | running | done | error | cancelled
         self.error: Optional[str] = None
@@ -156,6 +158,8 @@ def _run_worker(sess: RunSession) -> None:
             cfg.alpha_schedule = list(sess.alpha_schedule)
         if sess.pair_sample_k > 0:
             cfg.pair_sample_k = sess.pair_sample_k
+        if sess.cast_size > 0:
+            cfg.cast_size = sess.cast_size
         cfg = apply_scale(cfg, Scale(sess.scale))
         world = World.build(cfg)
 
@@ -291,6 +295,11 @@ class RunRequest(BaseModel):
     # Overrides `n_steps`. Combine with smaller `pairs_per_step` overrides
     # to make per-step work cheap so the stream feels continuous.
     continuous: bool = False
+    # Cockpit Pass 2: persistent-cast size. >0 means the engine pins
+    # that many prototypes at build time and emits their state per
+    # step in `StepMetrics.cast_snapshot`. The live canvas reads from
+    # there and animates each cast member step-to-step.
+    cast_size: int = Field(default=0, ge=0, le=600)
 
 
 def create_app():
@@ -418,6 +427,7 @@ def create_app():
                 family=req.family,
                 pair_sample_k=req.pair_sample_k,
                 continuous=req.continuous,
+                cast_size=req.cast_size,
             )
             sess.loop = app.state.loop
             app.state.current = sess
@@ -435,6 +445,7 @@ def create_app():
             "alpha_schedule_len": len(sess.alpha_schedule) if sess.alpha_schedule else 0,
             "pair_sample_k": sess.pair_sample_k,
             "continuous": sess.continuous,
+            "cast_size": sess.cast_size,
         }
 
     @app.get("/scenarios/families")
