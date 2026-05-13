@@ -843,6 +843,7 @@ class World:
             wealth_imbalance_abs=wealth_imbalance_abs,
             wealth_imbalance_relative=wealth_imbalance_relative,
             welfare_imbalance_abs=welfare_imbalance_abs,
+            real_surplus_per_sector_step=tx.real_surplus_per_sector_step,
         )
 
         # Live-engine V2: attach the per-pair sample records (empty

@@ -113,6 +113,13 @@ label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter
 .macro-cell-title .now { color: var(--text); font-size: 11px; }
 .macro-cell-chart { height: 130px; }
 
+/* Distributions row: 3 panels (Lorenz / capability / sector welfare). */
+.dist-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+@media (max-width: 1100px) { .dist-grid { grid-template-columns: 1fr; } }
+.dist-cell { background: var(--panel); border: 1px solid var(--border); border-radius: 3px; padding: 8px 10px; }
+.dist-cell-title { font-family: var(--mono); font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; padding: 4px 4px 6px; }
+.dist-cell-chart { height: 240px; }
+
 .chart-caption { font-family: var(--serif); font-size: 12px; line-height: 1.45; color: var(--text-2); padding: 4px 12px 4px; }
 
 .event-log {
@@ -183,6 +190,25 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     <section class="cockpit-section">
       <h2>Macro trajectories <span class="sub">welfare, equity, mechanism diagnostics — all on the same x-axis</span></h2>
       <div class="macro-grid" id="macro-grid"></div>
+    </section>
+
+    <!-- Distributions: who is in this economy and how it's split. -->
+    <section class="cockpit-section">
+      <h2>Population distributions <span class="sub">who has what, who is who, where welfare is going</span></h2>
+      <div class="dist-grid">
+        <div class="dist-cell">
+          <div class="dist-cell-title">Wealth Lorenz · cumulative share by population decile</div>
+          <div id="chart-lorenz" class="dist-cell-chart"></div>
+        </div>
+        <div class="dist-cell">
+          <div class="dist-cell-title">Capability distribution · humans vs agents</div>
+          <div id="chart-capability" class="dist-cell-chart"></div>
+        </div>
+        <div class="dist-cell">
+          <div class="dist-cell-title">Real welfare per sector · this step</div>
+          <div id="chart-sector-welfare" class="dist-cell-chart"></div>
+        </div>
+      </div>
     </section>
 
     <!-- Live exchanges: the visual anchor. -->
@@ -386,6 +412,75 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       }
       nowSpans[c.id].textContent = '—';
     });
+    resetDistributionCharts();
+  }
+
+  // ---- Distributions (Phase 2) ---------------------------------------
+  const SECTOR_NAMES = (window.LP_SECTOR_NAMES || [
+    'agriculture','extraction','manufacturing','energy','logistics','construction',
+    'retail','finance','information','health','education','leisure',
+  ]);
+  const distLayoutBase = JSON.parse(JSON.stringify(layoutBase));
+  distLayoutBase.margin = { l: 44, r: 12, t: 8, b: 44 };
+  distLayoutBase.font.size = 10;
+
+  function initDistributionCharts() {
+    // Lorenz curve: equality reference (dashed) + live curve. x-axis is
+    // cumulative population share %, y-axis is cumulative wealth share.
+    const lz = JSON.parse(JSON.stringify(distLayoutBase));
+    lz.xaxis = { ...lz.xaxis, title: 'population %', range: [0, 100] };
+    lz.yaxis = { ...lz.yaxis, title: 'wealth share', range: [0, 1] };
+    Plotly.newPlot('chart-lorenz', [
+      { x: [0, 100], y: [0, 1], type: 'scatter', mode: 'lines', line: { color: '#2a2d33', width: 1, dash: 'dash' }, name: 'equality', hoverinfo: 'skip' },
+      { x: [], y: [], type: 'scatter', mode: 'lines+markers', line: { color: '#c25a5a', width: 2 }, marker: { size: 4, color: '#c25a5a' }, name: 'observed' },
+    ], lz, PCFG);
+
+    // Capability histograms: two overlaid bar traces (humans, agents).
+    const ch = JSON.parse(JSON.stringify(distLayoutBase));
+    ch.xaxis = { ...ch.xaxis, title: 'capability' };
+    ch.yaxis = { ...ch.yaxis, title: 'weighted count', type: 'log' };
+    ch.barmode = 'overlay';
+    const binCenters = Array.from({ length: 20 }, (_, i) => (i + 0.5) / 20);
+    Plotly.newPlot('chart-capability', [
+      { x: binCenters, y: new Array(20).fill(0), type: 'bar', name: 'humans', marker: { color: '#5fa572', opacity: 0.75 } },
+      { x: binCenters, y: new Array(20).fill(0), type: 'bar', name: 'agents', marker: { color: '#5b8ec4', opacity: 0.55 } },
+    ], ch, PCFG);
+
+    // Per-sector welfare bars.
+    const sw = JSON.parse(JSON.stringify(distLayoutBase));
+    sw.xaxis = { ...sw.xaxis, title: '', tickangle: -45, tickfont: { size: 9 } };
+    sw.yaxis = { ...sw.yaxis, title: 'real welfare · step' };
+    sw.margin = { l: 44, r: 8, t: 8, b: 60 };
+    const sectorPalette = SECTOR_NAMES.map((_, i) => {
+      const d3 = window.d3;
+      if (d3 && d3.interpolateRainbow) return d3.interpolateRainbow((i + 0.5) / SECTOR_NAMES.length);
+      return '#b89a55';
+    });
+    Plotly.newPlot('chart-sector-welfare', [
+      { x: SECTOR_NAMES, y: new Array(SECTOR_NAMES.length).fill(0), type: 'bar', marker: { color: sectorPalette } },
+    ], sw, PCFG);
+  }
+  initDistributionCharts();
+
+  function resetDistributionCharts() {
+    Plotly.restyle('chart-lorenz', { x: [[0, 100], []], y: [[0, 1], []] });
+    Plotly.restyle('chart-capability', { y: [new Array(20).fill(0), new Array(20).fill(0)] });
+    Plotly.restyle('chart-sector-welfare', { y: [new Array(SECTOR_NAMES.length).fill(0)] });
+  }
+
+  function applyDistributions(step) {
+    if (step.wealth_lorenz && step.wealth_lorenz.length === 11) {
+      const xs = step.wealth_lorenz.map((_, i) => i * 10);
+      Plotly.restyle('chart-lorenz', { x: [[0, 100], xs], y: [[0, 1], step.wealth_lorenz] });
+    }
+    if (step.capability_hist_humans && step.capability_hist_humans.length === 20) {
+      Plotly.restyle('chart-capability', {
+        y: [step.capability_hist_humans, step.capability_hist_agents || new Array(20).fill(0)],
+      });
+    }
+    if (step.real_welfare_per_sector_step && step.real_welfare_per_sector_step.length === SECTOR_NAMES.length) {
+      Plotly.restyle('chart-sector-welfare', { y: [step.real_welfare_per_sector_step] });
+    }
   }
 
   function drawAlphaSchedule(alphaSchedule) {
@@ -500,6 +595,9 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
 
     // Macro grid traces.
     CHARTS.forEach((c) => appendChartStep(c, step, null));
+
+    // Distributions.
+    applyDistributions(step);
 
     // Foldtree.
     const ft = ensureFoldTree();

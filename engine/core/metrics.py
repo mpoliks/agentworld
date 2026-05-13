@@ -139,6 +139,25 @@ class StepMetrics:
     # `docs/plans/live_engine.md` § V2.
     pair_samples: list = field(default_factory=list)
 
+    # ---- Cockpit Phase 2: population distribution snapshots -----------------
+    # All three default to empty lists so legacy StepMetrics serialisations
+    # stay identical when the cockpit's distribution emissions are off.
+    #
+    # `wealth_lorenz`: 11-point Lorenz curve. Index i ∈ [0, 10] is the
+    # cumulative wealth share held by the bottom 10·i percent of the
+    # weighted population. `wealth_lorenz[0] == 0`, `wealth_lorenz[10] == 1`
+    # by construction. Cadence matches `gini_every_k_steps`.
+    wealth_lorenz: list = field(default_factory=list)
+    # 20-bin weighted capability histograms over [0, 1], split by
+    # human/agent so the cockpit can overlay them. Bin edges are
+    # `np.linspace(0, 1, 21)`.
+    capability_hist_humans: list = field(default_factory=list)
+    capability_hist_agents: list = field(default_factory=list)
+    # Per-step real welfare bucketed by the production-side sector
+    # (`sec_a`) of executed pairs. Length N_SECTORS. Sums to
+    # `real_welfare_step` (modulo rounding).
+    real_welfare_per_sector_step: list = field(default_factory=list)
+
     # ---- Flow-sensitive inequality metrics ------------------------------------
     # Terminal `gini_wealth` is dominated by the initial wealth distribution
     # (lognormal humans, Pareto agents) and barely moves under topology
@@ -341,6 +360,12 @@ class Metrics:
         # W2c per-sector extension: per-sector cumulative wage. Sums to
         # `_cum_human_labor_wage` by construction. Zero when W2c is off.
         self._cum_human_labor_wage_per_sector = np.zeros(N_SECTORS, dtype=np.float64)
+        # Cockpit Phase 2: cached distribution snapshots — reused between
+        # recompute ticks so the JSON-serialised StepMetrics is always
+        # populated (instead of empty lists on non-recompute steps).
+        self._last_wealth_lorenz: list = []
+        self._last_cap_hist_humans: list = []
+        self._last_cap_hist_agents: list = []
         # W2c: human-only wealth Gini, cached on the gini_every_k_steps
         # throttle so the recompute cadence matches the population-wide
         # Gini.
@@ -398,6 +423,7 @@ class Metrics:
         wealth_imbalance_abs: float = 0.0,
         wealth_imbalance_relative: float = 0.0,
         welfare_imbalance_abs: float = 0.0,
+        real_surplus_per_sector_step: Optional[np.ndarray] = None,
     ) -> StepMetrics:
         self._cum_real += real_step
         self._cum_nominal += nominal_step
@@ -472,6 +498,44 @@ class Metrics:
             self._last_top_decile_share = top_dec
             self._last_top_decile_share_change = top_dec_change
             self._last_gini_change_abs = gini_change_abs
+
+            # Cockpit Phase 2: 11-point Lorenz curve over weighted wealth.
+            # Sort by wealth ascending, then walk cumulative-weight thresholds
+            # at [0, 0.1, 0.2, …, 1.0] and read the cumulative-wealth share.
+            wealth = np.asarray(pop.wealth, dtype=np.float64)
+            weight = np.asarray(pop.weight, dtype=np.float64)
+            order = np.argsort(wealth)
+            ws = wealth[order]
+            wt = weight[order]
+            cum_w = np.cumsum(wt)
+            cum_wealth = np.cumsum(ws * wt)
+            total_w = cum_w[-1] if cum_w.size else 0.0
+            total_wealth = cum_wealth[-1] if cum_wealth.size else 0.0
+            if total_w > 0 and total_wealth > 0:
+                pop_targets = np.linspace(0.0, 1.0, 11) * total_w
+                # interp cumulative wealth at each cumulative-weight target.
+                lorenz = np.interp(pop_targets, cum_w, cum_wealth) / total_wealth
+                lorenz[0] = 0.0
+                lorenz[-1] = 1.0
+                self._last_wealth_lorenz = [float(x) for x in lorenz]
+            else:
+                self._last_wealth_lorenz = [0.0] * 11
+
+            # 20-bin weighted capability histograms, split by H/A.
+            cap = np.asarray(pop.capability, dtype=np.float64)
+            h_mask_cap = pop.is_human.astype(bool)
+            bins = np.linspace(0.0, 1.0, 21)
+            if h_mask_cap.any():
+                hh, _ = np.histogram(cap[h_mask_cap], bins=bins, weights=weight[h_mask_cap])
+            else:
+                hh = np.zeros(20, dtype=np.float64)
+            agent_mask_cap = ~h_mask_cap
+            if agent_mask_cap.any():
+                ah, _ = np.histogram(cap[agent_mask_cap], bins=bins, weights=weight[agent_mask_cap])
+            else:
+                ah = np.zeros(20, dtype=np.float64)
+            self._last_cap_hist_humans = [float(x) for x in hh]
+            self._last_cap_hist_agents = [float(x) for x in ah]
         else:
             gini = self._last_gini
 
@@ -644,6 +708,14 @@ class Metrics:
             fold_per_depth_contribution=(
                 list(fold_per_depth_contribution)
                 if fold_per_depth_contribution
+                else []
+            ),
+            wealth_lorenz=list(self._last_wealth_lorenz),
+            capability_hist_humans=list(self._last_cap_hist_humans),
+            capability_hist_agents=list(self._last_cap_hist_agents),
+            real_welfare_per_sector_step=(
+                [float(x) for x in np.asarray(real_surplus_per_sector_step, dtype=np.float64)]
+                if real_surplus_per_sector_step is not None
                 else []
             ),
             wealth_imbalance_abs=float(wealth_imbalance_abs),

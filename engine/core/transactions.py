@@ -261,6 +261,14 @@ class TransactionResult:
     # ::_sample_pair_records` and `docs/plans/live_engine.md` § V2.
     pair_samples: list = field(default_factory=list)
 
+    # Cockpit Phase 2: per-step real welfare bucketed by the production-
+    # side sector (sec_a) of executed pairs. Length N_SECTORS = 12.
+    # Sums (modulo rejected pairs) to `real_surplus_added`. Zero array
+    # when nothing executes or chunking is exhausted.
+    real_surplus_per_sector_step: np.ndarray = field(
+        default_factory=lambda: np.zeros(N_SECTORS, dtype=np.float64)
+    )
+
 
 def executed_interaction_shares(
     h_a: np.ndarray,
@@ -844,6 +852,14 @@ def coasean_step(
             pop, a, b, executed_mask, pair_real_count, norms_cfg,
         )
 
+    # Cockpit Phase 2: per-step real welfare bucketed by production-side
+    # sector. Cheap np.bincount over the per-pair arrays already in scope.
+    real_surplus_per_sector_step = np.bincount(
+        sec_a,
+        weights=(real_pair_surplus_to_split * executed_mask * pair_real_count).astype(np.float64),
+        minlength=N_SECTORS,
+    )
+
     # Live-engine V2: sample K per-pair records for the exchange views.
     # No work when k <= 0; the sampling rng is isolated from the per-
     # component layout so canonical pinned outputs stay bit-identical.
@@ -892,6 +908,7 @@ def coasean_step(
         human_wage_per_sector=human_wage_per_sector,
         forged_registration_share=forged_registration_share,
         pair_samples=pair_samples_out,
+        real_surplus_per_sector_step=real_surplus_per_sector_step,
     )
 
 
@@ -936,6 +953,7 @@ def _coasean_step_chunked(
     h2a_weighted = 0.0
     h2h_weighted = 0.0
     wealth_delta = np.zeros(n, dtype=np.float64)
+    real_surplus_per_sector_step = np.zeros(N_SECTORS, dtype=np.float64)
 
     remaining = n_pairs
     remaining_k = pair_sample_k
@@ -1008,6 +1026,9 @@ def _coasean_step_chunked(
         all_pair_alpha_weighted += part.realized_alpha * all_pair_weight
         all_pair_alpha_weight += all_pair_weight
         wealth_delta += part.wealth_delta
+        real_surplus_per_sector_step += np.asarray(
+            part.real_surplus_per_sector_step, dtype=np.float64
+        )
         remaining -= batch
 
     return TransactionResult(
@@ -1045,4 +1066,5 @@ def _coasean_step_chunked(
             else 0.0
         ),
         pair_samples=pair_samples_chunks,
+        real_surplus_per_sector_step=real_surplus_per_sector_step,
     )
