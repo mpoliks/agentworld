@@ -901,6 +901,14 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     if (payload && payload.error) { logRow('error', payload.error); }
     setRunning(false);
     closeStream();
+    // Drain the paced pair queue and stop the cast / flow / graph
+    // animations so the canvas stops moving when the run is cancelled.
+    // Without this the queue keeps dispatching for several seconds and
+    // the user thinks cancel didn't work.
+    pairQueue.length = 0;
+    if (cast) cast.reset();
+    if (flow) flow.reset();
+    if (graph) graph.reset();
   }
 
   function startStream(runId) {
@@ -989,6 +997,14 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     try {
       await fetch(`/runs/${activeRunId}/cancel`, { method: 'POST' });
       logRow('post', 'cancel requested');
+      // Stop client-side activity immediately. The SSE `cancelled` event
+      // will follow but the user expects the canvas to freeze on click.
+      pairQueue.length = 0;
+      if (cast) cast.reset();
+      if (flow) flow.reset();
+      if (graph) graph.reset();
+      sStatus.textContent = 'cancelling…';
+      sStatus.className = 'value muted';
     } catch (e) {
       logRow('error', `cancel failed: ${e.message}`);
     }
