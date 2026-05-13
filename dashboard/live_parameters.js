@@ -113,9 +113,20 @@
 
   // ---- main factory -------------------------------------------------------
 
+  // Server-side whitelist mirror: params the engine reads per step
+  // so mid-run tuning takes effect. Population fields (capability mean,
+  // etc.) shape build-time state and don't update live — they stay
+  // disabled during a run.
+  const LIVE_TUNABLE = new Set([
+    'alpha', 'folding_propensity', 'folding_branching',
+    'base_friction', 'base_variance_absorption',
+    'max_productive_real_share', 'fold_nominal_multiplier',
+  ]);
+
   async function createParameterPanel(host, opts = {}) {
     const onSubmit = opts.onSubmit || (() => {});
     const onCancel = opts.onCancel || (() => {});
+    const onLiveUpdate = opts.onLiveUpdate || (() => {});
 
     // Inject styles once.
     if (!document.querySelector('style[data-pt]')) {
@@ -149,6 +160,28 @@
     const sobolMetrics = paramMeta.sobol_metrics;
     const scenarioByName = {};
     scenarios.forEach((s) => { scenarioByName[s.name] = s; });
+
+    // ---- live-update plumbing --------------------------------------------
+    // While a run is active, slider drags on live-tunable params POST to
+    // /runs/{id}/update via the host's onLiveUpdate callback. Throttled
+    // so dragging a slider doesn't hammer the endpoint.
+    let isRunning = false;
+    let liveUpdateTimer = null;
+    let pendingLive = {};
+    function flushLive() {
+      liveUpdateTimer = null;
+      if (Object.keys(pendingLive).length) {
+        const batch = pendingLive;
+        pendingLive = {};
+        onLiveUpdate(batch);
+      }
+    }
+    function queueLive(name, value) {
+      if (!isRunning || !LIVE_TUNABLE.has(name)) return;
+      pendingLive[name] = value;
+      if (liveUpdateTimer) return;
+      liveUpdateTimer = setTimeout(flushLive, 180);   // ~5-6 updates/sec
+    }
 
     // ---- state ------------------------------------------------------------
     const state = {
@@ -414,6 +447,9 @@
           }
           applyProductiveFoldingCoupling();
         }
+        // Live tuning: if a run is in flight and this param is live-
+        // tunable, queue the new value to be POSTed to the server.
+        queueLive(p.name, v);
       });
 
       nameCell.addEventListener('click', () => {
@@ -694,16 +730,29 @@
     cancelBtn.addEventListener('click', () => onCancel());
 
     function setRunning(running) {
+      isRunning = running;
       runBtn.disabled = running;
       cancelBtn.disabled = !running;
       scaleSel.disabled = running;
-      nStepsInp.disabled = running;
+      nStepsInp.disabled = running || continuousChk.checked;
       seedInp.disabled = running;
       presetSelect.disabled = running;
       metricSelect.disabled = running;
       pfToggle.disabled = running;
+      continuousChk.disabled = running;
       familyPillRow.querySelectorAll('.pt-family-pill').forEach((p) => { p.disabled = running; });
-      Object.values(rowControls).forEach((ctl) => { ctl.input.disabled = running || (state.productiveFolding === false && ctl.meta.name === 'max_productive_real_share'); });
+      // Live-tunable sliders stay enabled during a run so the user can
+      // drag them mid-flight. Non-tunable population params lock to
+      // their build-time values (the engine doesn't re-synthesize).
+      Object.values(rowControls).forEach((ctl) => {
+        const name = ctl.meta.name;
+        const inertCap = state.productiveFolding === false && name === 'max_productive_real_share';
+        if (running) {
+          ctl.input.disabled = !LIVE_TUNABLE.has(name) || inertCap;
+        } else {
+          ctl.input.disabled = inertCap;
+        }
+      });
     }
 
     function reset() {

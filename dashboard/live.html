@@ -992,6 +992,27 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     }
   }
 
+  // Mid-run parameter tuning: the panel calls this when the user drags a
+  // live-tunable slider while a run is active. POSTs to the new
+  // /runs/{id}/update endpoint; engine drains queued overrides after the
+  // next step and the canvas reflects the change within ~100ms.
+  async function onPanelLiveUpdate(overrides) {
+    if (!activeRunId) return;
+    try {
+      const r = await fetch(`/runs/${activeRunId}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ overrides }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        logRow('error', `live update: ${r.status} ${err}`);
+      }
+    } catch (e) {
+      logRow('error', `live update: ${e.message}`);
+    }
+  }
+
   async function onPanelCancel() {
     if (!activeRunId) return;
     try {
@@ -1018,6 +1039,7 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     window.createParameterPanel($('param-panel'), {
       onSubmit: onPanelSubmit,
       onCancel: onPanelCancel,
+      onLiveUpdate: onPanelLiveUpdate,
     }).then((p) => { panel = p; });
   }
   if (document.readyState === 'loading') {

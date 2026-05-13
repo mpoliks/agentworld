@@ -87,6 +87,10 @@ class RunSession:
         self.pair_sample_k = int(pair_sample_k)
         self.continuous = bool(continuous)
         self.cast_size = int(cast_size)
+        # Live tuning: parameter overrides queued by POST /runs/{id}/update.
+        # Drained by the worker between steps. Whitelist enforced at the
+        # endpoint so only safe live-tunable fields land here.
+        self.pending_overrides: dict = {}
 
         self.status: str = "queued"  # queued | running | done | error | cancelled
         self.error: Optional[str] = None
@@ -167,6 +171,22 @@ def _run_worker(sess: RunSession) -> None:
             if sess.cancel.is_set():
                 # Cooperative cancellation: raise to break out of the run loop.
                 raise _Cancelled()
+            # Drain any pending live-tuning overrides and apply to the
+            # live World config so the next step uses the new values.
+            # Most engine reads pull from topology.cfg per step, so
+            # changes show up immediately.
+            if sess.pending_overrides:
+                with sess.lock:
+                    pending = sess.pending_overrides
+                    sess.pending_overrides = {}
+                if pending:
+                    try:
+                        _apply_overrides(world.cfg, pending, extend_bounds=True)
+                    except OverrideError:
+                        # Surface the error in the SSE event log but
+                        # don't crash the run — the user's next nudge
+                        # may be valid.
+                        sess.publish_event("update_error", {"detail": "bad override"})
             sess.publish_step(_step_metrics_to_dict(m))
 
         try:
@@ -510,6 +530,40 @@ def create_app():
             raise HTTPException(status_code=404, detail="unknown run_id")
         sess.cancel.set()
         return {"run_id": run_id, "status": sess.status, "cancel_requested": True}
+
+    # Mid-run parameter tuning. Whitelist restricted to fields the engine
+    # reads per step — population params that shape build-time state
+    # (agent_capability_mean, sd, network topology) won't take effect
+    # mid-run and are rejected with 400 so the UI doesn't appear to apply
+    # them when it can't.
+    _LIVE_TUNABLE = {
+        "alpha", "folding_propensity", "folding_branching",
+        "base_friction", "base_variance_absorption",
+        "max_productive_real_share", "fold_nominal_multiplier",
+        "coase_exp", "cross_stack_compat", "market_layer_tax",
+        "a2a_floor", "cap_slope", "productive_decay",
+        "fold_real_efficiency",
+    }
+
+    @app.post("/runs/{run_id}/update")
+    def update_run(run_id: str, body: dict = Body(...)):
+        sess = app.state.history_by_id.get(run_id)
+        if sess is None:
+            raise HTTPException(status_code=404, detail="unknown run_id")
+        if sess.status not in ("queued", "running"):
+            raise HTTPException(status_code=409, detail=f"run is {sess.status}")
+        overrides = body.get("overrides") or {}
+        if not isinstance(overrides, dict):
+            raise HTTPException(status_code=400, detail="overrides must be an object")
+        bad = [k for k in overrides if k not in _LIVE_TUNABLE]
+        if bad:
+            raise HTTPException(
+                status_code=400,
+                detail=f"keys not live-tunable: {', '.join(bad)}",
+            )
+        with sess.lock:
+            sess.pending_overrides.update(overrides)
+        return {"run_id": run_id, "queued": dict(overrides)}
 
     @app.get("/runs/{run_id}/history")
     def get_history(run_id: str):
