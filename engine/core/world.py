@@ -897,17 +897,30 @@ class World:
 
         # Cockpit Pass 2: snapshot the persistent cast (empty when
         # `cfg.cast_size == 0`). Each cast member emits a compact
-        # record with current wealth, capability, firm_id, autonomy,
-        # and sector — everything the live canvas needs to render the
-        # member as a dot and animate state changes step-to-step.
+        # record with current wealth, capability, firm membership,
+        # autonomy, sector, *and* the emergent-behaviour fields
+        # (strategy preference, norm distance from population mean)
+        # that surface what each agent is *doing* under emergence/
+        # norms-enabled scenarios.
         if self.cast_indices is not None:
             ci = self.cast_indices
             pop = self.population
             firm_arr = pop.firm_id if pop.firm_id is not None else None
+            pref_arr = pop.intermediation_pref if pop.intermediation_pref is not None else None
+            norm_arr = pop.norm_vector if getattr(pop, "norm_vector", None) is not None else None
+            # Compute each member's norm distance from the population
+            # weighted-mean norm vector — cheaper than emitting the
+            # full per-prototype vector and just as expressive for the
+            # "is this agent drifting from the centre" question.
+            norm_mean = None
+            if norm_arr is not None:
+                wt = pop.weight.astype(np.float64)
+                if wt.sum() > 0:
+                    norm_mean = (norm_arr.astype(np.float64) * wt[:, None]).sum(0) / wt.sum()
             snap = []
             for i in ci:
                 ii = int(i)
-                snap.append({
+                entry = {
                     "idx": ii,
                     "is_human": bool(pop.is_human[ii]),
                     "sector": int(pop.sector[ii]),
@@ -916,7 +929,22 @@ class World:
                     "autonomy": float(pop.autonomy[ii]),
                     "firm_id": int(firm_arr[ii]) if firm_arr is not None else -1,
                     "stack": int(pop.stack[ii]),
-                })
+                    "intermediation_pref": float(pref_arr[ii]) if pref_arr is not None else -1.0,
+                }
+                if norm_arr is not None and norm_mean is not None:
+                    diff = norm_arr[ii].astype(np.float64) - norm_mean
+                    entry["norm_distance"] = float(np.sqrt((diff * diff).sum()))
+                    # Project onto first two dims for 2D positioning.
+                    # Some scenarios use a 1D norm space — pad with zero.
+                    nv = norm_arr[ii]
+                    entry["norm_xy"] = [
+                        float(nv[0]) if nv.shape[0] >= 1 else 0.0,
+                        float(nv[1]) if nv.shape[0] >= 2 else 0.0,
+                    ]
+                else:
+                    entry["norm_distance"] = -1.0
+                    entry["norm_xy"] = None
+                snap.append(entry)
             m.cast_snapshot = snap
 
         self._advance_law_state()

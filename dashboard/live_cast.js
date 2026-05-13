@@ -45,6 +45,18 @@
     .lc-legend-key { display: inline-flex; align-items: center; gap: 4px; }
     .lc-legend-key .glyph { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
     .lc-legend-key .glyph.sq { border-radius: 1px; transform: rotate(45deg); }
+    .lc-events { font-family: var(--mono); font-size: 10px; color: var(--text-3); background: var(--panel); border-top: 1px solid var(--border); padding: 8px 14px; max-height: 120px; overflow-y: auto; }
+    .lc-events-title { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin-bottom: 4px; }
+    .lc-events-row { display: grid; grid-template-columns: 50px 90px 1fr; gap: 8px; padding: 1px 0; align-items: center; }
+    .lc-events-row .ev-step { color: var(--text-3); }
+    .lc-events-row .ev-kind { color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; }
+    .lc-events-row .ev-kind.firm-form { color: var(--green); }
+    .lc-events-row .ev-kind.firm-dissolve { color: var(--red); }
+    .lc-events-row .ev-kind.firm-join { color: var(--accent); }
+    .lc-events-row .ev-kind.firm-leave { color: var(--text-3); }
+    .lc-events-row .ev-kind.firm-switch { color: var(--text-2); }
+    .lc-events-row .ev-text { color: var(--text); }
+    .lc-events-empty { font-style: italic; color: var(--text-3); padding: 4px 0; }
   `;
 
   function ensureStyle() {
@@ -142,11 +154,27 @@
     legend.innerHTML = `
       <span class="lc-legend-key"><span class="glyph" style="background:#e7e8ea;"></span>human</span>
       <span class="lc-legend-key"><span class="glyph sq" style="background:#9ea2a8;"></span>agent</span>
-      <span class="lc-legend-key">size→wealth · color→sector</span>
-      <span class="lc-legend-key">trade arc colour: <span style="color: var(--green);">H↔H</span> · <span style="color: var(--accent);">H↔A</span> · <span style="color: var(--blue);">A↔A</span></span>
-      <span class="lc-legend-key">reject ✕ tag: L law · P permeability · R regulator · M market · N alignment · $ cost</span>
+      <span class="lc-legend-key">size→wealth · fill→sector · outline→strategy pref (<span style="color: var(--green);">smooth</span>→<span style="color: var(--red);">baroque</span>)</span>
+      <span class="lc-legend-key">trade arc: <span style="color: var(--green);">H↔H</span> · <span style="color: var(--accent);">H↔A</span> · <span style="color: var(--blue);">A↔A</span></span>
+      <span class="lc-legend-key">reject ✕: L·P·R·M·N·$</span>
     `;
     wrap.appendChild(legend);
+
+    // Events log below the legend — narrates emergence (firm form/
+    // dissolve, joins/leaves) so the user can read what's happening
+    // without parsing the canvas.
+    const eventsHost = document.createElement('div');
+    eventsHost.className = 'lc-events';
+    eventsHost.innerHTML = '<div class="lc-events-title">emergence log</div><div class="lc-events-body"></div>';
+    wrap.appendChild(eventsHost);
+    function renderEvents() {
+      const body = eventsHost.querySelector('.lc-events-body');
+      if (!body) return;
+      body.innerHTML = events.slice().reverse().map((e) =>
+        `<div class="lc-events-row"><span class="ev-step">t${e.stepIdx}</span><span class="ev-kind ${e.kind}">${e.kind}</span><span class="ev-text">${e.text}</span></div>`
+      ).join('') || '<div class="lc-events-empty">no firm formation or norm events yet — pick an emergent-strategy or institutional scenario to see them fire</div>';
+    }
+    renderEvents();
 
     const ctx = canvas.getContext('2d');
     let W = 1100, H = 640;
@@ -198,7 +226,6 @@
       cast.clear();
       for (const m of snapshot) {
         const r = sectorRect(m.sector);
-        // Initial position: random within the sector rect, slightly inset.
         const inset = 14;
         const rx = r.x + inset + Math.random() * (r.w - 2 * inset);
         const ry = r.y + inset + Math.random() * (r.h - 2 * inset);
@@ -213,7 +240,15 @@
           stack: m.stack,
           idx: m.idx,
           lastFlash: 0,
-          inTrade: 0,         // count of active trades referencing this agent
+          inTrade: 0,
+          // Emergent-behaviour state — drives outline colour, force
+          // pulls, and the events-log narration.
+          intermediationPref: m.intermediation_pref,
+          normDistance: m.norm_distance,
+          // Recent partners: ring buffer of cast indices the agent has
+          // recently traded with. Pulls them together visually so
+          // coalitions surface even before firm_id is set.
+          partners: [],
         });
       }
     }
@@ -221,19 +256,29 @@
     function ingestSnapshot(stepIdx, snapshot) {
       if (cast.size === 0) {
         buildPositions(snapshot);
-      } else {
-        for (const m of snapshot) {
-          const c = cast.get(m.idx);
-          if (!c) continue;
-          c.wealth = m.wealth;
-          c.capability = m.capability;
-          c.autonomy = m.autonomy;
-          c.firmId = m.firm_id;
-          if (c.sector !== m.sector) {
-            // Sector switch (rare — population dynamics could cause this).
-            c.sector = m.sector;
+        lastSnapshotStep = stepIdx;
+        return;
+      }
+      for (const m of snapshot) {
+        const c = cast.get(m.idx);
+        if (!c) continue;
+        // Firm-change detection: emit an event for the narration log.
+        if (c.firmId !== m.firm_id) {
+          if (m.firm_id >= 0 && c.firmId < 0) {
+            logEvent(stepIdx, 'firm-join', `proto ${c.idx} joined firm ${m.firm_id}`);
+          } else if (m.firm_id < 0 && c.firmId >= 0) {
+            logEvent(stepIdx, 'firm-leave', `proto ${c.idx} left firm ${c.firmId}`);
+          } else {
+            logEvent(stepIdx, 'firm-switch', `proto ${c.idx}: firm ${c.firmId} → ${m.firm_id}`);
           }
         }
+        c.wealth = m.wealth;
+        c.capability = m.capability;
+        c.autonomy = m.autonomy;
+        c.firmId = m.firm_id;
+        c.intermediationPref = m.intermediation_pref;
+        c.normDistance = m.norm_distance;
+        if (c.sector !== m.sector) c.sector = m.sector;
       }
       lastSnapshotStep = stepIdx;
     }
@@ -273,6 +318,11 @@
         });
         a.inTrade += 1;
         b.inTrade += 1;
+        // Remember each other as recent partners so the force layout
+        // pulls them together over time — emergent coalitions show up
+        // as clusters even without explicit firm_id.
+        rememberPartner(a, b.idx);
+        rememberPartner(b, a.idx);
       } else {
         // Sample only a fraction of single-cast events so the canvas
         // doesn't get overwhelmed at K=1500 × 100 steps/sec.
@@ -295,6 +345,48 @@
 
     // ---- physics ---------------------------------------------------------
 
+    // Recent-partners ring buffer per cast member.
+    const PARTNER_MEMORY = 6;
+    function rememberPartner(c, otherIdx) {
+      c.partners.push(otherIdx);
+      if (c.partners.length > PARTNER_MEMORY) c.partners.shift();
+    }
+
+    // Events log — narrates emergence to the user. Capped to last 8
+    // entries; displayed in the bottom strip of the live world panel.
+    const events = [];
+    const EVENTS_MAX = 8;
+    function logEvent(stepIdx, kind, text) {
+      events.push({ stepIdx, kind, text, t0: performance.now() });
+      if (events.length > EVENTS_MAX) events.shift();
+      renderEvents();
+    }
+
+    // Track firm-state transitions across steps so we can announce
+    // firm formation/dissolution at the *coalition* level, not just
+    // individual joins.
+    let lastFirmSizes = new Map();   // firmId → member count
+    function detectFirmEvents(stepIdx) {
+      const sizes = new Map();
+      cast.forEach((c) => {
+        if (c.firmId == null || c.firmId < 0) return;
+        sizes.set(c.firmId, (sizes.get(c.firmId) || 0) + 1);
+      });
+      // Newly-formed firms.
+      sizes.forEach((n, id) => {
+        if (!lastFirmSizes.has(id) && n >= 2) {
+          logEvent(stepIdx, 'firm-form', `firm ${id} formed (${n} members)`);
+        }
+      });
+      // Dissolved firms.
+      lastFirmSizes.forEach((n, id) => {
+        if (!sizes.has(id)) {
+          logEvent(stepIdx, 'firm-dissolve', `firm ${id} dissolved`);
+        }
+      });
+      lastFirmSizes = sizes;
+    }
+
     let lastFrameMs = performance.now();
     function step(now) {
       const rawDt = Math.min(48, now - lastFrameMs);   // clamp to handle tab switches
@@ -302,14 +394,54 @@
       // Convert ms to a unit where 1 == one frame at 60fps for tuning.
       const dt = rawDt / 16.67;
 
-      // 1. Sector pull + random walk + dampening on each cast member.
+      // Firm centroids — recomputed each frame so members converge as
+      // the firm gets larger.
+      const firmCentroids = new Map();
+      const firmCounts = new Map();
+      cast.forEach((c) => {
+        if (c.firmId == null || c.firmId < 0) return;
+        const cur = firmCentroids.get(c.firmId) || { x: 0, y: 0 };
+        cur.x += c.x; cur.y += c.y;
+        firmCentroids.set(c.firmId, cur);
+        firmCounts.set(c.firmId, (firmCounts.get(c.firmId) || 0) + 1);
+      });
+      firmCentroids.forEach((p, id) => {
+        const n = firmCounts.get(id) || 1;
+        p.x /= n; p.y /= n;
+      });
+
+      // 1. Forces on each cast member:
+      //    - sector pull (weak; ambient)
+      //    - firm pull (strong; coalitions form geographically)
+      //    - recent-partner pull (medium; emergent coalitions before
+      //      firm_id resolves)
+      //    - random walk (organic motion)
       cast.forEach((c) => {
         const r = sectorRect(c.sector);
-        // Pull toward sector centroid — weak so agents wander within their region.
-        c.vx += (r.cx - c.x) * 0.0025 * dt;
-        c.vy += (r.cy - c.y) * 0.0025 * dt;
-        // Random walk for organic motion when idle.
-        const wander = c.inTrade > 0 ? 0.02 : 0.18;
+        c.vx += (r.cx - c.x) * 0.0012 * dt;
+        c.vy += (r.cy - c.y) * 0.0012 * dt;
+
+        if (c.firmId != null && c.firmId >= 0) {
+          const fc = firmCentroids.get(c.firmId);
+          if (fc) {
+            c.vx += (fc.x - c.x) * 0.012 * dt;
+            c.vy += (fc.y - c.y) * 0.012 * dt;
+          }
+        }
+
+        if (c.partners.length) {
+          let px = 0, py = 0, n = 0;
+          for (const pid of c.partners) {
+            const p = cast.get(pid);
+            if (p) { px += p.x; py += p.y; n += 1; }
+          }
+          if (n > 0) {
+            c.vx += (px / n - c.x) * 0.005 * dt;
+            c.vy += (py / n - c.y) * 0.005 * dt;
+          }
+        }
+
+        const wander = c.inTrade > 0 ? 0.02 : 0.14;
         c.vx += (Math.random() - 0.5) * wander * dt;
         c.vy += (Math.random() - 0.5) * wander * dt;
       });
@@ -410,21 +542,30 @@
         if (!arr) { arr = []; firms.set(c.firmId, arr); }
         arr.push(c);
       });
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([5, 4]);
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
       firms.forEach((members, firmId) => {
         if (members.length < 2) return;
         const hull = convexHull(members.map((m) => ({ x: m.x, y: m.y })));
         if (hull.length < 2) return;
         const col = sectorColor(firmId % N_SECTORS);
         ctx.strokeStyle = col;
-        ctx.fillStyle = col + '1f';
+        ctx.fillStyle = col + '33';
         ctx.beginPath();
         ctx.moveTo(hull[0].x, hull[0].y);
         for (let i = 1; i < hull.length; i += 1) ctx.lineTo(hull[i].x, hull[i].y);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
+        // Label the firm at its centroid.
+        const cx2 = hull.reduce((s, p) => s + p.x, 0) / hull.length;
+        const cy2 = hull.reduce((s, p) => s + p.y, 0) / hull.length;
+        ctx.fillStyle = col;
+        ctx.globalAlpha = 0.95;
+        ctx.font = 'bold 11px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`firm ${firmId} · ${members.length}`, cx2, cy2 - 8);
+        ctx.globalAlpha = 1.0;
       });
       ctx.setLineDash([]);
 
@@ -482,7 +623,10 @@
       }
       ctx.globalAlpha = 1.0;
 
-      // Cast dots.
+      // Cast dots. Outline encodes the agent's *learned strategy*
+      // preference when emergent-strategy is enabled — green for
+      // smooth-leaning, red for baroque-leaning. When strategy is
+      // off, the outline is a neutral tint.
       cast.forEach((c) => {
         const r = 3 + Math.log10(Math.max(c.wealthSmooth, 0.1)) * 1.8;
         const flashAge = (now - c.lastFlash);
@@ -496,12 +640,25 @@
           ctx.globalAlpha = 1.0;
         }
         ctx.fillStyle = sectorColor(c.sector);
+        let outlineColor;
+        if (c.intermediationPref != null && c.intermediationPref >= 0) {
+          // Map pref ∈ [0,1] from green (smooth) to red (baroque).
+          const p = Math.max(0, Math.min(1, c.intermediationPref));
+          const rch = Math.round(95 + (194 - 95) * p);
+          const gch = Math.round(165 + (90 - 165) * p);
+          const bch = Math.round(114 + (90 - 114) * p);
+          outlineColor = `rgb(${rch},${gch},${bch})`;
+        } else if (c.isHuman) {
+          outlineColor = 'rgba(231,232,234,0.6)';
+        } else {
+          outlineColor = `rgba(12,13,16,${0.4 + 0.5 * c.autonomy})`;
+        }
         if (c.isHuman) {
           ctx.beginPath();
           ctx.arc(c.x, c.y, r, 0, 2 * Math.PI);
           ctx.fill();
-          ctx.strokeStyle = 'rgba(231,232,234,0.6)';
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = outlineColor;
+          ctx.lineWidth = 1.5;
           ctx.stroke();
         } else {
           const half = r * 0.95;
@@ -509,8 +666,8 @@
           ctx.translate(c.x, c.y);
           ctx.rotate(Math.PI / 4);
           ctx.fillRect(-half, -half, half * 2, half * 2);
-          ctx.strokeStyle = `rgba(12,13,16,${0.4 + 0.5 * c.autonomy})`;
-          ctx.lineWidth = 1.2;
+          ctx.strokeStyle = outlineColor;
+          ctx.lineWidth = 1.5;
           ctx.strokeRect(-half, -half, half * 2, half * 2);
           ctx.restore();
         }
@@ -556,6 +713,9 @@
       if (step.cast_snapshot && step.cast_snapshot.length) {
         empty.style.display = 'none';
         ingestSnapshot(step.step, step.cast_snapshot);
+        // After ingestion, scan for firm-level transitions across this
+        // step boundary so the events log can announce them.
+        detectFirmEvents(step.step);
       }
       const pairs = step.pair_samples || [];
       if (pairs.length && cast.size) {
@@ -576,9 +736,12 @@
       trades.length = 0;
       rejects.length = 0;
       pulses.length = 0;
+      events.length = 0;
+      lastFirmSizes.clear();
       lastSnapshotStep = -1;
       empty.style.display = '';
       status.textContent = 'waiting for cast snapshot…';
+      renderEvents();
     }
 
     function dispose() {

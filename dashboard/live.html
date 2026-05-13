@@ -189,16 +189,25 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
 
     <!-- Live world: persistent cast follows ~150 prototypes. -->
     <section class="cockpit-section">
-      <h2>Live world <span class="sub">~150 prototypes followed from step 0 · dots evolve, trades arc, laws fire, firms form</span></h2>
+      <h2>Live world <span class="sub">~150 agents on a sector map · drift toward firm-mates and trade partners · emergence narrated below</span></h2>
       <div id="cast-host"></div>
       <p class="chart-caption" style="padding: 8px 0;">
-        Each dot is a prototype the engine pins at run start: humans are
-        circles, agents are squares. Sector → colour. Dot size grows with
-        wealth. Trade arcs flash when cast members exchange; red ✕ overlays
-        mark rejected trades and the gate that killed them (L law, P
-        permeability, R regulator, M market, N alignment-norms, $ cost). Dashed
-        hulls outline firm membership when institutions are active. Hover for
-        full state.
+        Each dot is a prototype the engine follows from step 0. Humans are
+        circles, agents are squares; fill colour = sector. Dot size grows
+        with wealth. <strong>Outline colour</strong> shows learned strategy
+        preference when emergent-strategy scenarios run (green = smooth-leaning,
+        red = baroque-leaning). Trade arcs flash when cast members exchange;
+        red ✕ marks rejections tagged with the gate that killed them
+        (L law, P permeability, R regulator, M market, N alignment-norms,
+        $ cost).
+        <br><br>
+        Agents drift toward firm-mates and recent trade partners, so
+        <strong>coalitions surface as visible clusters</strong>. To see firms
+        form, syndicates crumble, or norms drift, pick a scenario in the
+        <em>Emergent strategy</em> family (full_emergence, institutional_emergence)
+        or the <em>Norms layer</em> family (norms_drift, norms_capture).
+        Alpha-baseline scenarios show steady-state activity without
+        coalition dynamics.
       </p>
     </section>
 
