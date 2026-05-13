@@ -360,9 +360,20 @@ def create_app():
         # types and traversal protection. Both index.html and live.html
         # use relative URLs (e.g. _tokens.css) which resolve correctly
         # under /dashboard/.
+        #
+        # Subclass StaticFiles to attach no-store cache headers — the
+        # cockpit iterates fast and any browser caching of the JS
+        # bundles produces the "looks broken" symptom where the page
+        # is running stale code.
+        class _NoCacheStatic(StaticFiles):
+            async def get_response(self, path, scope):
+                resp = await super().get_response(path, scope)
+                resp.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
+                resp.headers["Pragma"] = "no-cache"
+                return resp
         app.mount(
             "/dashboard",
-            StaticFiles(directory=str(DASHBOARD_DIR), html=False),
+            _NoCacheStatic(directory=str(DASHBOARD_DIR), html=False),
             name="dashboard",
         )
 
