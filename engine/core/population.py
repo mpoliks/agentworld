@@ -193,6 +193,11 @@ class Population:
 
     # Optional sparse adjacency (scipy.sparse.csr_matrix or None).
     adjacency: Optional[Any] = None
+    # Per-prototype degree centrality (PR #6). Cached at adjacency-build
+    # time as `adjacency.getnnz(axis=1)`; None when the adjacency itself
+    # is None (well_mixed network). Used by the spatial-sandbox inspector
+    # to size and place agent nodes in the force-directed layout.
+    degree_centrality: Optional[np.ndarray] = None
 
     config: PopulationConfig = field(default_factory=PopulationConfig)
 
@@ -404,6 +409,10 @@ class Population:
             mean_degree=self.config.network_mean_degree,
             intra_sector_share=self.config.network_intra_sector_share,
         )
+        if self.adjacency is not None:
+            self.degree_centrality = np.asarray(
+                self.adjacency.getnnz(axis=1), dtype=np.int32,
+            )
 
     # ---- sampling structures ----------------------------------------------
 

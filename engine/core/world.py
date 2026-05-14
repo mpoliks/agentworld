@@ -200,6 +200,11 @@ class World:
     # ticks at `ComputeConfig.pool_recovery`. Zero when ComputeConfig is
     # off; the canonical baselines never touch it.
     _compute_pool: float = 0.0
+    # Rolling per-cast partner history (PR #6). Maps cast prototype idx
+    # to its last-5 executed partner IDs, sourced from `tx.pair_samples`.
+    # Empty when `cast_size == 0` or `pair_sample_k == 0`. Read by the
+    # inspector card; does not affect engine math.
+    _cast_partner_history: dict = field(default_factory=dict)
 
     @property
     def rng(self) -> np.random.Generator:
@@ -939,6 +944,26 @@ class World:
         # when `pair_sample_k = 0`).
         m.pair_samples = tx.pair_samples
 
+        # PR #6: roll the per-cast partner history forward. Sourced from
+        # the sampled pair records (so it only populates when
+        # `pair_sample_k > 0`); the dashboard can backfill with the
+        # `edges_v2` stream over time when sampling is off.
+        if self.cast_indices is not None and tx.pair_samples:
+            cast_set = {int(i) for i in self.cast_indices}
+            for sample in tx.pair_samples:
+                if not getattr(sample, "executed", False):
+                    continue
+                a_idx = int(sample.proto_a)
+                b_idx = int(sample.proto_b)
+                if a_idx in cast_set:
+                    hist = self._cast_partner_history.setdefault(a_idx, [])
+                    hist.append(b_idx)
+                    del hist[:-5]
+                if b_idx in cast_set:
+                    hist = self._cast_partner_history.setdefault(b_idx, [])
+                    hist.append(a_idx)
+                    del hist[:-5]
+
         # Cockpit Pass 2: snapshot the persistent cast (empty when
         # `cfg.cast_size == 0`). Each cast member emits a compact
         # record with current wealth, capability, firm membership,
@@ -999,9 +1024,26 @@ class World:
                         float(nv[0]) if nv.shape[0] >= 1 else 0.0,
                         float(nv[1]) if nv.shape[0] >= 2 else 0.0,
                     ]
+                    # PR #6: full K-dim norm vector for the inspector's
+                    # K-axis radar.
+                    entry["norm_vector"] = [float(x) for x in nv.tolist()]
                 else:
                     entry["norm_distance"] = -1.0
                     entry["norm_xy"] = None
+                    entry["norm_vector"] = []
+                # PR #6: degree centrality from `pop.adjacency`, populated
+                # for scale_free / sbm / hyperbolic networks. -1 when the
+                # network is well_mixed.
+                entry["degree_centrality"] = (
+                    int(pop.degree_centrality[ii])
+                    if pop.degree_centrality is not None
+                    else -1
+                )
+                # PR #6: last-5 executed partner IDs, sourced from
+                # pair_samples this run. Empty when sampling is off.
+                entry["recent_partners"] = list(
+                    self._cast_partner_history.get(ii, [])
+                )
                 snap.append(entry)
             m.cast_snapshot = snap
 
