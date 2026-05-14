@@ -59,6 +59,49 @@ def _step_metrics_to_dict(m: Any) -> dict:
     return asdict(m)
 
 
+def _v2_subpayloads(step_payload: dict) -> list[tuple[str, dict]]:
+    """Derive PR #5 SSE sub-events from a step payload.
+
+    Returns a list of `(event_kind, sub_payload)` pairs for the dashboard
+    channels:
+      - `cast_snapshot_v2`: per-agent state for inspector cards.
+      - `edges_v2`:         per-pair trade samples (sender/receiver,
+                            surplus, reject reason) for the force-graph.
+      - `folds_v2`:         per-depth fold-cascade contribution for the
+                            fold-ring visualisation.
+
+    Sub-events are emitted only when their source field is non-empty so
+    that a scenario running without cast/sample/fold output does not
+    flood the stream with empty events.
+    """
+    step_idx = int(step_payload.get("step", 0))
+    out: list[tuple[str, dict]] = []
+    snapshot = step_payload.get("cast_snapshot") or []
+    if snapshot:
+        out.append((
+            "cast_snapshot_v2",
+            {"step": step_idx, "snapshot": snapshot},
+        ))
+    samples = step_payload.get("pair_samples") or []
+    if samples:
+        out.append((
+            "edges_v2",
+            {"step": step_idx, "edges": samples},
+        ))
+    per_depth = step_payload.get("fold_per_depth_contribution") or []
+    if per_depth:
+        out.append((
+            "folds_v2",
+            {
+                "step": step_idx,
+                "per_depth": per_depth,
+                "n_sub_markets_added": step_payload.get("n_sub_markets_added", 0.0),
+                "fold_max_depth": step_payload.get("fold_max_depth", 0),
+            },
+        ))
+    return out
+
+
 class RunSession:
     """One scenario run, observed by zero or more SSE clients."""
 
@@ -623,6 +666,8 @@ def create_app():
 
                 for ev in replay:
                     yield f"event: step\ndata: {json.dumps(ev)}\n\n"
+                    for kind, sub in _v2_subpayloads(ev):
+                        yield f"event: {kind}\ndata: {json.dumps(sub)}\n\n"
 
                 if terminal_status is not None:
                     payload = {
@@ -645,6 +690,9 @@ def create_app():
                         yield ": ping\n\n"
                         continue
                     yield f"event: {kind}\ndata: {json.dumps(payload)}\n\n"
+                    if kind == "step":
+                        for sub_kind, sub in _v2_subpayloads(payload):
+                            yield f"event: {sub_kind}\ndata: {json.dumps(sub)}\n\n"
                     if kind in ("done", "error", "cancelled"):
                         return
             finally:

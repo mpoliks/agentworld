@@ -111,8 +111,9 @@ class PairSample:
 # Precedence order for reject reasons when multiple masks fire.
 # Earlier gates take priority — the trade dies at the first wall it hits.
 _REJECT_REASONS: tuple[str, ...] = (
-    "law",
     "permeability",
+    "compute",
+    "law",
     "regulator",
     "market",
     "align",
@@ -129,14 +130,18 @@ def _reject_reason_for(
     rejected_cost_mask: np.ndarray,
     rejected_perm_mask: np.ndarray,
     rejected_regulator_mask: np.ndarray,
+    rejected_compute_mask: np.ndarray | None = None,
 ) -> str:
     if executed_mask[i]:
         return ""
+    if rejected_compute_mask is None:
+        rejected_compute_mask = np.zeros_like(executed_mask)
     for name, mask in zip(
         _REJECT_REASONS,
         (
-            rejected_law_mask,
             rejected_perm_mask,
+            rejected_compute_mask,
+            rejected_law_mask,
             rejected_regulator_mask,
             rejected_market_mask,
             rejected_align_mask,
@@ -171,6 +176,7 @@ def _sample_pair_records(
     rejected_perm_mask: np.ndarray,
     rejected_regulator_mask: np.ndarray,
     pair_real_count: np.ndarray,
+    rejected_compute_mask: np.ndarray | None = None,
 ) -> list[PairSample]:
     """Sample K uniform-random pair indices and build PairSample records.
 
@@ -204,6 +210,7 @@ def _sample_pair_records(
                 executed_mask,
                 rejected_law_mask, rejected_market_mask, rejected_align_mask,
                 rejected_cost_mask, rejected_perm_mask, rejected_regulator_mask,
+                rejected_compute_mask=rejected_compute_mask,
             ),
             pair_weight=float(pair_real_count[i]),
         ))
@@ -956,6 +963,7 @@ def coasean_step(
             rejected_cost_mask=rejected_cost_mask,
             rejected_perm_mask=rejected_perm_mask,
             rejected_regulator_mask=rejected_regulator_mask,
+            rejected_compute_mask=rejected_compute_mask,
             pair_real_count=pair_real_count,
         )
 
