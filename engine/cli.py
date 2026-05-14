@@ -168,8 +168,25 @@ def ensemble_all_cmd(out, n_seeds, base_seed, scale, n_workers, no_progress):
 @click.option("--pairs", default=20_000, show_default=True, help="Candidate pairs per step.")
 @click.option("--humans", default=600, show_default=True, help="Human prototypes per point.")
 @click.option("--agents", default=6_000, show_default=True, help="Agent prototypes per point.")
-def sweep_cmd(out, steps, pairs, humans, agents):
+@click.option(
+    "--quick", is_flag=True,
+    help="Smoke-mode regression sweep used between engine PRs: "
+         "8 steps, 4_000 pairs, 200 humans, 2_000 agents. Writes to "
+         "outputs/sensitivity/phase_space.quick.json so the canonical "
+         "phase_space.json is not overwritten.",
+)
+def sweep_cmd(out, steps, pairs, humans, agents, quick):
     """Run an alpha/capability phase-space sweep."""
+    if quick:
+        # Quick-mode defaults: ~5x faster than the canonical sweep,
+        # picked to land inside the engine-PR regression-check budget.
+        # Overridden by any explicit --steps/--pairs/--humans/--agents.
+        steps = 8 if steps == 18 else steps
+        pairs = 4_000 if pairs == 20_000 else pairs
+        humans = 200 if humans == 600 else humans
+        agents = 2_000 if agents == 6_000 else agents
+        if out == "outputs/sensitivity/phase_space.json":
+            out = "outputs/sensitivity/phase_space.quick.json"
     out_path = Path(out)
     summary = run_phase_space_sweep(
         n_steps=steps,

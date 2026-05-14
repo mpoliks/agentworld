@@ -41,8 +41,12 @@ except ImportError:  # pragma: no cover
 NetworkModel = Literal["well_mixed", "scale_free", "sbm"]
 
 # Hard cap: we don't even attempt to build the network above this size.
-# The 88K prototype default fits comfortably; larger scales fall back.
-MAX_NETWORK_NODES: int = 200_000
+# The 88K SMALL default and the 880K MEDIUM scale both fit comfortably.
+# An SBM adjacency at 1M nodes with mean_degree ≈ 14 is ~140 MB in CSR
+# (int32 indices + int8 data), well inside the MEDIUM memory budget per
+# `README.md` §7. Raised from 200K so the convergence-pinned test does
+# not silently swap topology between SMALL and MEDIUM scales.
+MAX_NETWORK_NODES: int = 1_000_000
 
 
 def build_adjacency(

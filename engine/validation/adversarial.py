@@ -105,8 +105,20 @@ def _build_cfg(point: dict, base_seed: int, run_spec: _RunSpec) -> WorldConfig:
 def _measure_paradise_welfare(run_spec: _RunSpec, seed: int = 0) -> float:
     """Terminal real_per_capita_welfare of `coasean_paradise` at the same
     runtime scale we use for adversarial evaluations. This is the threshold
-    a counter-example must beat."""
-    cfg = get_scenario("coasean_paradise")
+    a counter-example must beat.
+
+    Uses the **un-wrapped** factory so the paradise comparison stays
+    well-mixed, matching the topology of `baroque_with_high_welfare`
+    (which is in `_SUBSTRATE_DEFAULT_EXCLUDED`). `get_scenario` would
+    return the substrate-wrapped paradise after the 2026-Q3 migration,
+    producing an apples-to-oranges comparison and tripping
+    `test_baroque_with_high_welfare_scenario_reproduces_counter_example`.
+    """
+    # Local import: avoid pulling the un-wrapped factory through the
+    # registry, which now points at the SBM-substrate wrapper.
+    from engine.scenarios import coasean_paradise as _raw_paradise
+
+    cfg = _raw_paradise()
     cfg.n_steps = run_spec.n_steps
     cfg.population.n_human_prototypes = run_spec.n_human_prototypes
     cfg.population.n_agent_prototypes = run_spec.n_agent_prototypes
