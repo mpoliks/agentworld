@@ -170,6 +170,13 @@ class Population:
     # field is populated but unread, so the canonical baselines stay
     # bit-identical. See `docs/concepts/matryoshkan_alignment.md`.
     norm_vector: np.ndarray | None = None
+    # Verifiable-semantics fidelity (Schoenegger et al. 2026). Beta-
+    # distributed in [0, 1]; scales the alignment gate's `align_dist`
+    # by `(1 − min(cert_a, cert_b))`. `None` when
+    # `NormsConfig.certified_fraction == 0.0` (the default), preserving
+    # bit-identity at the canonical baselines.
+    # See `docs/research/verifiable_semantics.md`.
+    certified: np.ndarray | None = None
 
     # Sampling structures — built once at synthesize time, immutable thereafter.
     # See _build_sampling_structures. We exploit a structural property: in
@@ -341,6 +348,21 @@ class Population:
                 norms_rng.normal(0.0, sd_a, size=(n_a, K)), -1.0, 1.0
             ).astype(np.float32)
 
+        # Schoenegger certified-vocabulary draw. Off by default
+        # (`certified_fraction == 0`); when on, draws a per-prototype
+        # Beta(α, β) array with mean μ = certified_fraction and sd
+        # tracking certified_fraction_sd. Dedicated XOR'd seed keeps
+        # the cert stream isolated from any other population draw.
+        certified: np.ndarray | None = None
+        mu = float(getattr(norms_config, "certified_fraction", 0.0))
+        if norms_enabled and mu > 0.0:
+            sigma = float(getattr(norms_config, "certified_fraction_sd", 0.15))
+            nu = max(0.1, mu * (1.0 - mu) / max(sigma * sigma, 1e-9) - 1.0)
+            cert_rng = np.random.default_rng(
+                int(getattr(norms_config, "initial_norm_seed", 0)) ^ 0xCE27EDCE
+            )
+            certified = cert_rng.beta(mu * nu, (1.0 - mu) * nu, size=n).astype(np.float32)
+
         pop = cls(
             capability=cap,
             sector=sector,
@@ -359,6 +381,7 @@ class Population:
             registered=registered,
             agent_next_id=agent_next_id,
             norm_vector=norm_vector,
+            certified=certified,
             config=config,
         )
         pop._build_sampling_structures()

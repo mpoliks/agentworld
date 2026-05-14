@@ -651,6 +651,13 @@ def coasean_step(
         align_dist = norm_distance(
             pop.norm_vector[a], pop.norm_vector[b], K
         )
+        # Schoenegger verifiable-semantics multiplier: pairs with
+        # high certified-vocabulary fidelity have shrunk effective
+        # alignment distance. cert=0 on either side leaves align_dist
+        # unchanged; cert=1 on both sides drops it to 0.
+        if pop.certified is not None:
+            cert_pair = np.minimum(pop.certified[a], pop.certified[b])
+            align_dist = align_dist * (1.0 - cert_pair)
         base = float(norms_cfg.base_reject_rate)
         slope = float(norms_cfg.distance_slope)
     else:

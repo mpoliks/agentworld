@@ -195,6 +195,20 @@ class NormsConfig:
     distance_slope: float = 0.20
     # Dedicated seed for initial norm-vector draw at synthesize time.
     initial_norm_seed: int = 0
+    # Per-agent certified-vocabulary fidelity (Schoenegger et al. 2026).
+    # Mean of a Beta-distributed `pop.certified` array drawn at synthesize
+    # time. The alignment gate scales `align_dist` by
+    # `(1 − min(cert_a, cert_b))`, so cert=1 on both sides drops alignment
+    # distance to 0 (no rejection) and cert=0 on either side recovers the
+    # raw norm distance. Default 0.0 keeps `pop.certified` None and
+    # leaves the canonical baselines (incl. norms_drift/capture/brittle)
+    # bit-identical. The spatial sandbox sets this to 0.5.
+    # See `docs/research/verifiable_semantics.md`.
+    certified_fraction: float = 0.0
+    # Std-dev of the Beta-distributed cert draw. Clamped so the implied
+    # Beta concentration stays positive; large sd produces a U-shaped
+    # cert distribution where most agents are near 0 or 1.
+    certified_fraction_sd: float = 0.15
 
 
 @dataclass

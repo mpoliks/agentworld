@@ -943,6 +943,7 @@ class World:
                     "firm_sectors": firm_sectors_map.get(fid, []),
                     "stack": int(pop.stack[ii]),
                     "intermediation_pref": float(pref_arr[ii]) if pref_arr is not None else -1.0,
+                    "certified": float(pop.certified[ii]) if pop.certified is not None else -1.0,
                 }
                 if norm_arr is not None and norm_mean is not None:
                     diff = norm_arr[ii].astype(np.float64) - norm_mean
