@@ -801,7 +801,14 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
   let graph = null;
   function ensureExchangeViews() {
     if (!cast && typeof window.createLiveCast === 'function') {
-      cast = window.createLiveCast($('cast-host'));
+      // createLiveCast is async (lazy-loads deck.gl). Assigning the
+      // promise directly would leave `cast` as a Promise and break
+      // .applyStep/.reset. Hand off the resolved object once ready.
+      const pending = window.createLiveCast($('cast-host'));
+      Promise.resolve(pending).then((c) => { cast = c; }).catch((e) => {
+        const h = $('cast-host');
+        if (h) h.innerHTML = `<p style="color: var(--red); padding: 12px; font-family: var(--mono); font-size: 12px;">live world init failed: ${e.message || e}</p>`;
+      });
     }
     if (!tape && typeof window.createTape === 'function') {
       tape = window.createTape($('tape-host'));

@@ -1,24 +1,24 @@
 /*
- * dashboard/live_cast.js — Live World (Cockpit Pass 2, map rebuild).
+ * dashboard/live_cast.js — particle-cloud live world.
  *
- * Spatial 2D map. The persistent cast of ~150 prototypes lives on a
- * 4×3 grid of sector regions. Each agent has a position, velocity,
- * and a small force field acting on it:
+ * Aesthetic-first rewrite: drop the sector grid, drop the rectangles
+ * and labels, drop the crisp-circle agents. Instead render the cast
+ * as a soft particle cloud — each prototype is one particle drawn at
+ * three superposed radii (bright core, mid halo, faint wash) with
+ * additive blending, so overlapping populations create the gauzy
+ * gradient effect of the reference design.
  *
- *   - **Sector pull** keeps members loosely bound to their region.
- *   - **Trade pull** during an active cast-to-cast trade accelerates
- *     the two agents toward each other; they meet, exchange (small
- *     particle burst), then dampening returns them to their region.
- *   - **Boundary force** keeps agents inside the canvas.
- *   - **Random walk** + dampening so motion stays organic, not jittery.
- *
- * Trades only animate when *both* endpoints are in the cast — the
- * other ~95% of pair samples are abstract. Rejection events that
- * touch at least one cast member produce a red ✕ overlay at the cast
- * member's position with a letter tag for the gate that killed the
- * trade.
+ * Twelve sector centroids placed on a smooth ellipse (not a grid).
+ * Particles get a stable angular offset around their centroid via a
+ * hash of their prototype index, plus a slow rotational drift and
+ * tiny random jitter for organic motion. Trade events spawn a brief
+ * bright streak between the two participants; rejections produce a
+ * desaturated flicker on the affected agent.
  *
  * `window.createLiveCast(host) → { applyStep, reset, dispose }`.
+ *
+ * deck.gl is loaded lazily — the cockpit's Flow tab already pulls it,
+ * but live_cast.js may be the first surface that needs it.
  */
 (function () {
   'use strict';
@@ -29,23 +29,18 @@
     'information', 'health', 'education', 'leisure',
   ]);
   const N_SECTORS = SECTOR_NAMES.length;
-  const GRID_COLS = 4;
-  const GRID_ROWS = 3;
-  const SECTOR_PAD = 24;
 
   const STYLE = `
-    .lc-host { position: relative; background: #06080b; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+    .lc-host { position: relative; background: #000; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
     .lc-controls { display: flex; gap: 10px; align-items: center; padding: 10px 14px; font-family: var(--mono); font-size: 11px; color: var(--text-3); border-bottom: 1px solid var(--border); background: var(--panel); }
     .lc-status { margin-left: auto; }
-    .lc-canvas-wrap { position: relative; height: 640px; }
+    .lc-canvas-wrap { position: relative; height: 680px; background: #000; }
     .lc-canvas { width: 100%; height: 100%; display: block; }
     .lc-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-3); font-family: var(--mono); font-size: 12px; pointer-events: none; }
-    .lc-tooltip { position: absolute; background: var(--panel); border: 1px solid var(--accent); border-radius: 3px; padding: 6px 10px; font-family: var(--mono); font-size: 10px; color: var(--text); pointer-events: none; display: none; max-width: 260px; line-height: 1.4; z-index: 5; }
-    .lc-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 6px 14px; font-family: var(--mono); font-size: 10px; color: var(--text-3); border-top: 1px solid var(--border); background: var(--panel); }
-    .lc-legend-key { display: inline-flex; align-items: center; gap: 4px; }
-    .lc-legend-key .glyph { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
-    .lc-legend-key .glyph.sq { border-radius: 1px; transform: rotate(45deg); }
-    .lc-events { font-family: var(--mono); font-size: 10px; color: var(--text-3); background: var(--panel); border-top: 1px solid var(--border); padding: 8px 14px; max-height: 120px; overflow-y: auto; }
+    .lc-empty .title { font-size: 13px; color: var(--accent); margin-bottom: 6px; letter-spacing: 0.04em; }
+    .lc-edge-labels { position: absolute; inset: 0; pointer-events: none; }
+    .lc-edge-labels .lab { position: absolute; font-family: var(--mono); font-size: 9px; color: rgba(231,232,234,0.35); text-transform: uppercase; letter-spacing: 0.08em; transform: translate(-50%, -50%); white-space: nowrap; }
+    .lc-events { font-family: var(--mono); font-size: 10px; color: var(--text-3); background: var(--panel); border-top: 1px solid var(--border); padding: 8px 14px; max-height: 110px; overflow-y: auto; }
     .lc-events-title { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin-bottom: 4px; }
     .lc-events-row { display: grid; grid-template-columns: 50px 90px 1fr; gap: 8px; padding: 1px 0; align-items: center; }
     .lc-events-row .ev-step { color: var(--text-3); }
@@ -54,7 +49,6 @@
     .lc-events-row .ev-kind.firm-dissolve { color: var(--red); }
     .lc-events-row .ev-kind.firm-join { color: var(--accent); }
     .lc-events-row .ev-kind.firm-leave { color: var(--text-3); }
-    .lc-events-row .ev-kind.firm-switch { color: var(--text-2); }
     .lc-events-row .ev-text { color: var(--text); }
     .lc-events-empty { font-style: italic; color: var(--text-3); padding: 4px 0; }
   `;
@@ -68,58 +62,44 @@
     }
   }
 
+  // Lazy deck.gl loader (shared with live_flow.js; safe to call twice).
+  let deckPromise = null;
+  function ensureDeckGL() {
+    if (window.deck) return Promise.resolve(window.deck);
+    if (deckPromise) return deckPromise;
+    deckPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://unpkg.com/deck.gl@9.0.27/dist.min.js';
+      s.onload = () => window.deck ? resolve(window.deck) : reject(new Error('deck.gl loaded but window.deck missing'));
+      s.onerror = () => reject(new Error('failed to load deck.gl'));
+      document.head.appendChild(s);
+    });
+    return deckPromise;
+  }
+
   function sectorColor(i) {
     if (window.d3 && window.d3.interpolateRainbow) {
-      return window.d3.interpolateRainbow((i + 0.5) / N_SECTORS);
+      const c = window.d3.interpolateRainbow((i + 0.5) / N_SECTORS);
+      const m = c.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
     }
     const fallback = [
-      '#b89a55', '#5fa572', '#c25a5a', '#5b8ec4',
-      '#9077c2', '#d99b6b', '#7caec1', '#a3a85a',
-      '#bd6fa6', '#6cb39e', '#c0795a', '#8e9aa8',
+      [184, 154, 85], [95, 165, 114], [194, 90, 90], [91, 142, 196],
+      [144, 119, 194], [217, 155, 107], [124, 174, 193], [163, 168, 90],
+      [189, 111, 166], [108, 179, 158], [192, 121, 90], [142, 154, 168],
     ];
     return fallback[i % fallback.length];
   }
 
-  function pairTypeColor(rec) {
-    if (rec.is_a_human && rec.is_b_human) return 'rgba(95,165,114,0.9)';
-    if (!rec.is_a_human && !rec.is_b_human) return 'rgba(91,142,196,0.9)';
-    return 'rgba(217,180,90,0.95)';
+  function hashUnit(n) {
+    let h = (n + 0x9e3779b9) | 0;
+    h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b);
+    h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35);
+    h ^= h >>> 16;
+    return (h >>> 0) / 0xffffffff;
   }
 
-  function rejectColor(reason) {
-    return ({
-      law: 'rgba(194,90,90,0.95)',
-      permeability: 'rgba(184,154,85,0.9)',
-      regulator: 'rgba(144,119,194,0.9)',
-      market: 'rgba(124,174,193,0.9)',
-      align: 'rgba(189,111,166,0.9)',
-      cost: 'rgba(108,179,158,0.9)',
-    })[reason] || 'rgba(158,162,168,0.7)';
-  }
-  function rejectLetter(reason) {
-    return ({ law: 'L', permeability: 'P', regulator: 'R', market: 'M', align: 'N', cost: '$' })[reason] || '?';
-  }
-
-  function convexHull(points) {
-    if (points.length < 3) return points.slice();
-    const sorted = points.slice().sort((a, b) => a.x - b.x || a.y - b.y);
-    const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-    const lower = [];
-    for (const p of sorted) {
-      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
-      lower.push(p);
-    }
-    const upper = [];
-    for (let i = sorted.length - 1; i >= 0; i -= 1) {
-      const p = sorted[i];
-      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
-      upper.push(p);
-    }
-    lower.pop(); upper.pop();
-    return lower.concat(upper);
-  }
-
-  function createLiveCast(host) {
+  async function createLiveCast(host) {
     ensureStyle();
     host.innerHTML = '';
     const wrap = document.createElement('div');
@@ -131,7 +111,7 @@
     const status = document.createElement('span');
     status.className = 'lc-status';
     status.textContent = 'waiting for cast snapshot…';
-    controls.appendChild(document.createTextNode('Live world map · agents move between sector regions and meet to trade'));
+    controls.appendChild(document.createTextNode('Live world · particle cloud · ~500 prototypes per snapshot'));
     controls.appendChild(status);
     wrap.appendChild(controls);
 
@@ -142,22 +122,31 @@
     canvasWrap.appendChild(canvas);
     const empty = document.createElement('div');
     empty.className = 'lc-empty';
-    empty.innerHTML = '<div style="text-align: center;"><div style="font-size: 14px; color: var(--accent); margin-bottom: 6px;">Live world map</div><div>Click Run with Continuous on. ~150 agents appear in the sector grid below; trades fire as they move.</div></div>';
+    empty.innerHTML = '<div style="text-align: center;"><div class="title">Live world cloud</div><div>Click Run with Continuous on. ~500 particles fade in, drift, exchange.</div></div>';
     canvasWrap.appendChild(empty);
-    const tooltip = document.createElement('div');
-    tooltip.className = 'lc-tooltip';
-    canvasWrap.appendChild(tooltip);
+    const labelLayer = document.createElement('div');
+    labelLayer.className = 'lc-edge-labels';
+    canvasWrap.appendChild(labelLayer);
     wrap.appendChild(canvasWrap);
 
-    // Events / firm-state declarations must live above the renderEvents()
-    // call below — `renderEvents` reads `events`, and `const events`
-    // sits in the temporal dead zone until initialized. Same trap as the
-    // SCHED_* constants earlier.
+    // Events log (firm formation / dissolution narration). Lives below
+    // the canvas — a single muted strip rather than a panel of its own.
     const events = [];
     const EVENTS_MAX = 8;
     let lastFirmSizes = new Map();
+    const eventsHost = document.createElement('div');
+    eventsHost.className = 'lc-events';
+    eventsHost.innerHTML = '<div class="lc-events-title">emergence log · firm formation, dissolution, joins, leaves</div><div class="lc-events-body"></div>';
+    wrap.appendChild(eventsHost);
+    function renderEvents() {
+      const body = eventsHost.querySelector('.lc-events-body');
+      if (!body) return;
+      body.innerHTML = events.slice().reverse().map((e) =>
+        `<div class="lc-events-row"><span class="ev-step">t${e.stepIdx}</span><span class="ev-kind ${e.kind}">${e.kind}</span><span class="ev-text">${e.text}</span></div>`
+      ).join('') || '<div class="lc-events-empty">no firm events yet — try full_emergence or institutional_emergence to see syndicates form</div>';
+    }
     function logEvent(stepIdx, kind, text) {
-      events.push({ stepIdx, kind, text, t0: performance.now() });
+      events.push({ stepIdx, kind, text });
       if (events.length > EVENTS_MAX) events.shift();
       renderEvents();
     }
@@ -168,127 +157,94 @@
         sizes.set(c.firmId, (sizes.get(c.firmId) || 0) + 1);
       });
       sizes.forEach((n, id) => {
-        if (!lastFirmSizes.has(id) && n >= 2) {
-          logEvent(stepIdx, 'firm-form', `firm ${id} formed (${n} members)`);
-        }
+        if (!lastFirmSizes.has(id) && n >= 2) logEvent(stepIdx, 'firm-form', `firm ${id} formed (${n} members)`);
       });
       lastFirmSizes.forEach((n, id) => {
-        if (!sizes.has(id)) {
-          logEvent(stepIdx, 'firm-dissolve', `firm ${id} dissolved`);
-        }
+        if (!sizes.has(id)) logEvent(stepIdx, 'firm-dissolve', `firm ${id} dissolved`);
       });
       lastFirmSizes = sizes;
     }
-    const PARTNER_MEMORY = 6;
-    function rememberPartner(c, otherIdx) {
-      c.partners.push(otherIdx);
-      if (c.partners.length > PARTNER_MEMORY) c.partners.shift();
-    }
-
-    const legend = document.createElement('div');
-    legend.className = 'lc-legend';
-    legend.innerHTML = `
-      <span class="lc-legend-key"><span class="glyph" style="background:#e7e8ea;"></span>human</span>
-      <span class="lc-legend-key"><span class="glyph sq" style="background:#9ea2a8;"></span>agent</span>
-      <span class="lc-legend-key">size→wealth · fill→sector · outline→strategy pref (<span style="color: var(--green);">smooth</span>→<span style="color: var(--red);">baroque</span>)</span>
-      <span class="lc-legend-key">trade arc: <span style="color: var(--green);">H↔H</span> · <span style="color: var(--accent);">H↔A</span> · <span style="color: var(--blue);">A↔A</span></span>
-      <span class="lc-legend-key">reject ✕: L·P·R·M·N·$</span>
-    `;
-    wrap.appendChild(legend);
-
-    // Events log below the legend — narrates emergence (firm form/
-    // dissolve, joins/leaves) so the user can read what's happening
-    // without parsing the canvas.
-    const eventsHost = document.createElement('div');
-    eventsHost.className = 'lc-events';
-    eventsHost.innerHTML = '<div class="lc-events-title">emergence log</div><div class="lc-events-body"></div>';
-    wrap.appendChild(eventsHost);
-    function renderEvents() {
-      const body = eventsHost.querySelector('.lc-events-body');
-      if (!body) return;
-      body.innerHTML = events.slice().reverse().map((e) =>
-        `<div class="lc-events-row"><span class="ev-step">t${e.stepIdx}</span><span class="ev-kind ${e.kind}">${e.kind}</span><span class="ev-text">${e.text}</span></div>`
-      ).join('') || '<div class="lc-events-empty">no firm formation or norm events yet — pick an emergent-strategy or institutional scenario to see them fire</div>';
-    }
     renderEvents();
 
-    const ctx = canvas.getContext('2d');
-    let W = 1100, H = 640;
-    function resize() {
-      const dpr = window.devicePixelRatio || 1;
-      W = canvas.clientWidth || 1100;
-      H = canvas.clientHeight || 640;
-      canvas.width = Math.round(W * dpr);
-      canvas.height = Math.round(H * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const deckLib = await ensureDeckGL();
+    const { Deck, OrthographicView, ScatterplotLayer } = deckLib;
+
+    // ---- view + sector centroids ----------------------------------------
+    let W = 1100, H = 680;
+    const cx = () => W / 2;
+    const cy = () => H / 2;
+    // 12 sector positions on a smooth ellipse — wide aspect ratio so the
+    // cloud breathes horizontally. Slight per-sector radial offset
+    // (hash-derived) so the arrangement reads as organic, not radial.
+    function sectorCentroid(s) {
+      const ang = (s / N_SECTORS) * 2 * Math.PI - Math.PI / 2;
+      const RX = Math.min(W, H) * 0.36;
+      const RY = RX * 0.78;
+      const wobble = 1 + (hashUnit(s + 19) - 0.5) * 0.12;
+      return { x: cx() + RX * Math.cos(ang) * wobble, y: cy() + RY * Math.sin(ang) * wobble };
     }
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
-    resize();
-
-    function sectorRect(sec) {
-      const col = sec % GRID_COLS;
-      const row = Math.floor(sec / GRID_COLS);
-      const innerW = W - 2 * SECTOR_PAD;
-      const innerH = H - 2 * SECTOR_PAD;
-      const cellW = innerW / GRID_COLS;
-      const cellH = innerH / GRID_ROWS;
-      return {
-        x: SECTOR_PAD + col * cellW,
-        y: SECTOR_PAD + row * cellH,
-        w: cellW,
-        h: cellH,
-        cx: SECTOR_PAD + col * cellW + cellW / 2,
-        cy: SECTOR_PAD + row * cellH + cellH / 2,
-      };
-    }
-
-    // ---- state -----------------------------------------------------------
-    const cast = new Map();   // proto_idx → { x, y, vx, vy, sector, isHuman, wealth, wealthSmooth, capability, autonomy, firmId, stack, idx, lastFlash }
-    const trades = [];        // active cast-to-cast trade animations
-    const rejects = [];       // active reject overlays on cast members
-    const pulses = [];        // small wealth/exchange particle bursts
-    let lastSnapshotStep = -1;
-    let nIncomingPairs = 0;
-
-    const TRADE_DURATION_MS = 700;       // total animation lifetime
-    const TRADE_APPROACH_FRAC = 0.45;    // 0 → frac: agents accelerate together
-    const TRADE_MEET_FRAC = 0.55;        // approach end → meet end (particle burst)
-    const REJECT_DURATION_MS = 800;
-    const TRADE_CAP = 80;                // max concurrent trades
-    const REJECT_CAP = 60;
-
-    function buildPositions(snapshot) {
-      cast.clear();
-      for (const m of snapshot) {
-        const r = sectorRect(m.sector);
-        const inset = 14;
-        const rx = r.x + inset + Math.random() * (r.w - 2 * inset);
-        const ry = r.y + inset + Math.random() * (r.h - 2 * inset);
-        cast.set(m.idx, {
-          x: rx, y: ry, vx: 0, vy: 0,
-          sector: m.sector,
-          isHuman: m.is_human,
-          wealth: m.wealth, wealthSmooth: m.wealth,
-          capability: m.capability,
-          autonomy: m.autonomy,
-          firmId: m.firm_id,
-          stack: m.stack,
-          idx: m.idx,
-          lastFlash: 0,
-          inTrade: 0,
-          // Emergent-behaviour state — drives outline colour, force
-          // pulls, and the events-log narration.
-          intermediationPref: m.intermediation_pref,
-          normDistance: m.norm_distance,
-          // Recent partners: ring buffer of cast indices the agent has
-          // recently traded with. Pulls them together visually so
-          // coalitions surface even before firm_id is set.
-          partners: [],
-        });
+    function placeEdgeLabels() {
+      labelLayer.innerHTML = '';
+      for (let s = 0; s < N_SECTORS; s += 1) {
+        const c = sectorCentroid(s);
+        const ang = (s / N_SECTORS) * 2 * Math.PI - Math.PI / 2;
+        const lx = cx() + (Math.min(W, H) * 0.36 + 28) * Math.cos(ang);
+        const ly = cy() + (Math.min(W, H) * 0.36 * 0.78 + 28) * Math.sin(ang);
+        const el = document.createElement('span');
+        el.className = 'lab';
+        el.style.left = `${(lx / W) * 100}%`;
+        el.style.top = `${(ly / H) * 100}%`;
+        el.textContent = SECTOR_NAMES[s];
+        labelLayer.appendChild(el);
       }
     }
 
+    // ---- cast state -----------------------------------------------------
+    const cast = new Map();
+    const trades = [];
+    const rejects = [];
+    let lastSnapshotStep = -1;
+    const TRADE_DUR_MS = 900;
+    const REJECT_DUR_MS = 700;
+    const TRADE_CAP = 100;
+    const REJECT_CAP = 80;
+
+    function placeMember(m) {
+      const c = sectorCentroid(m.sector);
+      // Particle distributed around its sector centroid via 2D Gaussian
+      // (Box–Muller) seeded by prototype index → stable across reloads.
+      const u1 = Math.max(1e-6, hashUnit(m.idx + 1));
+      const u2 = hashUnit(m.idx + 7919);
+      const r = Math.sqrt(-2 * Math.log(u1));
+      const theta = 2 * Math.PI * u2;
+      const SPREAD = Math.min(W, H) * 0.078;
+      // Per-particle phase for slow rotational drift.
+      const phase0 = hashUnit(m.idx + 31) * 2 * Math.PI;
+      return {
+        sector: m.sector,
+        isHuman: m.is_human,
+        wealth: m.wealth, wealthSmooth: m.wealth,
+        capability: m.capability,
+        autonomy: m.autonomy,
+        firmId: m.firm_id,
+        stack: m.stack,
+        idx: m.idx,
+        intermediationPref: m.intermediation_pref,
+        // Anchor position around sector centroid + jitter offset.
+        baseX: c.x + r * Math.cos(theta) * SPREAD,
+        baseY: c.y + r * Math.sin(theta) * SPREAD,
+        x: c.x + r * Math.cos(theta) * SPREAD,
+        y: c.y + r * Math.sin(theta) * SPREAD,
+        phase: phase0,
+        wobble: 0.4 + hashUnit(m.idx + 1009) * 0.7,
+        lastFlash: 0,
+      };
+    }
+
+    function buildPositions(snapshot) {
+      cast.clear();
+      for (const m of snapshot) cast.set(m.idx, placeMember(m));
+    }
     function ingestSnapshot(stepIdx, snapshot) {
       if (cast.size === 0) {
         buildPositions(snapshot);
@@ -298,420 +254,188 @@
       for (const m of snapshot) {
         const c = cast.get(m.idx);
         if (!c) continue;
-        // Firm-change detection: emit an event for the narration log.
-        if (c.firmId !== m.firm_id) {
-          if (m.firm_id >= 0 && c.firmId < 0) {
-            logEvent(stepIdx, 'firm-join', `proto ${c.idx} joined firm ${m.firm_id}`);
-          } else if (m.firm_id < 0 && c.firmId >= 0) {
-            logEvent(stepIdx, 'firm-leave', `proto ${c.idx} left firm ${c.firmId}`);
-          } else {
-            logEvent(stepIdx, 'firm-switch', `proto ${c.idx}: firm ${c.firmId} → ${m.firm_id}`);
-          }
-        }
         c.wealth = m.wealth;
         c.capability = m.capability;
         c.autonomy = m.autonomy;
         c.firmId = m.firm_id;
         c.intermediationPref = m.intermediation_pref;
-        c.normDistance = m.norm_distance;
-        if (c.sector !== m.sector) c.sector = m.sector;
+        if (c.sector !== m.sector) {
+          // sector reassignment (rare) — re-anchor.
+          const newAnchor = sectorCentroid(m.sector);
+          c.baseX = newAnchor.x + (c.baseX - sectorCentroid(c.sector).x);
+          c.baseY = newAnchor.y + (c.baseY - sectorCentroid(c.sector).y);
+          c.sector = m.sector;
+        }
       }
       lastSnapshotStep = stepIdx;
     }
 
     function spawnFromPair(p, now) {
-      nIncomingPairs += 1;
       const a = cast.get(p.proto_a);
       const b = cast.get(p.proto_b);
       if (!a && !b) return;
       if (!p.executed) {
-        const reason = p.reject_reason || 'cost';
-        if (a) {
-          rejects.push({ x: a.x, y: a.y, color: rejectColor(reason), letter: rejectLetter(reason), t0: now });
-          a.lastFlash = now;
-        }
-        if (b) {
-          rejects.push({ x: b.x, y: b.y, color: rejectColor(reason), letter: rejectLetter(reason), t0: now });
-          b.lastFlash = now;
-        }
+        if (a) { rejects.push({ x: a.x, y: a.y, t0: now, color: sectorColor(a.sector) }); a.lastFlash = now; }
+        if (b) { rejects.push({ x: b.x, y: b.y, t0: now, color: sectorColor(b.sector) }); b.lastFlash = now; }
         if (rejects.length > REJECT_CAP) rejects.splice(0, rejects.length - REJECT_CAP);
         return;
       }
-      // Cast-to-cast: agents meet at midpoint.
-      // Single-cast: the cast member darts out to a ghost point at the
-      // other endpoint's sector edge, flashes, and drifts back.
-      // Cast-to-cast events are statistically rare (cast covers a small
-      // share of weighted pairs), so most animations are single-cast
-      // darts — the right "agent leaves the village, trades, comes back"
-      // feel for the map.
-      if (a && b) {
-        if (trades.length >= TRADE_CAP) trades.shift();
-        trades.push({
-          kind: 'meet', a, b, t0: now, dur: TRADE_DURATION_MS,
-          color: pairTypeColor(p),
-          weight: Math.max(0.6, Math.min(2.8, Math.log10((p.pair_weight || 1) + 1) * 0.8 + 0.6)),
-          flashed: false,
-        });
-        a.inTrade += 1;
-        b.inTrade += 1;
-        // Remember each other as recent partners so the force layout
-        // pulls them together over time — emergent coalitions show up
-        // as clusters even without explicit firm_id.
-        rememberPartner(a, b.idx);
-        rememberPartner(b, a.idx);
-      } else {
-        // Sample only a fraction of single-cast events so the canvas
-        // doesn't get overwhelmed at K=1500 × 100 steps/sec.
-        if (Math.random() > 0.35) return;
+      if (a && b && trades.length < TRADE_CAP) {
+        trades.push({ a, b, t0: now, dur: TRADE_DUR_MS, color: sectorColor(a.sector) });
+        a.lastFlash = now; b.lastFlash = now;
+      } else if (a || b) {
         const me = a || b;
-        const otherSector = a ? p.sec_b : p.sec_a;
-        const ghost = sectorRect(otherSector);
-        // Offset slightly into the other sector so darting reads as
-        // "going to do business there", not "leaving the canvas."
-        if (trades.length >= TRADE_CAP) trades.shift();
-        trades.push({
-          kind: 'dart', a: me, ghost: { x: ghost.cx, y: ghost.cy }, t0: now, dur: TRADE_DURATION_MS,
-          color: pairTypeColor(p),
-          weight: Math.max(0.6, Math.min(2.0, Math.log10((p.pair_weight || 1) + 1) * 0.6 + 0.6)),
-          flashed: false,
-        });
-        me.inTrade += 1;
+        me.lastFlash = now;
       }
     }
 
-    // ---- physics ---------------------------------------------------------
+    // ---- deck.gl renderer -----------------------------------------------
+    const deck = new Deck({
+      canvas,
+      width: '100%',
+      height: '100%',
+      views: new OrthographicView({ id: 'ortho' }),
+      controller: false,
+      initialViewState: { target: [cx(), cy(), 0], zoom: 0 },
+      layers: [],
+      parameters: { clearColor: [0, 0, 0, 1] },
+    });
 
-    // events / lastFirmSizes / rememberPartner — declarations live
-    // above renderEvents() at the top of this function (see TDZ note).
-
-    let lastFrameMs = performance.now();
-    function step(now) {
-      const rawDt = Math.min(48, now - lastFrameMs);   // clamp to handle tab switches
-      lastFrameMs = now;
-      // Convert ms to a unit where 1 == one frame at 60fps for tuning.
-      const dt = rawDt / 16.67;
-
-      // Firm centroids — recomputed each frame so members converge as
-      // the firm gets larger.
-      const firmCentroids = new Map();
-      const firmCounts = new Map();
+    function resize() {
+      const wRect = canvasWrap.getBoundingClientRect();
+      W = Math.max(400, wRect.width);
+      H = Math.max(400, wRect.height);
+      deck.setProps({ initialViewState: { target: [cx(), cy(), 0], zoom: 0 } });
+      // Rebuild anchor positions if the cast already exists — keeps the
+      // cloud centred when the panel resizes.
       cast.forEach((c) => {
-        if (c.firmId == null || c.firmId < 0) return;
-        const cur = firmCentroids.get(c.firmId) || { x: 0, y: 0 };
-        cur.x += c.x; cur.y += c.y;
-        firmCentroids.set(c.firmId, cur);
-        firmCounts.set(c.firmId, (firmCounts.get(c.firmId) || 0) + 1);
+        const anchor = sectorCentroid(c.sector);
+        c.baseX = anchor.x; c.baseY = anchor.y;
+        // Re-spread by hash so layout is deterministic per resize.
+        const u1 = Math.max(1e-6, hashUnit(c.idx + 1));
+        const u2 = hashUnit(c.idx + 7919);
+        const r = Math.sqrt(-2 * Math.log(u1));
+        const theta = 2 * Math.PI * u2;
+        const SPREAD = Math.min(W, H) * 0.078;
+        c.baseX = anchor.x + r * Math.cos(theta) * SPREAD;
+        c.baseY = anchor.y + r * Math.sin(theta) * SPREAD;
       });
-      firmCentroids.forEach((p, id) => {
-        const n = firmCounts.get(id) || 1;
-        p.x /= n; p.y /= n;
-      });
-
-      // 1. Forces on each cast member:
-      //    - sector pull (weak; ambient)
-      //    - firm pull (strong; coalitions form geographically)
-      //    - recent-partner pull (medium; emergent coalitions before
-      //      firm_id resolves)
-      //    - random walk (organic motion)
-      cast.forEach((c) => {
-        const r = sectorRect(c.sector);
-        c.vx += (r.cx - c.x) * 0.0012 * dt;
-        c.vy += (r.cy - c.y) * 0.0012 * dt;
-
-        if (c.firmId != null && c.firmId >= 0) {
-          const fc = firmCentroids.get(c.firmId);
-          if (fc) {
-            c.vx += (fc.x - c.x) * 0.012 * dt;
-            c.vy += (fc.y - c.y) * 0.012 * dt;
-          }
-        }
-
-        if (c.partners.length) {
-          let px = 0, py = 0, n = 0;
-          for (const pid of c.partners) {
-            const p = cast.get(pid);
-            if (p) { px += p.x; py += p.y; n += 1; }
-          }
-          if (n > 0) {
-            c.vx += (px / n - c.x) * 0.005 * dt;
-            c.vy += (py / n - c.y) * 0.005 * dt;
-          }
-        }
-
-        const wander = c.inTrade > 0 ? 0.02 : 0.14;
-        c.vx += (Math.random() - 0.5) * wander * dt;
-        c.vy += (Math.random() - 0.5) * wander * dt;
-      });
-
-      // 2. Trade pull: meeting (both cast) or darting (single cast).
-      for (let i = trades.length - 1; i >= 0; i -= 1) {
-        const t = trades[i];
-        const u = (now - t.t0) / t.dur;
-        if (u >= 1) {
-          t.a.inTrade = Math.max(0, t.a.inTrade - 1);
-          if (t.kind === 'meet') t.b.inTrade = Math.max(0, t.b.inTrade - 1);
-          trades.splice(i, 1);
-          continue;
-        }
-        if (t.kind === 'meet') {
-          if (u < TRADE_APPROACH_FRAC) {
-            const k = 0.045 * (1 - u / TRADE_APPROACH_FRAC) * dt;
-            const dx = t.b.x - t.a.x;
-            const dy = t.b.y - t.a.y;
-            t.a.vx += dx * k;
-            t.a.vy += dy * k;
-            t.b.vx -= dx * k;
-            t.b.vy -= dy * k;
-          } else if (u >= TRADE_APPROACH_FRAC && u < TRADE_MEET_FRAC && !t.flashed) {
-            const mx = (t.a.x + t.b.x) / 2;
-            const my = (t.a.y + t.b.y) / 2;
-            pulses.push({ x: mx, y: my, t0: now, color: t.color });
-            t.flashed = true;
-          }
-        } else {
-          // 'dart': single cast member moves toward the ghost point and back.
-          if (u < TRADE_APPROACH_FRAC) {
-            const k = 0.06 * (1 - u / TRADE_APPROACH_FRAC) * dt;
-            t.a.vx += (t.ghost.x - t.a.x) * k;
-            t.a.vy += (t.ghost.y - t.a.y) * k;
-          } else if (u >= TRADE_APPROACH_FRAC && u < TRADE_MEET_FRAC && !t.flashed) {
-            // Flash slightly in front of where the cast member currently is,
-            // along the dart vector — reads as "trade landed."
-            pulses.push({ x: t.a.x, y: t.a.y, t0: now, color: t.color });
-            t.flashed = true;
-          }
-        }
-      }
-
-      // 3. Apply velocity, dampening, boundary.
-      cast.forEach((c) => {
-        c.vx *= Math.pow(0.86, dt);
-        c.vy *= Math.pow(0.86, dt);
-        // Cap velocity so trade pull doesn't fling agents through the canvas.
-        const v = Math.hypot(c.vx, c.vy);
-        const VMAX = c.inTrade > 0 ? 8.0 : 1.2;
-        if (v > VMAX) { c.vx = c.vx / v * VMAX; c.vy = c.vy / v * VMAX; }
-        c.x += c.vx * dt;
-        c.y += c.vy * dt;
-        // Boundary soft-bounce.
-        const m = 14;
-        if (c.x < m) { c.x = m; c.vx = Math.abs(c.vx) * 0.4; }
-        if (c.x > W - m) { c.x = W - m; c.vx = -Math.abs(c.vx) * 0.4; }
-        if (c.y < m) { c.y = m; c.vy = Math.abs(c.vy) * 0.4; }
-        if (c.y > H - m) { c.y = H - m; c.vy = -Math.abs(c.vy) * 0.4; }
-      });
-
-      // 4. Lerp wealth for smooth radius growth/shrink.
-      cast.forEach((c) => { c.wealthSmooth += (c.wealth - c.wealthSmooth) * 0.18 * dt; });
+      placeEdgeLabels();
     }
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvasWrap);
+    resize();
 
-    // ---- render loop -----------------------------------------------------
     let raf;
     function frame() {
       const now = performance.now();
-      step(now);
-      ctx.clearRect(0, 0, W, H);
 
-      // Sector regions: soft fill + label. Visible enough that the
-      // structure of the map reads even before the first cast snapshot.
-      for (let s = 0; s < N_SECTORS; s += 1) {
-        const r = sectorRect(s);
-        const color = sectorColor(s);
-        ctx.fillStyle = color + '22';
-        ctx.strokeStyle = color + '99';
-        ctx.lineWidth = 1.2;
-        ctx.fillRect(r.x, r.y, r.w, r.h);
-        ctx.strokeRect(r.x, r.y, r.w, r.h);
-        ctx.font = 'bold 12px "JetBrains Mono", monospace';
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.95;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText(SECTOR_NAMES[s].toUpperCase(), r.x + 10, r.y + 8);
-        ctx.globalAlpha = 1.0;
-      }
-
-      // Firm hulls (after region grid, before agents).
-      const firms = new Map();
+      // Update per-particle position with slow drift + phase rotation.
       cast.forEach((c) => {
-        if (c.firmId == null || c.firmId < 0) return;
-        let arr = firms.get(c.firmId);
-        if (!arr) { arr = []; firms.set(c.firmId, arr); }
-        arr.push(c);
+        c.wealthSmooth += (c.wealth - c.wealthSmooth) * 0.15;
+        c.phase += 0.003 * c.wobble;
+        const dx = Math.cos(c.phase) * 4 * c.wobble;
+        const dy = Math.sin(c.phase * 1.31) * 3.5 * c.wobble;
+        c.x = c.baseX + dx + (Math.random() - 0.5) * 0.25;
+        c.y = c.baseY + dy + (Math.random() - 0.5) * 0.25;
       });
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 4]);
-      firms.forEach((members, firmId) => {
-        if (members.length < 2) return;
-        const hull = convexHull(members.map((m) => ({ x: m.x, y: m.y })));
-        if (hull.length < 2) return;
-        const col = sectorColor(firmId % N_SECTORS);
-        ctx.strokeStyle = col;
-        ctx.fillStyle = col + '33';
-        ctx.beginPath();
-        ctx.moveTo(hull[0].x, hull[0].y);
-        for (let i = 1; i < hull.length; i += 1) ctx.lineTo(hull[i].x, hull[i].y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        // Label the firm at its centroid.
-        const cx2 = hull.reduce((s, p) => s + p.x, 0) / hull.length;
-        const cy2 = hull.reduce((s, p) => s + p.y, 0) / hull.length;
-        ctx.fillStyle = col;
-        ctx.globalAlpha = 0.95;
-        ctx.font = 'bold 11px "JetBrains Mono", monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(`firm ${firmId} · ${members.length}`, cx2, cy2 - 8);
-        ctx.globalAlpha = 1.0;
-      });
-      ctx.setLineDash([]);
 
-      // Trade lines: thin connector while approaching, fading toward the
-      // retreat. For darts, the line connects the cast member to its
-      // ghost destination point so the eye can follow the trade vector.
-      for (const t of trades) {
+      // Build particle layer data.
+      const particles = [];
+      cast.forEach((c) => {
+        const r = 4 + Math.log10(Math.max(c.wealthSmooth, 0.1)) * 1.8;
+        const flashAge = now - c.lastFlash;
+        const flash = flashAge < 400 ? (1 - flashAge / 400) : 0;
+        const col = sectorColor(c.sector);
+        const baseAlpha = c.isHuman ? 180 : 150;
+        particles.push({ pos: [c.x, c.y, 0], r, color: [...col, baseAlpha + Math.round(flash * 60)] });
+      });
+
+      // Trade streaks: spawn a few intermediate particles along the
+      // approach path for the lifetime of the trade.
+      const tradeParticles = [];
+      for (let i = trades.length - 1; i >= 0; i -= 1) {
+        const t = trades[i];
         const u = (now - t.t0) / t.dur;
-        let alpha;
-        if (u < TRADE_APPROACH_FRAC) alpha = 0.4 * (1 - u / TRADE_APPROACH_FRAC) + 0.6;
-        else alpha = Math.max(0, 1 - (u - TRADE_APPROACH_FRAC) / (1 - TRADE_APPROACH_FRAC));
-        ctx.globalAlpha = alpha * 0.5;
-        ctx.strokeStyle = t.color;
-        ctx.lineWidth = t.weight;
-        ctx.beginPath();
-        ctx.moveTo(t.a.x, t.a.y);
-        if (t.kind === 'meet') ctx.lineTo(t.b.x, t.b.y);
-        else ctx.lineTo(t.ghost.x, t.ghost.y);
-        ctx.stroke();
+        if (u >= 1) { trades.splice(i, 1); continue; }
+        const alpha = (1 - u) * 220;
+        const steps = 6;
+        for (let k = 0; k < steps; k += 1) {
+          const f = u + (k / steps) * (1 - u);
+          if (f > 1) break;
+          const px = t.a.x + (t.b.x - t.a.x) * f;
+          const py = t.a.y + (t.b.y - t.a.y) * f;
+          tradeParticles.push({ pos: [px, py, 0], r: 2.2, color: [...t.color, Math.round(alpha * (1 - k / steps))] });
+        }
       }
-      ctx.globalAlpha = 1.0;
 
-      // Meeting pulses.
-      for (let i = pulses.length - 1; i >= 0; i -= 1) {
-        const p = pulses[i];
-        const age = now - p.t0;
-        const PULSE_DUR = 380;
-        if (age > PULSE_DUR) { pulses.splice(i, 1); continue; }
-        const u = age / PULSE_DUR;
-        ctx.globalAlpha = (1 - u);
-        ctx.fillStyle = p.color;
-        const r = 4 + u * 18;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r, 0, 2 * Math.PI);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1.0;
-
-      // Reject overlays.
+      // Reject overlays as a dim wash around the affected agent.
       for (let i = rejects.length - 1; i >= 0; i -= 1) {
         const r = rejects[i];
-        const u = (now - r.t0) / REJECT_DURATION_MS;
+        const u = (now - r.t0) / REJECT_DUR_MS;
         if (u >= 1) { rejects.splice(i, 1); continue; }
-        ctx.globalAlpha = (1 - u);
-        ctx.strokeStyle = r.color;
-        ctx.lineWidth = 2;
-        const sz = 5 + u * 6;
-        ctx.beginPath();
-        ctx.moveTo(r.x - sz, r.y - sz); ctx.lineTo(r.x + sz, r.y + sz);
-        ctx.moveTo(r.x + sz, r.y - sz); ctx.lineTo(r.x - sz, r.y + sz);
-        ctx.stroke();
-        ctx.fillStyle = r.color;
-        ctx.font = 'bold 9px "JetBrains Mono", monospace';
-        ctx.fillText(r.letter, r.x + sz + 5, r.y - sz);
+        particles.push({ pos: [r.x, r.y, 0], r: 10 + u * 6, color: [194, 90, 90, Math.round(140 * (1 - u))] });
       }
-      ctx.globalAlpha = 1.0;
 
-      // Cast dots. Outline encodes the agent's *learned strategy*
-      // preference when emergent-strategy is enabled — green for
-      // smooth-leaning, red for baroque-leaning. When strategy is
-      // off, the outline is a neutral tint.
-      cast.forEach((c) => {
-        const r = 3 + Math.log10(Math.max(c.wealthSmooth, 0.1)) * 1.8;
-        const flashAge = (now - c.lastFlash);
-        const glow = flashAge < 400 ? (1 - flashAge / 400) : 0;
-        if (glow > 0) {
-          ctx.beginPath();
-          ctx.arc(c.x, c.y, r + 4 + glow * 4, 0, 2 * Math.PI);
-          ctx.fillStyle = sectorColor(c.sector);
-          ctx.globalAlpha = glow * 0.35;
-          ctx.fill();
-          ctx.globalAlpha = 1.0;
-        }
-        ctx.fillStyle = sectorColor(c.sector);
-        let outlineColor;
-        if (c.intermediationPref != null && c.intermediationPref >= 0) {
-          // Map pref ∈ [0,1] from green (smooth) to red (baroque).
-          const p = Math.max(0, Math.min(1, c.intermediationPref));
-          const rch = Math.round(95 + (194 - 95) * p);
-          const gch = Math.round(165 + (90 - 165) * p);
-          const bch = Math.round(114 + (90 - 114) * p);
-          outlineColor = `rgb(${rch},${gch},${bch})`;
-        } else if (c.isHuman) {
-          outlineColor = 'rgba(231,232,234,0.6)';
-        } else {
-          outlineColor = `rgba(12,13,16,${0.4 + 0.5 * c.autonomy})`;
-        }
-        if (c.isHuman) {
-          ctx.beginPath();
-          ctx.arc(c.x, c.y, r, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.strokeStyle = outlineColor;
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        } else {
-          const half = r * 0.95;
-          ctx.save();
-          ctx.translate(c.x, c.y);
-          ctx.rotate(Math.PI / 4);
-          ctx.fillRect(-half, -half, half * 2, half * 2);
-          ctx.strokeStyle = outlineColor;
-          ctx.lineWidth = 1.5;
-          ctx.strokeRect(-half, -half, half * 2, half * 2);
-          ctx.restore();
-        }
-      });
-
+      // Three layered scatterplots emulate a Gaussian falloff — bright
+      // core + mid halo + outer wash, additively blended.
+      const blendParams = {
+        blend: true,
+        blendFunc: [770, 1],            // SRC_ALPHA, ONE
+        depthTest: false,
+      };
+      const layers = [
+        new ScatterplotLayer({
+          id: 'wash',
+          data: particles,
+          getPosition: (d) => d.pos,
+          getRadius: (d) => d.r * 4.2,
+          getFillColor: (d) => [d.color[0], d.color[1], d.color[2], Math.round(d.color[3] * 0.08)],
+          radiusUnits: 'pixels',
+          stroked: false,
+          parameters: blendParams,
+        }),
+        new ScatterplotLayer({
+          id: 'halo',
+          data: particles,
+          getPosition: (d) => d.pos,
+          getRadius: (d) => d.r * 2.0,
+          getFillColor: (d) => [d.color[0], d.color[1], d.color[2], Math.round(d.color[3] * 0.25)],
+          radiusUnits: 'pixels',
+          stroked: false,
+          parameters: blendParams,
+        }),
+        new ScatterplotLayer({
+          id: 'core',
+          data: particles,
+          getPosition: (d) => d.pos,
+          getRadius: (d) => d.r,
+          getFillColor: (d) => d.color,
+          radiusUnits: 'pixels',
+          stroked: false,
+          parameters: blendParams,
+        }),
+        new ScatterplotLayer({
+          id: 'trades',
+          data: tradeParticles,
+          getPosition: (d) => d.pos,
+          getRadius: (d) => d.r,
+          getFillColor: (d) => d.color,
+          radiusUnits: 'pixels',
+          stroked: false,
+          parameters: blendParams,
+        }),
+      ];
+      deck.setProps({ layers });
       raf = requestAnimationFrame(frame);
     }
     raf = requestAnimationFrame(frame);
 
-    // ---- hover tooltip --------------------------------------------------
-    function pickAt(mx, my) {
-      let best = null, bestD = Infinity;
-      cast.forEach((c) => {
-        const d = Math.hypot(c.x - mx, c.y - my);
-        if (d < bestD && d < 14) { bestD = d; best = c; }
-      });
-      return best;
-    }
-    canvas.addEventListener('mousemove', (ev) => {
-      const rect = canvas.getBoundingClientRect();
-      const mx = ev.clientX - rect.left;
-      const my = ev.clientY - rect.top;
-      const c = pickAt(mx, my);
-      if (!c) { tooltip.style.display = 'none'; return; }
-      tooltip.innerHTML = `
-        <div style="color: ${sectorColor(c.sector)}; font-weight: 600;">${c.isHuman ? 'human' : 'agent'} · proto ${c.idx}</div>
-        <div>sector: ${SECTOR_NAMES[c.sector]} · stack ${c.stack}</div>
-        <div>wealth: ${c.wealth.toExponential(2)}</div>
-        <div>capability: ${c.capability.toFixed(3)}</div>
-        <div>autonomy: ${c.autonomy.toFixed(3)}</div>
-        <div>firm: ${c.firmId >= 0 ? c.firmId : 'independent'}</div>
-        <div>active trades: ${c.inTrade}</div>
-      `;
-      tooltip.style.left = (mx + 12) + 'px';
-      tooltip.style.top = (my + 12) + 'px';
-      tooltip.style.display = 'block';
-    });
-    canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
-
     // ---- public API -----------------------------------------------------
-
     function applyStep(step) {
       if (step.cast_snapshot && step.cast_snapshot.length) {
         empty.style.display = 'none';
         ingestSnapshot(step.step, step.cast_snapshot);
-        // After ingestion, scan for firm-level transitions across this
-        // step boundary so the events log can announce them.
         detectFirmEvents(step.step);
       }
       const pairs = step.pair_samples || [];
@@ -719,20 +443,15 @@
         const now = performance.now();
         for (let i = 0; i < pairs.length; i += 1) {
           const p = pairs[i];
-          if (cast.has(p.proto_a) || cast.has(p.proto_b)) {
-            spawnFromPair(p, now);
-          }
+          if (cast.has(p.proto_a) || cast.has(p.proto_b)) spawnFromPair(p, now);
         }
       }
-      const inFirm = [...cast.values()].filter((c) => c.firmId >= 0).length;
-      status.textContent = `step ${lastSnapshotStep} · ${cast.size} agents · ${trades.length} live trades · ${rejects.length} rejects · ${inFirm} in firms`;
+      status.textContent = `step ${lastSnapshotStep} · ${cast.size} particles · ${trades.length} active trades`;
     }
-
     function reset() {
       cast.clear();
       trades.length = 0;
       rejects.length = 0;
-      pulses.length = 0;
       events.length = 0;
       lastFirmSizes.clear();
       lastSnapshotStep = -1;
@@ -740,12 +459,11 @@
       status.textContent = 'waiting for cast snapshot…';
       renderEvents();
     }
-
     function dispose() {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      try { deck.finalize(); } catch (e) { /* version differences */ }
     }
-
     return { applyStep, reset, dispose };
   }
 
