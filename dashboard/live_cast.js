@@ -149,6 +149,42 @@
     canvasWrap.appendChild(tooltip);
     wrap.appendChild(canvasWrap);
 
+    // Events / firm-state declarations must live above the renderEvents()
+    // call below — `renderEvents` reads `events`, and `const events`
+    // sits in the temporal dead zone until initialized. Same trap as the
+    // SCHED_* constants earlier.
+    const events = [];
+    const EVENTS_MAX = 8;
+    let lastFirmSizes = new Map();
+    function logEvent(stepIdx, kind, text) {
+      events.push({ stepIdx, kind, text, t0: performance.now() });
+      if (events.length > EVENTS_MAX) events.shift();
+      renderEvents();
+    }
+    function detectFirmEvents(stepIdx) {
+      const sizes = new Map();
+      cast.forEach((c) => {
+        if (c.firmId == null || c.firmId < 0) return;
+        sizes.set(c.firmId, (sizes.get(c.firmId) || 0) + 1);
+      });
+      sizes.forEach((n, id) => {
+        if (!lastFirmSizes.has(id) && n >= 2) {
+          logEvent(stepIdx, 'firm-form', `firm ${id} formed (${n} members)`);
+        }
+      });
+      lastFirmSizes.forEach((n, id) => {
+        if (!sizes.has(id)) {
+          logEvent(stepIdx, 'firm-dissolve', `firm ${id} dissolved`);
+        }
+      });
+      lastFirmSizes = sizes;
+    }
+    const PARTNER_MEMORY = 6;
+    function rememberPartner(c, otherIdx) {
+      c.partners.push(otherIdx);
+      if (c.partners.length > PARTNER_MEMORY) c.partners.shift();
+    }
+
     const legend = document.createElement('div');
     legend.className = 'lc-legend';
     legend.innerHTML = `
@@ -345,47 +381,8 @@
 
     // ---- physics ---------------------------------------------------------
 
-    // Recent-partners ring buffer per cast member.
-    const PARTNER_MEMORY = 6;
-    function rememberPartner(c, otherIdx) {
-      c.partners.push(otherIdx);
-      if (c.partners.length > PARTNER_MEMORY) c.partners.shift();
-    }
-
-    // Events log — narrates emergence to the user. Capped to last 8
-    // entries; displayed in the bottom strip of the live world panel.
-    const events = [];
-    const EVENTS_MAX = 8;
-    function logEvent(stepIdx, kind, text) {
-      events.push({ stepIdx, kind, text, t0: performance.now() });
-      if (events.length > EVENTS_MAX) events.shift();
-      renderEvents();
-    }
-
-    // Track firm-state transitions across steps so we can announce
-    // firm formation/dissolution at the *coalition* level, not just
-    // individual joins.
-    let lastFirmSizes = new Map();   // firmId → member count
-    function detectFirmEvents(stepIdx) {
-      const sizes = new Map();
-      cast.forEach((c) => {
-        if (c.firmId == null || c.firmId < 0) return;
-        sizes.set(c.firmId, (sizes.get(c.firmId) || 0) + 1);
-      });
-      // Newly-formed firms.
-      sizes.forEach((n, id) => {
-        if (!lastFirmSizes.has(id) && n >= 2) {
-          logEvent(stepIdx, 'firm-form', `firm ${id} formed (${n} members)`);
-        }
-      });
-      // Dissolved firms.
-      lastFirmSizes.forEach((n, id) => {
-        if (!sizes.has(id)) {
-          logEvent(stepIdx, 'firm-dissolve', `firm ${id} dissolved`);
-        }
-      });
-      lastFirmSizes = sizes;
-    }
+    // events / lastFirmSizes / rememberPartner — declarations live
+    // above renderEvents() at the top of this function (see TDZ note).
 
     let lastFrameMs = performance.now();
     function step(now) {
