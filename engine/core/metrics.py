@@ -464,7 +464,6 @@ class Metrics:
             real_authentic_step = real_step
         self._cum_real_authentic += real_authentic_step
         self._cum_real_from_intermediation += real_added_productive
-        self._cum_pigouvian_revenue += pigouvian_revenue
         # W2c: cumulative labor wedge routed to humans.
         self._cum_human_labor_wage += float(human_labor_wage_step)
         if human_wage_per_sector_step is not None:
