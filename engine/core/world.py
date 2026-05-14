@@ -603,6 +603,17 @@ class World:
                 ledger.add_wealth_in("pigouvian.recycle", float(tx.pigouvian_revenue))
         self._recycle_pigouvian_revenue(tx.pigouvian_revenue)
 
+        # Windfall tax recycling. LawConfig.transaction_size_cap (tax
+        # mode) captures the surplus above the cap; route it through
+        # the same Pigouvian recycling channels. The handler is a
+        # no-op when PigouvianConfig.enabled is False — windfall revenue
+        # still appears in StepMetrics but is not redistributed.
+        if track_ledger and tx.windfall_tax_revenue > 0:
+            pig_cfg = self.topology.cfg.pigouvian
+            if pig_cfg.enabled and pig_cfg.recycling == "human_wealth":
+                ledger.add_wealth_in("windfall.recycle", float(tx.windfall_tax_revenue))
+        self._recycle_pigouvian_revenue(tx.windfall_tax_revenue)
+
         # 2. Folding operator. Folding takes the step's nominal volume and
         # *fractally multiplies* it. Real surplus is reduced by the fold
         # overhead and (when productive folding is enabled) increased by
@@ -867,6 +878,7 @@ class World:
             law_capture_surplus_loss=tx.law_capture_surplus_loss,
             law_upkeep_cost=law_upkeep_cost,
             pigouvian_revenue=tx.pigouvian_revenue,
+            windfall_tax_revenue=tx.windfall_tax_revenue,
             a2a_share=tx.a2a_share,
             h2a_share=tx.h2a_share,
             h2h_share=tx.h2h_share,

@@ -55,6 +55,17 @@ class LawConfig:
     gamma_civic_pushback: Optional[float] = None
     concentration_penalty_gini_anchor: float = 0.4
     local_trust_surplus_floor: float = 0.35
+    # Transaction-size cap (legal_levers_in_agent_economies.md). When
+    # the per-pair surplus exceeds `transaction_size_cap`, the
+    # `cap_recipient` mode determines what happens:
+    #   - "tax"    surplus above the cap is collected as windfall tax
+    #              and recycled through the same channels as Pigouvian
+    #              (StepMetrics.windfall_tax_revenue_*).
+    #   - "reject" the pair is added to law_reject before execution.
+    # Default `inf` keeps the cap inactive and the canonical baselines
+    # bit-identical. See `docs/research/legal_levers_in_agent_economies.md`.
+    transaction_size_cap: float = float("inf")
+    cap_recipient: str = "tax"
 
     def __post_init__(self) -> None:
         if self.gamma_civic_pushback is None:

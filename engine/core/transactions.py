@@ -251,6 +251,10 @@ class TransactionResult:
     law_weak_surplus_loss: float = 0.0
     law_capture_surplus_loss: float = 0.0
     pigouvian_revenue: float = 0.0
+    # Windfall tax revenue from the LawConfig.transaction_size_cap
+    # mechanism (tax mode). Zero when the cap is inf or in reject mode.
+    # Recycled through `_recycle_pigouvian_revenue` in World.step.
+    windfall_tax_revenue: float = 0.0
     realized_alpha: float = 0.0
     a2a_share: float = 0.0
     h2a_share: float = 0.0
@@ -522,6 +526,12 @@ def coasean_step(
         law_capture_loss_pair = base_surplus_raw * neutral_law_gate * (1.0 - capture_gate)
         base_surplus = base_surplus_raw * law_gate
         law_reject = law_reject | (law_gate <= 0.0)
+        # Transaction-size cap, reject mode: gross expected surplus over
+        # the cap is filtered at the law gate. Tax mode is applied
+        # downstream on `pair_surplus`.
+        cap = float(law_cfg.transaction_size_cap)
+        if cap < float("inf") and law_cfg.cap_recipient == "reject":
+            law_reject = law_reject | (base_surplus_raw > cap)
     else:
         base_surplus = base_surplus_raw
         law_weak_loss_pair = np.zeros(n_pairs, dtype=np.float32)
@@ -711,6 +721,22 @@ def coasean_step(
     # Gross surplus on executed pairs.
     pair_surplus = (base_surplus - cost) * executed_mask
 
+    # Transaction-size cap, tax mode: surplus above the cap on executed
+    # pairs is captured as a windfall tax and clipped from
+    # `pair_surplus` before any downstream Matryoshka / Pigouvian /
+    # labor-wedge tax. With `cap = inf` (the default) or with the cap
+    # in reject mode (handled at the law gate), no surplus is captured.
+    windfall_tax_pair: np.ndarray | None = None
+    cap = float(law_cfg.transaction_size_cap)
+    if (
+        law_cfg.enabled
+        and law_cfg.cap_recipient == "tax"
+        and cap < float("inf")
+    ):
+        excess = np.maximum(pair_surplus - np.float32(cap), 0.0)
+        windfall_tax_pair = excess
+        pair_surplus = pair_surplus - excess
+
     # Apply Matryoshka taxes (market + individual layers).
     real_tax_rate = topo.matryoshka_real_tax()
     real_pair_surplus = pair_surplus * (1.0 - real_tax_rate)
@@ -757,6 +783,11 @@ def coasean_step(
     pigouvian_revenue = (
         float((pigouvian_tax_pair * pair_real_count).sum())
         if pigouvian_tax_pair is not None
+        else 0.0
+    )
+    windfall_tax_revenue = (
+        float((windfall_tax_pair * pair_real_count).sum())
+        if windfall_tax_pair is not None
         else 0.0
     )
     a2a_share, h2a_share, h2h_share = executed_interaction_shares(
@@ -907,6 +938,7 @@ def coasean_step(
         law_weak_surplus_loss=law_weak_surplus_loss,
         law_capture_surplus_loss=law_capture_surplus_loss,
         pigouvian_revenue=pigouvian_revenue,
+        windfall_tax_revenue=windfall_tax_revenue,
         realized_alpha=realized_alpha,
         a2a_share=a2a_share,
         h2a_share=h2a_share,
@@ -953,6 +985,7 @@ def _coasean_step_chunked(
     law_weak_surplus_loss = 0.0
     law_capture_surplus_loss = 0.0
     pigouvian_revenue = 0.0
+    windfall_tax_revenue = 0.0
     executed_alpha_weighted = 0.0
     all_pair_alpha_weighted = 0.0
     all_pair_alpha_weight = 0.0
@@ -1016,6 +1049,7 @@ def _coasean_step_chunked(
         law_weak_surplus_loss += part.law_weak_surplus_loss
         law_capture_surplus_loss += part.law_capture_surplus_loss
         pigouvian_revenue += part.pigouvian_revenue
+        windfall_tax_revenue += part.windfall_tax_revenue
         if part.n_transactions_real > 0:
             executed_alpha_weighted += part.realized_alpha * part.n_transactions_real
             a2a_weighted += part.a2a_share * part.n_transactions_real
@@ -1053,6 +1087,7 @@ def _coasean_step_chunked(
         law_weak_surplus_loss=law_weak_surplus_loss,
         law_capture_surplus_loss=law_capture_surplus_loss,
         pigouvian_revenue=pigouvian_revenue,
+        windfall_tax_revenue=windfall_tax_revenue,
         realized_alpha=(
             executed_alpha_weighted / n_real
             if n_real > 0

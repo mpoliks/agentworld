@@ -91,6 +91,12 @@ class StepMetrics:
     pigouvian_revenue_cumulative: float = 0.0
     pigouvian_effective_rate: float = 0.0
 
+    # ---- Windfall tax (LawConfig.transaction_size_cap, tax mode) -------------
+    # Surplus captured above the per-pair size cap. Zero when the cap
+    # is inf (the default) or when cap_recipient = "reject".
+    windfall_tax_revenue_step: float = 0.0
+    windfall_tax_revenue_cumulative: float = 0.0
+
     # ---- Emergence diagnostics (StrategyConfig) ------------------------------
     endogenous_alpha: float = -1.0
     alpha_std: float = 0.0
@@ -363,6 +369,9 @@ class Metrics:
         self._cum_real_authentic = 0.0
         self._cum_real_from_intermediation = 0.0
         self._cum_pigouvian_revenue = 0.0
+        # PR #3: cumulative windfall tax revenue from
+        # LawConfig.transaction_size_cap (tax mode).
+        self._cum_windfall_tax_revenue = 0.0
         # W2c: cumulative wage routed to humans by the labor wedge.
         self._cum_human_labor_wage = 0.0
         # W2c per-sector extension: per-sector cumulative wage. Sums to
@@ -418,6 +427,7 @@ class Metrics:
         law_capture_surplus_loss: float = 0.0,
         law_upkeep_cost: float = 0.0,
         pigouvian_revenue: float = 0.0,
+        windfall_tax_revenue: float = 0.0,
         a2a_share: Optional[float] = None,
         h2a_share: Optional[float] = None,
         h2h_share: Optional[float] = None,
@@ -436,6 +446,7 @@ class Metrics:
         self._cum_real += real_step
         self._cum_nominal += nominal_step
         self._cum_pigouvian_revenue += pigouvian_revenue
+        self._cum_windfall_tax_revenue += windfall_tax_revenue
         # Authentic welfare defaults to real welfare when the demand-side
         # feedback flag is off (preserves backward-compat metric values).
         if real_authentic_step is None:
@@ -699,6 +710,8 @@ class Metrics:
             pigouvian_revenue_step=pigouvian_revenue,
             pigouvian_revenue_cumulative=self._cum_pigouvian_revenue,
             pigouvian_effective_rate=float(min(1.0, max(0.0, pigouvian_eff_rate))),
+            windfall_tax_revenue_step=windfall_tax_revenue,
+            windfall_tax_revenue_cumulative=self._cum_windfall_tax_revenue,
             endogenous_alpha=endogenous_alpha,
             alpha_std=alpha_std,
             strategy_entropy=strategy_entropy,
