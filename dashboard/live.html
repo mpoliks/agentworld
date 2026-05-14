@@ -11,8 +11,6 @@
 <script src="live_parameters.js" defer></script>
 <script src="live_pairs.js" defer></script>
 <script src="live_cast.js" defer></script>
-<script src="live_flow.js" defer></script>
-<script src="live_graph.js" defer></script>
 <link rel="stylesheet" href="_tokens.css">
 <style>
 header { padding: 20px 0 12px; border-bottom: 1px solid var(--border); }
@@ -241,18 +239,6 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
       <h2>Active mechanism · <span id="mech-family-label" class="sub" style="color: var(--accent); font-style: normal;"></span></h2>
       <p id="mech-family-blurb" class="chart-caption" style="padding-bottom: 8px;"></p>
       <div class="macro-grid" id="mech-charts"></div>
-    </section>
-
-    <!-- Live exchanges: the visual anchor. -->
-    <section class="cockpit-section">
-      <h2>Live exchanges <span class="sub">deck.gl particle field · K sampled pairs per step → arcs</span></h2>
-      <div id="flow-host"></div>
-    </section>
-
-    <!-- Prototype social network. -->
-    <section class="cockpit-section">
-      <h2>Prototype network <span class="sub">d3-force · who is trading with whom right now</span></h2>
-      <div id="graph-host"></div>
     </section>
 
     <!-- Fold cascade. -->
@@ -787,8 +773,6 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     for (const [stepIdx, recs] of byStep) {
       const partial = { step: stepIdx, pair_samples: recs };
       if (tape) tape.applyStep(partial);
-      if (flow) flow.applyStep(partial);
-      if (graph) graph.applyStep(partial);
       if (cast) cast.applyStep(partial);
     }
   }
@@ -917,14 +901,10 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     if (payload && payload.error) { logRow('error', payload.error); }
     setRunning(false);
     closeStream();
-    // Drain the paced pair queue and stop the cast / flow / graph
-    // animations so the canvas stops moving when the run is cancelled.
-    // Without this the queue keeps dispatching for several seconds and
-    // the user thinks cancel didn't work.
+    // Drain the paced pair queue and stop the cast animation so the
+    // canvas stops moving immediately when the run is cancelled.
     pairQueue.length = 0;
     if (cast) cast.reset();
-    if (flow) flow.reset();
-    if (graph) graph.reset();
   }
 
   function startStream(runId) {
@@ -964,8 +944,6 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     ensureExchangeViews();
     if (cast) cast.reset();
     if (tape) tape.reset();
-    if (flow) flow.reset();
-    if (graph) graph.reset();
     pairQueue.length = 0;
     clearLog();
 
@@ -1034,12 +1012,9 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     try {
       await fetch(`/runs/${activeRunId}/cancel`, { method: 'POST' });
       logRow('post', 'cancel requested');
-      // Stop client-side activity immediately. The SSE `cancelled` event
-      // will follow but the user expects the canvas to freeze on click.
+      // Stop client-side activity immediately.
       pairQueue.length = 0;
       if (cast) cast.reset();
-      if (flow) flow.reset();
-      if (graph) graph.reset();
       sStatus.textContent = 'cancelling…';
       sStatus.className = 'value muted';
     } catch (e) {
