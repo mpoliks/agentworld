@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>agentworld · sandbox</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+  }
+}
+</script>
+
+<link rel="stylesheet" href="_tokens.css">
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #060810;
+    color: var(--text);
+    font-family: var(--mono);
+  }
+
+  canvas#scene {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  #status {
+    position: fixed;
+    bottom: 14px;
+    right: 18px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    padding: 4px 8px;
+    background: rgba(6, 8, 16, 0.7);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    pointer-events: none;
+  }
+  #status[data-kind="live"]      { color: var(--accent); border-color: rgba(184,154,85,0.5); }
+  #status[data-kind="done"]      { color: var(--green); }
+  #status[data-kind="error"]     { color: var(--red); }
+  #status[data-kind="cancelled"] { color: var(--text-3); }
+</style>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+<div id="status" data-kind="">starting…</div>
+
+<script type="module" src="sandbox/scene.js"></script>
+</body>
+</html>

@@ -358,11 +358,13 @@ class RunRequest(BaseModel):
     # Overrides `n_steps`. Combine with smaller `pairs_per_step` overrides
     # to make per-step work cheap so the stream feels continuous.
     continuous: bool = False
-    # Cockpit Pass 2: persistent-cast size. >0 means the engine pins
-    # that many prototypes at build time and emits their state per
-    # step in `StepMetrics.cast_snapshot`. The live canvas reads from
-    # there and animates each cast member step-to-step.
-    cast_size: int = Field(default=0, ge=0, le=600)
+    # Cockpit Pass 2 / spatial sandbox: persistent-cast size. >0 means
+    # the engine pins that many prototypes at build time and emits their
+    # state per step in `StepMetrics.cast_snapshot`. The legacy live
+    # cockpit uses cast_size <= 600; the spatial sandbox (cast as a
+    # force-directed 3D graph) targets 5,000. Wire cost at K=8 norm
+    # dimensions is ~2 MB / tick / client.
+    cast_size: int = Field(default=0, ge=0, le=5000)
 
 
 def create_app():

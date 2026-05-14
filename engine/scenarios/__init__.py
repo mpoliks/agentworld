@@ -64,6 +64,7 @@ import numpy as np
 
 from engine.core.population import PopulationConfig
 from engine.core.topology import (
+    ComputeConfig,
     DemandConfig,
     InstitutionConfig,
     LawConfig,
@@ -71,6 +72,8 @@ from engine.core.topology import (
     NormsConfig,
     PigouvianConfig,
     PopulationDynamicsConfig,
+    RegistrationConfig,
+    RegulatorConfig,
     StrategyConfig,
     TopologyConfig,
 )
@@ -1415,6 +1418,76 @@ def norms_brittle() -> WorldConfig:
     return cfg
 
 
+# ---------- Spatial sandbox (lever-driven, every subsystem on) ----------------
+
+
+def spatial_sandbox() -> WorldConfig:
+    """Single scenario the spatial-sandbox dashboard runs.
+
+    Every optional subsystem is on with the defaults from
+    `docs/plans/spatial-sandbox.md` §3. The dashboard's three lever
+    panels eventually patch this config through `RunRequest.overrides`;
+    the factory is the canonical zero-lever-touch state.
+
+    Cast and pair-sample sizes are set high enough that the rich SSE
+    sub-events (`cast_snapshot_v2`, `edges_v2`, `folds_v2`) populate
+    every tick. Mirrors `engine/bench/spatial_sandbox.py` but raises
+    `cast_size` to the dashboard's visible-agent target.
+    """
+    return WorldConfig(
+        population=PopulationConfig(
+            n_human_prototypes=800,
+            n_agent_prototypes=87_200,
+            seed=24601,
+            network_model="sbm",
+            network_p_local=0.6,
+            agent_capability_mean=0.55,
+            agent_autonomy_mean=0.7,
+            agent_trade_rate_multiplier=2.0,
+        ),
+        topology=TopologyConfig(
+            alpha=0.5,
+            cross_stack_permeability=0.4,
+            folding_max_depth=7,
+            norms=NormsConfig(
+                enabled=True,
+                n_dimensions=8,
+                update_rate=0.05,
+                certified_fraction=0.5,
+                certified_fraction_sd=0.15,
+            ),
+            demand=DemandConfig(enabled=True),
+            pigouvian=PigouvianConfig(
+                enabled=True,
+                tax_rate=0.10,
+                recycling="human_wealth",
+            ),
+            registration=RegistrationConfig(enabled=True),
+            institutions=InstitutionConfig(
+                enabled=True,
+                cross_sector_firms=True,
+            ),
+            pop_dynamics=PopulationDynamicsConfig(enabled=True),
+            mission=MissionConfig(enabled=True),
+            strategy=StrategyConfig(enabled=True),
+            law=LawConfig(enabled=True, law_strength_initial=0.5),
+            regulator=RegulatorConfig(enabled=True),
+            compute=ComputeConfig(
+                enabled=True,
+                budget_per_tick=1.0,
+                power_cost_per_trade=0.0001,
+                distribution="uniform",
+                pool_recovery=0.0,
+            ),
+        ),
+        pairs_per_step=20_000,
+        n_steps=0,
+        cast_size=5000,
+        pair_sample_k=1500,
+        seed=24601,
+    )
+
+
 SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
     "coasean_paradise": coasean_paradise,
     "baroque_cathedral": baroque_cathedral,
@@ -1456,6 +1529,7 @@ SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
     "norms_drift": norms_drift,
     "norms_capture": norms_capture,
     "norms_brittle": norms_brittle,
+    "spatial_sandbox": spatial_sandbox,
 }
 
 
@@ -1500,6 +1574,7 @@ SCENARIO_DESCRIPTIONS = {
     "norms_drift": "W1b reference run. Static-distance `align_reject` is replaced by distance-in-norm-space and a small EMA update toward executed partners (`update_rate=0.02`). The expected dynamic over the run: agents who routinely transact converge in norm space and their `align_reject` rate falls, while disconnected sub-populations stay apart. The Hadfield 'normative infrastructure for AI alignment' framing operationalised — alignment is participation, not preference-matching at static distance.",
     "norms_capture": "Adversarial sibling of norms_drift. Initial norm distribution is deliberately skewed (humans tightly clustered around the origin, agents broadly drawn), and `update_rate` is raised to 0.08. The densest cluster acts as an attractor and pulls peripheral norms toward it; alignment converges on the cluster's norm rather than a population-wide compromise. Read alongside norms_drift to see what gradient capture does to the binding-constraint rejection share.",
     "norms_brittle": "Adversarial sibling of norms_drift. `update_rate` raised to 0.50 so each step's executed partners overwhelm prior norm state. Norms oscillate rather than converging and the `align_reject` rate fluctuates with the per-step partner draw. The point: fast norm update is not automatically a good thing — there is a brittleness regime where Hadfield's alignment-as-participation flips into permanent whiplash.",
+    "spatial_sandbox": "The single scenario the spatial-sandbox dashboard runs. Every optional subsystem is on with the lever-panel defaults from `docs/plans/spatial-sandbox.md` §3: norms with K=8 dimensions and a certified fraction, demand-side weighting, Pigouvian recycling to human wealth, registration, cross-sector firms, population dynamics, mission economy, strategic emergence, dynamic law with a per-pair size cap, regulator, and the new ComputeConfig admission filter. Cast size 5,000 and pair-sample K=1,500 so the rich SSE sub-events stream every tick. The dashboard's three lever panels patch this config through `RunRequest.overrides`; clusters appear because they form, not because they were drawn.",
 }
 
 
