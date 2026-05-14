@@ -97,6 +97,15 @@ class StepMetrics:
     windfall_tax_revenue_step: float = 0.0
     windfall_tax_revenue_cumulative: float = 0.0
 
+    # ---- Compute / power admission (ComputeConfig) ---------------------------
+    # `rejected_compute` is the per-tick pair-weight rejected at the
+    # compute gate (parallel to rejected_law / _market / _align /
+    # _cost / _permeability / _regulator). `compute_budget_remaining`
+    # is the carryover pool state after this tick's debiting. Both
+    # default to 0 when ComputeConfig.enabled = False.
+    rejected_compute: float = 0.0
+    compute_budget_remaining: float = 0.0
+
     # ---- Emergence diagnostics (StrategyConfig) ------------------------------
     endogenous_alpha: float = -1.0
     alpha_std: float = 0.0
@@ -428,6 +437,8 @@ class Metrics:
         law_upkeep_cost: float = 0.0,
         pigouvian_revenue: float = 0.0,
         windfall_tax_revenue: float = 0.0,
+        rejected_compute: float = 0.0,
+        compute_budget_remaining: float = 0.0,
         a2a_share: Optional[float] = None,
         h2a_share: Optional[float] = None,
         h2h_share: Optional[float] = None,
@@ -687,6 +698,8 @@ class Metrics:
             rejected_cost=rejected_cost,
             rejected_permeability=rejected_permeability,
             rejected_regulator=rejected_regulator,
+            rejected_compute=rejected_compute,
+            compute_budget_remaining=compute_budget_remaining,
             forged_registration_share=float(forged_registration_share),
             gini_wealth=gini,
             real_per_capita_welfare=per_cap,

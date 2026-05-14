@@ -130,6 +130,12 @@ _RNG_SUBSYSTEMS: tuple[str, ...] = (
     "permeability",
     "regulator",
     "exo",
+    # ComputeConfig admission filter (PR #4). Appended at the end so
+    # `SeedSequence.spawn(N+1)` reproduces the first N child sequences
+    # bit-identically with the per_component mode (`spawn(N+1)[:N] ==
+    # spawn(N)`). Legacy mode aliases all keys to a single generator,
+    # so this entry is a no-op there.
+    "compute",
 )
 
 
@@ -190,6 +196,10 @@ class World:
     # coordinator-sector agents. With `MissionConfig.enabled = False`
     # the pool is never touched.
     _mission_pool: float = 0.0
+    # ComputeConfig pool (PR #4). Carries unused compute budget across
+    # ticks at `ComputeConfig.pool_recovery`. Zero when ComputeConfig is
+    # off; the canonical baselines never touch it.
+    _compute_pool: float = 0.0
 
     @property
     def rng(self) -> np.random.Generator:
@@ -558,6 +568,20 @@ class World:
         law_gini = self._current_law_gini() if law_enabled else 0.0
         law_strength_used = self.law_strength if law_enabled else 1.0
         law_capture_used = self.law_capture if law_enabled else 0.0
+        # ComputeConfig pool advance. With the subsystem off, `available`
+        # is 0 and `coasean_step` skips the admission path entirely.
+        compute_cfg = self.topology.cfg.compute
+        compute_active = bool(
+            compute_cfg.enabled
+            and float(compute_cfg.power_cost_per_trade) > 0.0
+        )
+        if compute_active:
+            compute_available = max(
+                self._compute_pool + float(compute_cfg.budget_per_tick),
+                float(compute_cfg.scarcity_floor),
+            )
+        else:
+            compute_available = 0.0
         tx = coasean_step(
             self.population, self.topology, self.rngs,
             n_pairs=self.cfg.pairs_per_step,
@@ -572,7 +596,13 @@ class World:
             ),
             pair_sample_k=self.cfg.pair_sample_k,
             pair_sample_rng=self._pair_sample_rng,
+            compute_available=compute_available,
         )
+        # ComputeConfig: roll the pool forward using the actually-debited
+        # amount returned by coasean_step.
+        if compute_active:
+            residual = max(0.0, compute_available - tx.compute_debited)
+            self._compute_pool = residual * float(compute_cfg.pool_recovery)
 
         dyn_cfg = self.topology.cfg.pop_dynamics
         retained_delta = tx.wealth_delta
@@ -879,6 +909,8 @@ class World:
             law_upkeep_cost=law_upkeep_cost,
             pigouvian_revenue=tx.pigouvian_revenue,
             windfall_tax_revenue=tx.windfall_tax_revenue,
+            rejected_compute=tx.rejected_compute,
+            compute_budget_remaining=self._compute_pool,
             a2a_share=tx.a2a_share,
             h2a_share=tx.h2a_share,
             h2h_share=tx.h2h_share,

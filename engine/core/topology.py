@@ -523,6 +523,44 @@ class InstitutionConfig:
 
 
 @dataclass
+class ComputeConfig:
+    """Compute-and-power constraint subsystem (spatial-sandbox environmental panel).
+
+    Models compute as a rationed input to pair execution. With
+    `enabled = False` (default) no admission filtering happens and the
+    canonical baselines reproduce bit-identically.
+
+    With `enabled = True` and `power_cost_per_trade > 0`, each candidate
+    pair gets an `admit_score` from `distribution`; pairs are admitted
+    in descending score order until the per-tick budget runs out.
+    Remaining pairs are rejected at the new `compute` gate, exclusive of
+    downstream law/market/regulator/align/cost rejections.
+
+    A per-world `_compute_pool` carries unused budget across ticks at
+    rate `pool_recovery`; `scarcity_floor` clamps the available pool
+    from below.
+
+    See `docs/research/compute_and_power_as_constraint.md`.
+    """
+
+    enabled: bool = False
+    # Aggregate budget added to the pool every tick, in compute units.
+    budget_per_tick: float = 1.0
+    # Per-trade compute cost. 0.0 keeps the admission filter a no-op
+    # even when enabled is True; the spatial sandbox sets a small
+    # positive cost so the budget actually bites.
+    power_cost_per_trade: float = 0.0
+    # Admission rule. "uniform" draws an iid score from the dedicated
+    # "compute" RNG; the others sort by max(attr_a, attr_b).
+    distribution: str = "uniform"
+    # Fraction of unused budget that carries over to the next tick.
+    pool_recovery: float = 0.0
+    # Floor that the available pool can never drop below at the start
+    # of a tick (compute commons).
+    scarcity_floor: float = 0.0
+
+
+@dataclass
 class PopulationDynamicsConfig:
     """Capability learning, depreciation, and prototype recycling."""
 
@@ -712,6 +750,13 @@ class TopologyConfig:
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     institutions: InstitutionConfig = field(default_factory=InstitutionConfig)
     pop_dynamics: PopulationDynamicsConfig = field(default_factory=PopulationDynamicsConfig)
+
+    # ---- Compute / power constraint (spatial-sandbox environmental lever) ----
+    # New subsystem (`ComputeConfig`) that rations pair admission by a
+    # global compute budget. Default-off keeps the canonical baselines
+    # bit-identical; the spatial sandbox turns it on. See `ComputeConfig`
+    # above and `docs/research/compute_and_power_as_constraint.md`.
+    compute: ComputeConfig = field(default_factory=ComputeConfig)
 
 
 @dataclass

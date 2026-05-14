@@ -62,6 +62,7 @@ _TX_SUBSYSTEMS: tuple[str, ...] = (
     "network",
     "demand",
     "permeability",
+    "compute",
 )
 
 
@@ -255,6 +256,13 @@ class TransactionResult:
     # mechanism (tax mode). Zero when the cap is inf or in reject mode.
     # Recycled through `_recycle_pigouvian_revenue` in World.step.
     windfall_tax_revenue: float = 0.0
+    # Compute-and-power rejection bucket (ComputeConfig). Zero when
+    # ComputeConfig.enabled = False or power_cost_per_trade <= 0.
+    rejected_compute: float = 0.0
+    # Total compute units debited this step. World.step uses this to
+    # update its `_compute_pool` carryover. Zero when ComputeConfig is
+    # off or power_cost is zero.
+    compute_debited: float = 0.0
     realized_alpha: float = 0.0
     a2a_share: float = 0.0
     h2a_share: float = 0.0
@@ -398,6 +406,7 @@ def coasean_step(
     *,
     pair_sample_k: int = 0,
     pair_sample_rng: np.random.Generator | None = None,
+    compute_available: float = 0.0,
 ) -> TransactionResult:
     """
     Run one step of Coasean bargaining at scale.
@@ -421,7 +430,16 @@ def coasean_step(
     subsystem's draw sequence.
     """
     rngs = _resolve_rngs(rng)
-    if 0 < chunk_size < n_pairs:
+    # ComputeConfig admission filter is incompatible with cross-chunk
+    # budget arbitration; when active, fall through to the single-pass
+    # path so the budget is allocated against the whole pair set at
+    # once.
+    compute_cfg = topo.cfg.compute
+    compute_active = bool(
+        compute_cfg.enabled
+        and float(compute_cfg.power_cost_per_trade) > 0.0
+    )
+    if (not compute_active) and 0 < chunk_size < n_pairs:
         return _coasean_step_chunked(
             pop, topo, rng, n_pairs, base_match_volume, chunk_size,
             law_strength, law_capture, gini_wealth, local_alpha,
@@ -430,6 +448,19 @@ def coasean_step(
         )
     n = pop.n
     a, b = _sample_partners(pop, topo, n_pairs, rngs["network"])
+
+    # ComputeConfig admission. Sits in the cascade between permeability
+    # and law. Default-off (or `power_cost_per_trade <= 0`) means
+    # `compute_reject_mask` is all-False and no rng draws are consumed.
+    if compute_active and n_pairs > 0:
+        from engine.core.compute import admit_pairs
+        compute_reject_mask, compute_debited = admit_pairs(
+            cfg=compute_cfg, pop=pop, a=a, b=b,
+            rng=rngs["compute"], available=float(compute_available),
+        )
+    else:
+        compute_reject_mask = np.zeros(n_pairs, dtype=bool)
+        compute_debited = 0.0
 
     # Vectorized lookups.
     cap_a, cap_b = pop.capability[a], pop.capability[b]
@@ -679,19 +710,23 @@ def coasean_step(
 
     # Permeability is the first gate; subsequent rejection buckets exclude
     # pairs already blocked at the boundary so the counts never double-count.
-    # Regulator sits between the platform layer and the alignment layer in
-    # the rejection cascade so its bucket is exclusive of upstream rejects.
+    # ComputeConfig sits just below permeability (PR #4); pairs that can't
+    # afford compute are filtered before the law gate. Regulator sits
+    # between the platform layer and the alignment layer in the cascade
+    # so its bucket is exclusive of upstream rejects.
     survives_perm = ~rejected_perm_mask
-    rejected_law_mask = survives_perm & law_reject
-    rejected_market_mask = survives_perm & (~rejected_law_mask) & market_reject
+    rejected_compute_mask = survives_perm & compute_reject_mask
+    survives_compute = survives_perm & (~rejected_compute_mask)
+    rejected_law_mask = survives_compute & law_reject
+    rejected_market_mask = survives_compute & (~rejected_law_mask) & market_reject
     rejected_regulator_mask = (
-        survives_perm
+        survives_compute
         & (~rejected_law_mask)
         & (~rejected_market_mask)
         & regulator_reject
     )
     rejected_align_mask = (
-        survives_perm
+        survives_compute
         & (~rejected_law_mask)
         & (~rejected_market_mask)
         & (~rejected_regulator_mask)
@@ -701,7 +736,7 @@ def coasean_step(
     # Surplus must exceed transaction cost to execute.
     cost_reject = base_surplus <= cost
     rejected_cost_mask = (
-        survives_perm
+        survives_compute
         & (~rejected_law_mask)
         & (~rejected_market_mask)
         & (~rejected_regulator_mask)
@@ -711,6 +746,7 @@ def coasean_step(
 
     executed_mask = ~(
         rejected_perm_mask
+        | rejected_compute_mask
         | rejected_law_mask
         | rejected_market_mask
         | rejected_regulator_mask
@@ -934,6 +970,8 @@ def coasean_step(
         wealth_delta=wealth_delta,
         rejected_permeability=float((rejected_perm_mask * pair_real_count).sum()),
         rejected_regulator=float((rejected_regulator_mask * pair_real_count).sum()),
+        rejected_compute=float((rejected_compute_mask * pair_real_count).sum()),
+        compute_debited=float(compute_debited),
         real_surplus_authentic=real_surplus_authentic,
         law_weak_surplus_loss=law_weak_surplus_loss,
         law_capture_surplus_loss=law_capture_surplus_loss,
@@ -986,6 +1024,8 @@ def _coasean_step_chunked(
     law_capture_surplus_loss = 0.0
     pigouvian_revenue = 0.0
     windfall_tax_revenue = 0.0
+    rejected_compute = 0.0
+    compute_debited = 0.0
     executed_alpha_weighted = 0.0
     all_pair_alpha_weighted = 0.0
     all_pair_alpha_weight = 0.0
@@ -1050,6 +1090,8 @@ def _coasean_step_chunked(
         law_capture_surplus_loss += part.law_capture_surplus_loss
         pigouvian_revenue += part.pigouvian_revenue
         windfall_tax_revenue += part.windfall_tax_revenue
+        rejected_compute += part.rejected_compute
+        compute_debited += part.compute_debited
         if part.n_transactions_real > 0:
             executed_alpha_weighted += part.realized_alpha * part.n_transactions_real
             a2a_weighted += part.a2a_share * part.n_transactions_real
@@ -1063,6 +1105,7 @@ def _coasean_step_chunked(
             + part.rejected_cost
             + part.rejected_permeability
             + part.rejected_regulator
+            + part.rejected_compute
         )
         all_pair_alpha_weighted += part.realized_alpha * all_pair_weight
         all_pair_alpha_weight += all_pair_weight
@@ -1088,6 +1131,8 @@ def _coasean_step_chunked(
         law_capture_surplus_loss=law_capture_surplus_loss,
         pigouvian_revenue=pigouvian_revenue,
         windfall_tax_revenue=windfall_tax_revenue,
+        rejected_compute=rejected_compute,
+        compute_debited=compute_debited,
         realized_alpha=(
             executed_alpha_weighted / n_real
             if n_real > 0
