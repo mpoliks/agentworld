@@ -1,12 +1,12 @@
-// Spatial-sandbox three.js scene. Module #1 (Week 2) — boots the
-// renderer, holds a black scene, and wires the SSE stream so subsequent
-// modules (agents.js, edges.js, folds.js, force.js) can layer on top.
-//
-// No geometry renders yet. The status pill in the corner is the only
-// visible UI; the per-event traffic goes to the browser console.
+// Spatial-sandbox three.js scene. Boots the renderer, wires the SSE
+// stream, and hosts the per-subsystem modules (agents.js, plus the
+// later edges.js / folds.js / force.js). Each module owns its own
+// geometry + buffer attributes; scene.js coordinates lifecycle and
+// event dispatch.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createAgents } from './agents.js';
 import { startStream } from './stream.js';
 
 // Hardcoded lever state for Week 2. Defaults per spatial-sandbox.md §3
@@ -29,6 +29,7 @@ const statusEl = document.getElementById('status');
 const counters = { step: 0, cast: 0, edges: 0, folds: 0 };
 
 let renderer, scene, camera, controls;
+let agents = null;
 let summaryTimer = null;
 let stream = null;
 
@@ -53,6 +54,8 @@ function initScene() {
   controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
+
+  agents = createAgents(scene, { maxAgents: LEVERS.cast_size });
 
   window.addEventListener('resize', onResize);
 }
@@ -102,6 +105,7 @@ function onCastSnapshot(ev) {
     console.log('[cast_snapshot_v2] first sample:', ev.snapshot[0]);
     console.log(`[cast_snapshot_v2] cast size = ${ev.snapshot.length}`);
   }
+  agents?.handleCastSnapshot(ev.snapshot);
 }
 
 function onEdges(ev) {
