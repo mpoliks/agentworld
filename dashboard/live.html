@@ -781,13 +781,11 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
   // ---- live exchange views --------------------------------------------
   let cast = null;
   let tape = null;
-  let flow = null;
-  let graph = null;
   function ensureExchangeViews() {
     if (!cast && typeof window.createLiveCast === 'function') {
-      // createLiveCast is async (lazy-loads deck.gl). Assigning the
-      // promise directly would leave `cast` as a Promise and break
-      // .applyStep/.reset. Hand off the resolved object once ready.
+      // createLiveCast is async (lazy-loads deck.gl). Hand off the
+      // resolved object once ready so `cast.applyStep` is a function,
+      // not a Promise.
       const pending = window.createLiveCast($('cast-host'));
       Promise.resolve(pending).then((c) => { cast = c; }).catch((e) => {
         const h = $('cast-host');
@@ -796,18 +794,6 @@ footer { padding: 24px 0; color: var(--text-3); font-size: 11px; line-height: 1.
     }
     if (!tape && typeof window.createTape === 'function') {
       tape = window.createTape($('tape-host'));
-    }
-    if (!flow && typeof window.createFlow === 'function') {
-      window.createFlow($('flow-host')).then((f) => { flow = f; }).catch((e) => {
-        const host = $('flow-host');
-        if (host) host.innerHTML = `<p style="color: var(--red); padding: 12px; font-family: var(--mono); font-size: 12px;">flow init failed: ${e.message || e}</p>`;
-      });
-    }
-    if (!graph && typeof window.createGraph === 'function') {
-      window.createGraph($('graph-host')).then((g) => { graph = g; }).catch((e) => {
-        const host = $('graph-host');
-        if (host) host.innerHTML = `<p style="color: var(--red); padding: 12px; font-family: var(--mono); font-size: 12px;">graph init failed: ${e.message || e}</p>`;
-      });
     }
   }
 
