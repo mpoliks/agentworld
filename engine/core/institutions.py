@@ -83,12 +83,19 @@ def formation_step(
     if candidates.size < 2:
         return 0
 
-    # Randomize within each fixed (sector, stack) bin, then assign contiguous
-    # chunks to firm IDs with vectorized rank arithmetic.
-    bin_key = (
-        pop.sector[candidates].astype(np.int64) * int(pop.config.n_stacks)
-        + pop.stack[candidates].astype(np.int64)
-    )
+    # Randomize within each bin, then assign contiguous chunks to firm
+    # IDs with vectorized rank arithmetic. Bin defaults to (sector,
+    # stack); with `cfg.cross_sector_firms = True` the bin is just
+    # `stack`, so a firm can span sectors within one hemispherical
+    # stack.
+    stack_keys = pop.stack[candidates].astype(np.int64)
+    if cfg.cross_sector_firms:
+        bin_key = stack_keys
+    else:
+        bin_key = (
+            pop.sector[candidates].astype(np.int64) * int(pop.config.n_stacks)
+            + stack_keys
+        )
     order = np.lexsort((rng.random(candidates.size), bin_key))
     candidates = candidates[order]
     bin_key = bin_key[order]

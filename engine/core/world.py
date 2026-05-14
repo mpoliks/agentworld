@@ -917,9 +917,21 @@ class World:
                 wt = pop.weight.astype(np.float64)
                 if wt.sum() > 0:
                     norm_mean = (norm_arr.astype(np.float64) * wt[:, None]).sum(0) / wt.sum()
+            # Sector composition of each cast member's firm. Empty when
+            # no firm. With `InstitutionConfig.cross_sector_firms = True`
+            # the list can carry more than one sector.
+            firm_sectors_map: dict[int, list[int]] = {}
+            if firm_arr is not None:
+                cast_firms = {int(firm_arr[int(i)]) for i in ci}
+                cast_firms.discard(-1)
+                for fid in cast_firms:
+                    firm_sectors_map[fid] = [
+                        int(s) for s in np.unique(pop.sector[firm_arr == fid])
+                    ]
             snap = []
             for i in ci:
                 ii = int(i)
+                fid = int(firm_arr[ii]) if firm_arr is not None else -1
                 entry = {
                     "idx": ii,
                     "is_human": bool(pop.is_human[ii]),
@@ -927,7 +939,8 @@ class World:
                     "wealth": float(pop.wealth[ii]),
                     "capability": float(pop.capability[ii]),
                     "autonomy": float(pop.autonomy[ii]),
-                    "firm_id": int(firm_arr[ii]) if firm_arr is not None else -1,
+                    "firm_id": fid,
+                    "firm_sectors": firm_sectors_map.get(fid, []),
                     "stack": int(pop.stack[ii]),
                     "intermediation_pref": float(pref_arr[ii]) if pref_arr is not None else -1.0,
                 }

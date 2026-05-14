@@ -488,6 +488,14 @@ class InstitutionConfig:
     # S2 in `docs/plans/registration_stretch_goals.md`.
     laundering_enabled: bool = False
 
+    # Cross-sector firm formation. Default-off so the canonical
+    # baselines reproduce bit-identically. When True, `formation_step`
+    # bins independent candidates by `stack` alone, letting a firm span
+    # sectors within one hemispherical stack. The spatial sandbox
+    # turns this on; emergent firm-sector composition is surfaced
+    # per-cast as `cast_snapshot[*].firm_sectors`.
+    cross_sector_firms: bool = False
+
 
 @dataclass
 class PopulationDynamicsConfig:
