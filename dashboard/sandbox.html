@@ -53,70 +53,13 @@
   #status[data-kind="error"]     { color: var(--red); }
   #status[data-kind="cancelled"] { color: var(--text-3); }
 
-  /* Theme switcher — 10 buttons across the top edge.
-     Each writes ?theme=N and reloads, applying the matching preset. */
-  #themes {
-    position: fixed;
-    top: 12px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 6px;
-    z-index: 10;
-    background: rgba(6, 8, 16, 0.55);
-    border: 1px solid rgba(255,255,255,0.08);
-    padding: 4px 6px;
-    border-radius: 4px;
-  }
-  #themes button {
-    appearance: none;
-    background: transparent;
-    color: rgba(255,255,255,0.55);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 2px;
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.05em;
-    padding: 4px 8px;
-    cursor: pointer;
-    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
-  }
-  #themes button:hover {
-    color: rgba(255,255,255,0.95);
-    border-color: rgba(255,255,255,0.45);
-  }
-  #themes button.active {
-    color: #04060c;
-    background: rgba(255,255,255,0.92);
-    border-color: rgba(255,255,255,0.92);
-  }
 </style>
 </head>
 <body>
 
 <canvas id="scene"></canvas>
-<div id="themes"></div>
 <div id="status" data-kind="">starting…</div>
 
-<script type="module">
-  // Theme switcher buttons. Each button writes ?theme=N and reloads
-  // so scene.js applies the matching preset on init.
-  import { THEMES } from './sandbox/themes.js';
-  const host = document.getElementById('themes');
-  const active = parseInt(new URLSearchParams(location.search).get('theme') ?? '0', 10);
-  THEMES.forEach((t, i) => {
-    const btn = document.createElement('button');
-    btn.textContent = String(i).padStart(2, '0') + ' ' + t.name;
-    btn.title = t.name;
-    if (i === active) btn.classList.add('active');
-    btn.addEventListener('click', () => {
-      const url = new URL(location.href);
-      url.searchParams.set('theme', String(i));
-      location.href = url.toString();
-    });
-    host.appendChild(btn);
-  });
-</script>
 <script type="module" src="sandbox/scene.js"></script>
 </body>
 </html>

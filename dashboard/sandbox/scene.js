@@ -11,9 +11,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { createSurface } from './surface.js';
-import { setActivePalette } from './palette.js';
 import { startStream } from './stream.js';
-import { getActiveTheme } from './themes.js';
+import { THEME } from './themes.js';
 
 const LEVERS = {
   scenario: 'spatial_sandbox',
@@ -34,9 +33,8 @@ let frameCount = 0;
 let lastFpsT = performance.now();
 let fps = 0;
 
-// Theme selected via ?theme=N URL parameter.
-const theme = getActiveTheme();
-if (theme.palette) setActivePalette(theme.palette);
+// Single locked theme — themes.THEME.
+const theme = THEME;
 
 function initScene() {
   const canvas = document.getElementById('scene');
@@ -76,12 +74,14 @@ function initScene() {
   surface = createSurface(scene, {
     radius: theme.radius,
     subdivisions: theme.subdivisions,
-    fadeRate: theme.fadeRate,
     baseColor: theme.baseColor,
     activeColor: theme.activeColor,
     edgeColor: theme.edgeColor,
     edgeThreshold: theme.edgeThreshold,
     activationThreshold: theme.activationThreshold,
+    minPersistFrames: theme.minPersistFrames,
+    maxPersistFrames: theme.maxPersistFrames,
+    magnitudeRef: theme.magnitudeRef,
   });
 
   window.addEventListener('resize', onResize);
