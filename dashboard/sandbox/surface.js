@@ -122,6 +122,14 @@ export function createSurface(scene, opts = {}) {
   const slotByIdx = new Map();
   let slotToFaceArr = null;
   let lastWealthArr = null;
+  // Per-slot deferred-firing frame. Engine snapshots arrive ~5×/s in
+  // bursts of many triggers; if we fire them all on the snapshot frame
+  // the whole field blinks at snapshot rate. We instead schedule each
+  // activation to a random frame in the next ~12 frames so triggers
+  // spread continuously across the inter-snapshot interval.
+  let fireAtFrameArr = null;
+  let frameCounter = 0;
+  const STAGGER_FRAMES = 12;
   let castCount = 0;
   let initialized = false;
 
@@ -139,6 +147,8 @@ export function createSurface(scene, opts = {}) {
     castCount = snapshot.length;
     slotToFaceArr = new Int32Array(castCount);
     lastWealthArr = new Float32Array(castCount);
+    fireAtFrameArr = new Float32Array(castCount);
+    fireAtFrameArr.fill(-1);
     for (let slot = 0; slot < castCount; slot += 1) {
       const entry = snapshot[slot];
       slotByIdx.set(entry.idx, slot);
@@ -163,11 +173,28 @@ export function createSurface(scene, opts = {}) {
       if (Number.isNaN(prev)) continue;
 
       if (Math.abs(w - prev) < activationThreshold) continue;
-      activities[slotToFaceArr[slot]] = 1.0;
+      // Schedule activation for a future frame in the next STAGGER
+      // window. Spreads same-snapshot triggers across the interval
+      // instead of firing them simultaneously.
+      fireAtFrameArr[slot] = frameCounter + Math.random() * STAGGER_FRAMES;
     }
   }
 
   function tick() {
+    frameCounter += 1;
+
+    // Release any pending activations whose scheduled frame has come.
+    if (fireAtFrameArr !== null) {
+      for (let slot = 0; slot < castCount; slot += 1) {
+        const fr = fireAtFrameArr[slot];
+        if (fr < 0) continue;
+        if (frameCounter >= fr) {
+          activities[slotToFaceArr[slot]] = 1.0;
+          fireAtFrameArr[slot] = -1;
+        }
+      }
+    }
+
     let anyDirty = false;
     for (let f = 0; f < faceCount; f += 1) {
       if (activities[f] <= 0) continue;
