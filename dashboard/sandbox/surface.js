@@ -31,27 +31,22 @@ const VERTEX_SHADER = /* glsl */ `
 `;
 
 // Fragment: writes the face fill color, but if the fragment is close
-// to a triangle edge (min barycentric below an fwidth-derived
-// threshold), it blends toward the edge colour instead. Result is a
-// consistent grid line drawn through every triangle's boundary.
+// to a triangle edge (min barycentric below the per-theme threshold)
+// it switches to the edge colour. Fixed-width edges — same fraction
+// of every triangle's interior — but no GL_OES_standard_derivatives
+// dependency, so the shader compiles cleanly on every WebGL backend.
 const FRAGMENT_SHADER = /* glsl */ `
-  #extension GL_OES_standard_derivatives : enable
   precision highp float;
 
   uniform vec3 uEdgeColor;
-  uniform float uEdgeWidthPx;
+  uniform float uEdgeThreshold;
 
   varying vec3 vColor;
   varying vec3 vBary;
 
   void main() {
     float minBary = min(vBary.x, min(vBary.y, vBary.z));
-    // fwidth of the min-barycentric tells us the screen-space rate of
-    // change. Multiplying by the desired pixel width gives the band
-    // we need to smoothly fade between edge and fill colours.
-    float w = fwidth(minBary) * uEdgeWidthPx;
-    float edge = smoothstep(0.0, w, minBary);
-    vec3 col = mix(uEdgeColor, vColor, edge);
+    vec3 col = minBary < uEdgeThreshold ? uEdgeColor : vColor;
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -66,7 +61,10 @@ export function createSurface(scene, opts = {}) {
   const baseColor = opts.baseColor ?? [0.93, 0.93, 0.93];
   const activeColor = opts.activeColor ?? [0.08, 0.08, 0.08];
   const edgeColor = opts.edgeColor ?? [0.55, 0.55, 0.55];
-  const edgeWidthPx = opts.edgeWidthPx ?? 1.0;
+  // Fraction of each triangle's interior occupied by the edge band.
+  // Smaller = thinner edges. 0.05 means the outer 5% of each
+  // triangle's edge zone renders as grid.
+  const edgeThreshold = opts.edgeThreshold ?? 0.05;
   const activationThreshold = opts.activationThreshold ?? 0.01;
 
   // High-subdivision icosphere. Three.js's PolyhedronGeometry uses
@@ -110,14 +108,11 @@ export function createSurface(scene, opts = {}) {
     fragmentShader: FRAGMENT_SHADER,
     uniforms: {
       uEdgeColor: { value: new THREE.Color().fromArray(edgeColor) },
-      uEdgeWidthPx: { value: edgeWidthPx },
+      uEdgeThreshold: { value: edgeThreshold },
     },
     side: THREE.FrontSide,
     transparent: false,
     depthWrite: true,
-    extensions: {
-      derivatives: true,
-    },
   });
 
   const mesh = new THREE.Mesh(geometry, material);

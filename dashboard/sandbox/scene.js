@@ -80,7 +80,7 @@ function initScene() {
     baseColor: theme.baseColor,
     activeColor: theme.activeColor,
     edgeColor: theme.edgeColor,
-    edgeWidthPx: theme.edgeWidthPx,
+    edgeThreshold: theme.edgeThreshold,
     activationThreshold: theme.activationThreshold,
   });
 

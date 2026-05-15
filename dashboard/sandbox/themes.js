@@ -19,7 +19,7 @@ export const THEMES = [
     baseColor: [0.93, 0.91, 0.84],
     activeColor: [0.06, 0.06, 0.08],
     edgeColor: [0.72, 0.70, 0.62],
-    edgeWidthPx: 1.0,
+    edgeThreshold: 0.05,
     activationThreshold: 0.02,
   },
 
@@ -33,7 +33,7 @@ export const THEMES = [
     baseColor: [0.78, 0.81, 0.85],
     activeColor: [0.08, 0.10, 0.18],
     edgeColor: [0.98, 0.98, 1.0],
-    edgeWidthPx: 0.9,
+    edgeThreshold: 0.04,
     activationThreshold: 0.02,
   },
 
@@ -47,7 +47,7 @@ export const THEMES = [
     baseColor: [0.985, 0.985, 0.985],
     activeColor: [0.02, 0.02, 0.02],
     edgeColor: [0.45, 0.45, 0.50],
-    edgeWidthPx: 0.8,
+    edgeThreshold: 0.035,
     activationThreshold: 0.02,
   },
 
@@ -61,7 +61,7 @@ export const THEMES = [
     baseColor: [0.87, 0.82, 0.70],
     activeColor: [0.20, 0.16, 0.10],
     edgeColor: [0.62, 0.56, 0.42],
-    edgeWidthPx: 1.0,
+    edgeThreshold: 0.05,
     activationThreshold: 0.02,
   },
 
@@ -75,7 +75,7 @@ export const THEMES = [
     baseColor: [0.96, 0.96, 0.96],
     activeColor: [0.20, 0.20, 0.20],
     edgeColor: [0.18, 0.18, 0.20],
-    edgeWidthPx: 1.2,
+    edgeThreshold: 0.07,
     activationThreshold: 0.02,
   },
 
@@ -89,7 +89,7 @@ export const THEMES = [
     baseColor: [0.62, 0.62, 0.62],
     activeColor: [0.04, 0.04, 0.04],
     edgeColor: [0.82, 0.82, 0.82],
-    edgeWidthPx: 1.0,
+    edgeThreshold: 0.05,
     activationThreshold: 0.02,
   },
 
@@ -103,7 +103,7 @@ export const THEMES = [
     baseColor: [0.91, 0.89, 0.84],
     activeColor: [0.0, 0.0, 0.0],
     edgeColor: [0.55, 0.53, 0.48],
-    edgeWidthPx: 0.9,
+    edgeThreshold: 0.04,
     activationThreshold: 0.02,
   },
 
@@ -117,7 +117,7 @@ export const THEMES = [
     baseColor: [0.84, 0.79, 0.66],
     activeColor: [0.38, 0.34, 0.26],
     edgeColor: [0.70, 0.64, 0.50],
-    edgeWidthPx: 1.0,
+    edgeThreshold: 0.05,
     activationThreshold: 0.02,
   },
 
@@ -131,7 +131,7 @@ export const THEMES = [
     baseColor: [0.98, 0.98, 0.97],
     activeColor: [0.30, 0.28, 0.24],
     edgeColor: [0.85, 0.84, 0.80],
-    edgeWidthPx: 0.7,
+    edgeThreshold: 0.03,
     activationThreshold: 0.02,
   },
 
@@ -145,7 +145,7 @@ export const THEMES = [
     baseColor: [0.90, 0.89, 0.85],
     activeColor: [0.08, 0.08, 0.10],
     edgeColor: [0.62, 0.60, 0.55],
-    edgeWidthPx: 0.7,
+    edgeThreshold: 0.03,
     activationThreshold: 0.02,
   },
 ];
