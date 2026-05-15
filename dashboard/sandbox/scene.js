@@ -58,7 +58,7 @@ function initScene() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 0.85;
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x04060c);
@@ -77,19 +77,34 @@ function initScene() {
   controls.autoRotate = false;
 
   // Solid occluder sphere. Sits at radius 392 — just inside the cell
-  // shell at radius 400 and dust shell at 395 — so back-hemisphere
-  // fragments z-cull cleanly. depthWrite=true is what makes the
-  // occlusion work; transparent=false ensures the depth buffer
-  // commits this geometry first.
+  // shell — so back-hemisphere fragments z-cull cleanly. The
+  // material is MeshStandardMaterial so the lighting falls on the
+  // sphere itself; combined with the directional + ambient lights
+  // below, the occluder reads as a real lit globe rather than a
+  // flat black disc.
   const occluderGeo = new THREE.SphereGeometry(392, 128, 64);
-  const occluderMat = new THREE.MeshBasicMaterial({
-    color: 0x070a14,
+  const occluderMat = new THREE.MeshStandardMaterial({
+    color: 0x0a1020,
+    roughness: 0.92,
+    metalness: 0.05,
+    emissive: 0x05080f,
+    emissiveIntensity: 0.4,
     depthWrite: true,
-    transparent: false,
   });
   const occluder = new THREE.Mesh(occluderGeo, occluderMat);
   occluder.renderOrder = -10;
   scene.add(occluder);
+
+  // Scene lighting. A warm key-light off to the side gives the
+  // occluder + cells a lit hemisphere and a shadowed one — the same
+  // phase-shading look the LeoLabs reference has. A faint ambient
+  // floor keeps the unlit side readable.
+  const keyLight = new THREE.DirectionalLight(0xffeac8, 1.2);
+  keyLight.position.set(800, 1200, 800);
+  scene.add(keyLight);
+
+  const ambientLight = new THREE.AmbientLight(0x3a4a70, 0.55);
+  scene.add(ambientLight);
 
   // Dust before agents so the cast renders on top.
   dust = createDust(scene, { count: 50000, radius: 395 });
@@ -111,7 +126,10 @@ function initScene() {
     Math.floor(window.innerWidth / 2),
     Math.floor(window.innerHeight / 2),
   );
-  bloomPass = new UnrealBloomPass(bloomSize, 1.4, 0.7, 0.04);
+  // Selective bloom. Threshold 0.85 ensures only flashing/active
+  // cells push past — quiet-lit cells render crisp, then individual
+  // events spark with bloom on top.
+  bloomPass = new UnrealBloomPass(bloomSize, 0.7, 0.55, 0.85);
   composer.addPass(bloomPass);
 
   window.addEventListener('resize', onResize);
@@ -124,9 +142,22 @@ function onResize() {
   composer.setSize(window.innerWidth, window.innerHeight);
 }
 
+// Scratch vectors for the per-frame light-direction transform.
+const _lightWorldDir = new THREE.Vector3(0.4, 0.8, 0.6).normalize();
+const _lightViewDir = new THREE.Vector3();
+
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
+
+  // Push the world-space light direction into the cast shader's
+  // view-space uniform so the lit hemisphere stays anchored to the
+  // world (not the camera). Cheap: one Vector3 transform per frame.
+  if (agents) {
+    _lightViewDir.copy(_lightWorldDir).transformDirection(camera.matrixWorldInverse);
+    agents.setLightDirView(_lightViewDir);
+  }
+
   agents?.tick();
   trails?.tick();
   bonds?.tick();

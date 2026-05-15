@@ -89,10 +89,14 @@ export function createTrails(scene, opts) {
   lineSegments.frustumCulled = false;
   scene.add(lineSegments);
 
-  // Pull current sector colors from the cast renderer's aColor buffer
-  // so each trail matches its head's hue exactly. We grab it via the
-  // exposed geometry attribute.
-  const sourceColors = agents.points.geometry.getAttribute('aColor').array;
+  // Pull current sector colors from the cast renderer's per-instance
+  // color buffer so each trail matches its head's hue exactly. The
+  // attribute name changed when the cast moved to InstancedMesh in
+  // Pass 10; fall back gracefully if neither exists.
+  const colorAttr =
+    agents.mesh?.geometry?.getAttribute('aInstColor') ||
+    agents.points?.geometry?.getAttribute('aColor');
+  const sourceColors = colorAttr ? colorAttr.array : new Float32Array(maxAgents * 3);
 
   let frameCounter = 0;
 

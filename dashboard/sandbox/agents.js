@@ -1,26 +1,19 @@
-// Cast renderer (Pass 6) — continuous motion + human/agent
-// differentiation + activity-driven flash.
+// Cast renderer (Pass 10) — InstancedMesh of low-poly icosahedrons.
 //
-// Every cast member is one point in a single THREE.Points draw call.
-// Three visual states stack:
+// Each cell is an actual 3D mesh with vertex normals, shaded by a
+// directional light + emissive term. One draw call covers all 5,000
+// cells via three.js InstancedMesh; per-instance attributes carry
+// color, human flag, scale, and flash time so the GPU does the
+// human/agent differentiation and flash decay.
 //
-//   1. Continuous orbital motion. Each slot has an angular-momentum
-//      axis L assigned at first sight; velocity = L × position, so
-//      each agent traces a stable great-circle orbit on the sphere.
-//      Magnitudes scale with autonomy (humans slow, agents fast).
-//      force.js can layer additional impulses on top.
+// Lighting goes through the cell's standard normal, so cells read as
+// real spheres with a lit hemisphere and a shadowed one. Emissive
+// contribution stacks on top so cells stay luminous and the bloom
+// pass has something to lift.
 //
-//   2. Activity EMA. Per-snapshot |Δwealth| accumulator decays at
-//      0.85/snapshot, so trading cells stay continuously elevated
-//      and quiet ones fall back. Drives baseline brightness.
-//
-//   3. Flash impulse. A sharp pop when |Δwealth/wealth| crosses a
-//      relative threshold. Decays over 30 frames on the GPU.
-//
-// Human/agent differentiation is in the shader: humans render larger,
-// brighter, with a soft outer halo (round); agents render smaller,
-// crisper (square), more numerous-looking. The aIsHuman attribute
-// drives it.
+// Motion: home-tether (weak spring to the Fibonacci spawn point) +
+// per-frame Brownian tangent + bond springs (from bonds.js) +
+// per-snapshot wealth-delta impulse. Same model as Pass 9.
 
 import * as THREE from 'three';
 
@@ -30,37 +23,12 @@ const FLASH_FRAMES = 30;
 const FLASH_REL_THRESHOLD = 0.02;
 const FLASH_ABS_FLOOR = 0.05;
 const ACTIVITY_FADE = 0.86;
-const ACTIVITY_BRIGHT_SCALE = 1.6;
-const ACTIVITY_SIZE_SCALE = 4.0;
-const FLASH_BRIGHT_GAIN = 0.9;
-const FLASH_SIZE_GAIN = 14.0;
-const BASE_SIZE_AGENT = 7.0;
-const BASE_SIZE_HUMAN = 18.0;
-const BASE_BRIGHTNESS = 0.30;
 
-// Pass 9 motion model — short-distance random walks, not long
-// orbital traversals. Three sources stack:
-//
-//   • Home tether — each slot remembers its Fibonacci spawn position
-//     ("home") and gets a weak spring force back toward it every
-//     frame. Cells wander on a short leash; they never traverse the
-//     globe under their own steam. Bond springs can still pull
-//     bonded pairs together — the tether is weak enough to lose to
-//     a strong bond, but strong enough to dominate Brownian noise.
-//
-//   • Brownian tangential noise — small random tangent kick per slot
-//     per frame. Drives the per-cell "wiggle" that breaks the
-//     periodic feel without sending cells anywhere meaningful.
-//
-//   • Bond-spring force — bonded pairs continuously contract toward
-//     each other. Cabals form tight knots; far-apart bonds stretch
-//     the tether but eventually pull pairs together into clusters.
-//
-//   • Wealth-delta impulse on snapshot — trading cells get a one-off
-//     tangential kick scaled by |Δwealth| (capped). Cell wiggles
-//     locally then damps back toward home.
-const HOMING_K = 0.018;             // spring constant toward home (weak)
-const BROWNIAN_K = 0.22;             // per-frame random tangent magnitude
+const BASE_SCALE_AGENT = 1.8;       // world units (radius of agent sphere)
+const BASE_SCALE_HUMAN = 4.5;       // world units (radius of human sphere)
+
+const HOMING_K = 0.018;
+const BROWNIAN_K = 0.22;
 const WEALTH_IMPULSE_K = 14.0;
 const WEALTH_IMPULSE_CAP = 22.0;
 const BOND_SPRING_K = 0.55;
@@ -70,93 +38,84 @@ const MAX_SPEED = 18;
 
 const NEVER_FLASHED = -1e9;
 
+// Vertex shader: applies the per-instance matrix three.js attaches
+// to InstancedMesh, transforms the icosahedron's vertex normal into
+// view space for Lambert lighting, and passes flash/activity to the
+// fragment shader. Three.js auto-declares `attribute mat4 instanceMatrix`
+// when this material is used with InstancedMesh.
 const VERTEX_SHADER = /* glsl */ `
-  attribute vec3 aColor;
-  attribute float aBaseSize;
+  attribute vec3 aInstColor;
   attribute float aIsHuman;
-  attribute float aActivity;
   attribute float aFlashTime;
+  attribute float aActivity;
 
-  uniform float uPixelRatio;
   uniform float uCurrentFrame;
   uniform float uFlashFrames;
-  uniform float uActivitySizeScale;
-  uniform float uFlashSizeGain;
 
   varying vec3 vColor;
-  varying float vActivity;
-  varying float vFlash;
+  varying vec3 vNormalView;
   varying float vIsHuman;
+  varying float vFlash;
+  varying float vActivity;
 
   void main() {
-    float age = uCurrentFrame - aFlashTime;
-    float flash = clamp(1.0 - age / uFlashFrames, 0.0, 1.0);
-    float activity = clamp(aActivity, 0.0, 1.0);
-
-    vColor = aColor;
-    vActivity = activity;
-    vFlash = flash;
+    vColor = aInstColor;
     vIsHuman = aIsHuman;
+    vActivity = clamp(aActivity, 0.0, 1.0);
 
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    float pixelSize = aBaseSize
-                    + activity * uActivitySizeScale
-                    + flash * uFlashSizeGain;
-    gl_PointSize = pixelSize * uPixelRatio * (300.0 / -mvPosition.z);
-    gl_Position = projectionMatrix * mvPosition;
+    float age = uCurrentFrame - aFlashTime;
+    vFlash = clamp(1.0 - age / uFlashFrames, 0.0, 1.0);
+
+    // Apply instance transform then view + projection.
+    vec4 instancePos = instanceMatrix * vec4(position, 1.0);
+    vec4 mvPos = modelViewMatrix * instancePos;
+
+    // Normal in view space. Uniform scale assumption — fine for our
+    // setMatrixAt usage which only translates + uniformly scales.
+    mat3 nmat = mat3(modelViewMatrix * instanceMatrix);
+    vNormalView = normalize(nmat * normal);
+
+    gl_Position = projectionMatrix * mvPos;
   }
 `;
 
-// Two cell shapes: humans render round with a soft halo
-// (high-autonomy nodes look organic, distinct); agents render square
-// and crisp (numerous, mechanical). Both use additive-blended emissive
-// color so the later bloom pass lifts them into halos.
+// Fragment shader: Lambert diffuse + emissive term. Humans take a
+// warm gold mix in their lit channel and a brightness boost; agents
+// render the sector palette straight. The emissive lift on flash is
+// what the bloom pass picks up.
 const FRAGMENT_SHADER = /* glsl */ `
   precision highp float;
 
-  varying vec3 vColor;
-  varying float vActivity;
-  varying float vFlash;
-  varying float vIsHuman;
+  uniform vec3 uLightDirView;
+  uniform float uAmbient;
 
-  uniform float uBaseBrightness;
-  uniform float uActivityBrightScale;
-  uniform float uFlashBrightGain;
+  varying vec3 vColor;
+  varying vec3 vNormalView;
+  varying float vIsHuman;
+  varying float vFlash;
+  varying float vActivity;
 
   void main() {
-    vec2 uv = gl_PointCoord - 0.5;
+    // Lambert diffuse, kept well below saturation so the cells read
+    // as physical 3D objects rather than blown-out blobs. The
+    // overall multiplier of 0.55 is what gives the scene its breathing
+    // room — bloom only catches genuine emissive events on top.
+    float NdotL = max(dot(normalize(vNormalView), normalize(uLightDirView)), 0.0);
+    vec3 diffuse = vColor * (uAmbient + (1.0 - uAmbient) * NdotL) * 0.55;
 
-    float coverage;
-    vec3 tint;
+    // Emissive only fires meaningfully on active or flashing cells.
+    // Baseline 0 so quiet cells stay quiet; activity + flash push
+    // them above the bloom threshold.
+    float emissiveLevel = 0.10 * vActivity + 0.85 * vFlash;
+    vec3 emissive = vColor * emissiveLevel;
+
     if (vIsHuman > 0.5) {
-      // Round, soft-edged cell with a wide halo. Humans get a warm
-      // gold tint mixed with their sector hue so they read as
-      // distinct anchor points across the sphere — eye picks them
-      // out instantly against the smaller, cooler agent squares.
-      float d = length(uv);
-      if (d > 0.5) discard;
-      float core = 1.0 - smoothstep(0.18, 0.32, d);
-      float halo = 1.0 - smoothstep(0.05, 0.50, d);
-      coverage = core + halo * 0.55;
-      vec3 gold = vec3(1.0, 0.86, 0.55);
-      tint = mix(vColor, gold, 0.55);
-    } else {
-      // Hard square — Conway cell aesthetic for the agent population.
-      float edge = max(abs(uv.x), abs(uv.y));
-      if (edge > 0.48) discard;
-      coverage = 1.0;
-      tint = vColor;
+      vec3 gold = vec3(1.00, 0.86, 0.55);
+      diffuse = mix(diffuse, diffuse * gold * 1.15, 0.45);
+      emissive *= 1.3;
     }
 
-    float bright = uBaseBrightness
-                 + vActivity * uActivityBrightScale
-                 + vFlash * uFlashBrightGain;
-    bright = clamp(bright, 0.0, 1.6);
-    // Humans get a brightness boost so their halo lifts above the
-    // bond web; agents stay at baseline so they read as a numerous
-    // colored field instead of overwhelming the sphere.
-    if (vIsHuman > 0.5) bright *= 1.45;
-    gl_FragColor = vec4(tint * bright * coverage, coverage);
+    gl_FragColor = vec4(diffuse + emissive, 1.0);
   }
 `;
 
@@ -175,68 +134,74 @@ export function createAgents(scene, opts = {}) {
 
   const palette = sectorPalette();
 
-  const positions = new Float32Array(maxAgents * 3);
-  const colors = new Float32Array(maxAgents * 3);
-  const baseSizes = new Float32Array(maxAgents);
+  // Low-poly icosahedron — 80 triangles, smooth enough at our typical
+  // pixel size after the InstancedMesh scale. 5,000 * 80 = 400k tris,
+  // single draw call.
+  const geometry = new THREE.IcosahedronGeometry(1, 2);
+
+  // Per-instance attributes via InstancedBufferAttribute.
+  const colorsBuf = new Float32Array(maxAgents * 3);
   const isHumanBuf = new Float32Array(maxAgents);
-  const activities = new Float32Array(maxAgents);
-  const flashTimes = new Float32Array(maxAgents);
-  flashTimes.fill(NEVER_FLASHED);
+  const flashTimesBuf = new Float32Array(maxAgents);
+  flashTimesBuf.fill(NEVER_FLASHED);
+  const activitiesBuf = new Float32Array(maxAgents);
 
-  // Per-slot velocity (tangent to sphere by construction).
-  const velocities = new Float32Array(maxAgents * 3);
-
-  // Per-slot home position — the Fibonacci slot the cell starts at.
-  // Tether force pulls each cell back toward home every frame so
-  // motion stays local instead of traversing the sphere.
-  const homes = new Float32Array(maxAgents * 3);
-
-  // Per-slot target sphere radius. cabals.js bumps cabal-member
-  // slots into elevated shells.
-  const targetRadii = new Float32Array(maxAgents);
-  targetRadii.fill(radius);
-
-  // Optional bonds module reference for the per-frame spring loop.
-  let bondsRef = null;
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
-  geometry.setAttribute('aBaseSize', new THREE.BufferAttribute(baseSizes, 1));
-  geometry.setAttribute('aIsHuman', new THREE.BufferAttribute(isHumanBuf, 1));
-  geometry.setAttribute('aActivity', new THREE.BufferAttribute(activities, 1));
-  geometry.setAttribute('aFlashTime', new THREE.BufferAttribute(flashTimes, 1));
-  geometry.setDrawRange(0, 0);
+  geometry.setAttribute(
+    'aInstColor',
+    new THREE.InstancedBufferAttribute(colorsBuf, 3),
+  );
+  geometry.setAttribute(
+    'aIsHuman',
+    new THREE.InstancedBufferAttribute(isHumanBuf, 1),
+  );
+  geometry.setAttribute(
+    'aFlashTime',
+    new THREE.InstancedBufferAttribute(flashTimesBuf, 1),
+  );
+  geometry.setAttribute(
+    'aActivity',
+    new THREE.InstancedBufferAttribute(activitiesBuf, 1),
+  );
 
   const material = new THREE.ShaderMaterial({
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,
     uniforms: {
-      uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
       uCurrentFrame: { value: 0 },
       uFlashFrames: { value: FLASH_FRAMES },
-      uActivitySizeScale: { value: ACTIVITY_SIZE_SCALE },
-      uFlashSizeGain: { value: FLASH_SIZE_GAIN },
-      uBaseBrightness: { value: BASE_BRIGHTNESS },
-      uActivityBrightScale: { value: ACTIVITY_BRIGHT_SCALE },
-      uFlashBrightGain: { value: FLASH_BRIGHT_GAIN },
+      uLightDirView: { value: new THREE.Vector3(0.4, 0.8, 0.6).normalize() },
+      uAmbient: { value: 0.22 },
     },
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
+    transparent: false,
+    depthWrite: true,
   });
 
-  const points = new THREE.Points(geometry, material);
-  points.frustumCulled = false;
-  scene.add(points);
+  const mesh = new THREE.InstancedMesh(geometry, material, maxAgents);
+  mesh.frustumCulled = false;
+  mesh.count = 0;  // ramps up once initialLayout runs
+  scene.add(mesh);
+
+  // Per-slot motion buffers.
+  const positions = new Float32Array(maxAgents * 3);
+  const velocities = new Float32Array(maxAgents * 3);
+  const homes = new Float32Array(maxAgents * 3);
+  const scales = new Float32Array(maxAgents);
+  const targetRadii = new Float32Array(maxAgents);
+  targetRadii.fill(radius);
 
   const slotByIdx = new Map();
   const lastWealth = new Float32Array(maxAgents);
   lastWealth.fill(NaN);
 
+  let bondsRef = null;
   let initialized = false;
   let castCount = 0;
   let currentFrame = 0;
+
+  // Scratch matrix4 + temp object for the InstancedMesh per-frame
+  // setMatrixAt loop. Allocating these once and reusing avoids GC
+  // pressure at 60fps × 5,000 instances.
+  const dummy = new THREE.Object3D();
 
   function fibonacci(slot, total, out) {
     if (total <= 1) {
@@ -253,6 +218,7 @@ export function createAgents(scene, opts = {}) {
   }
 
   function initialLayout(snapshot) {
+    // Sort by sector ascending, then idx within sector for stability.
     const sorted = snapshot.slice().sort((a, b) => {
       if (a.sector !== b.sector) return a.sector - b.sector;
       return a.idx - b.idx;
@@ -269,19 +235,33 @@ export function createAgents(scene, opts = {}) {
       positions[slot * 3 + 1] = tmp[1];
       positions[slot * 3 + 2] = tmp[2];
 
-      const human = !!entry.is_human;
-      isHumanBuf[slot] = human ? 1.0 : 0.0;
-      baseSizes[slot] = human ? BASE_SIZE_HUMAN : BASE_SIZE_AGENT;
-
-      // Save home position so the tether force has a target.
       homes[slot * 3 + 0] = tmp[0];
       homes[slot * 3 + 1] = tmp[1];
       homes[slot * 3 + 2] = tmp[2];
+
+      const human = !!entry.is_human;
+      isHumanBuf[slot] = human ? 1.0 : 0.0;
+      scales[slot] = human ? BASE_SCALE_HUMAN : BASE_SCALE_AGENT;
     }
-    geometry.attributes.position.needsUpdate = true;
-    geometry.attributes.aBaseSize.needsUpdate = true;
-    geometry.attributes.aIsHuman.needsUpdate = true;
-    geometry.setDrawRange(0, castCount);
+
+    // Upload initial instance matrices to the GPU so the cells appear
+    // before the first rAF tick runs (Chrome aggressively background-
+    // throttles new tabs; without this, the canvas reads as empty
+    // until the user focuses the window).
+    for (let i = 0; i < castCount; i += 1) {
+      dummy.position.set(
+        positions[i * 3 + 0],
+        positions[i * 3 + 1],
+        positions[i * 3 + 2],
+      );
+      dummy.scale.setScalar(scales[i]);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+
+    geometry.getAttribute('aIsHuman').needsUpdate = true;
+    mesh.count = castCount;
     initialized = true;
   }
 
@@ -290,7 +270,7 @@ export function createAgents(scene, opts = {}) {
     if (!initialized) initialLayout(snapshot);
 
     for (let i = 0; i < castCount; i += 1) {
-      activities[i] *= ACTIVITY_FADE;
+      activitiesBuf[i] *= ACTIVITY_FADE;
     }
 
     for (let i = 0; i < snapshot.length; i += 1) {
@@ -300,9 +280,9 @@ export function createAgents(scene, opts = {}) {
 
       const palIdx = ((entry.sector % palette.length) + palette.length) % palette.length;
       const rgb = palette[palIdx];
-      colors[slot * 3 + 0] = rgb[0];
-      colors[slot * 3 + 1] = rgb[1];
-      colors[slot * 3 + 2] = rgb[2];
+      colorsBuf[slot * 3 + 0] = rgb[0];
+      colorsBuf[slot * 3 + 1] = rgb[1];
+      colorsBuf[slot * 3 + 2] = rgb[2];
 
       const w = entry.wealth ?? 0;
       const prev = lastWealth[slot];
@@ -311,18 +291,15 @@ export function createAgents(scene, opts = {}) {
 
       const delta = w - prev;
       const adelta = Math.abs(delta);
-      activities[slot] += adelta * 1.4;
+      activitiesBuf[slot] += adelta * 1.4;
 
       const wRef = Math.max(prev, 1e-3);
       const rel = adelta / wRef;
       if (rel > FLASH_REL_THRESHOLD || adelta > FLASH_ABS_FLOOR) {
-        flashTimes[slot] = currentFrame;
+        flashTimesBuf[slot] = currentFrame;
       }
 
-      // Wealth-delta velocity impulse — a random tangential kick
-      // proportional to |Δwealth|. After damping settles a few frames
-      // later, the cell returns to (near) its rest position. Reads as
-      // a local twitch on trade, not a translation across the sphere.
+      // Wealth-delta velocity impulse, random tangent.
       if (adelta > 0) {
         let mag = adelta * WEALTH_IMPULSE_K;
         if (mag > WEALTH_IMPULSE_CAP) mag = WEALTH_IMPULSE_CAP;
@@ -345,18 +322,11 @@ export function createAgents(scene, opts = {}) {
       }
     }
 
-    geometry.attributes.aColor.needsUpdate = true;
-    geometry.attributes.aActivity.needsUpdate = true;
-    geometry.attributes.aFlashTime.needsUpdate = true;
+    geometry.getAttribute('aInstColor').needsUpdate = true;
+    geometry.getAttribute('aActivity').needsUpdate = true;
+    geometry.getAttribute('aFlashTime').needsUpdate = true;
   }
 
-  // Per-frame integration step.
-  //
-  // 1. Bond springs accumulate force into velocity (if bonds attached).
-  // 2. Per-slot orbital drift adds omega × position as a baseline
-  //    tangential velocity. Each cell drifts at its own rate.
-  // 3. Damp + clamp velocity, integrate position, reproject onto
-  //    per-slot target shell (base or elevated cabal band).
   function tick() {
     currentFrame += 1;
     material.uniforms.uCurrentFrame.value = currentFrame;
@@ -391,17 +361,12 @@ export function createAgents(scene, opts = {}) {
       const py = positions[i * 3 + 1];
       const pz = positions[i * 3 + 2];
 
-      // Home tether — weak spring back to the Fibonacci home point.
-      // The radial component gets cancelled by reprojection at the
-      // end of the step; only the tangential component does work,
-      // pulling the cell back toward its starting direction.
+      // Home tether.
       velocities[i * 3 + 0] += (homes[i * 3 + 0] - px) * HOMING_K;
       velocities[i * 3 + 1] += (homes[i * 3 + 1] - py) * HOMING_K;
       velocities[i * 3 + 2] += (homes[i * 3 + 2] - pz) * HOMING_K;
 
-      // Brownian tangential noise — small random kick perpendicular
-      // to the current radius. Cross-product trick with a random
-      // 3-vector lands the kick on the tangent plane.
+      // Brownian tangential noise.
       const rx = Math.random() - 0.5;
       const ry = Math.random() - 0.5;
       const rz = Math.random() - 0.5;
@@ -429,9 +394,9 @@ export function createAgents(scene, opts = {}) {
       velocities[i * 3 + 1] = vy;
       velocities[i * 3 + 2] = vz;
 
-      const nx = positions[i * 3 + 0] + vx;
-      const ny = positions[i * 3 + 1] + vy;
-      const nz = positions[i * 3 + 2] + vz;
+      const nx = px + vx;
+      const ny = py + vy;
+      const nz = pz + vz;
 
       const r = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
       const s = targetRadii[i] / r;
@@ -440,27 +405,40 @@ export function createAgents(scene, opts = {}) {
       positions[i * 3 + 2] = nz * s;
     }
 
-    geometry.attributes.position.needsUpdate = true;
+    // Re-pack the instance matrices. Position from the per-frame
+    // integrator, uniform scale per slot.
+    for (let i = 0; i < castCount; i += 1) {
+      dummy.position.set(
+        positions[i * 3 + 0],
+        positions[i * 3 + 1],
+        positions[i * 3 + 2],
+      );
+      dummy.scale.setScalar(scales[i]);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
   }
 
   function setBonds(bonds) {
     bondsRef = bonds;
   }
 
-  // Reset every slot's target radius to the base shell. cabals.js
-  // calls this once per snapshot, then sets cabal-member slots to
-  // their elevated radii.
   function resetTargetRadii() {
     targetRadii.fill(radius);
   }
 
-  // Set one slot's target radius. The next agents.tick reproject step
-  // honours this; the spring + impulse motion then traces tangent on
-  // the new shell. Smooth transitions aren't needed for V1 — joining
-  // a cabal is a discrete-enough event that the pop reads as meaningful.
   function setSlotRadius(slot, r) {
     if (slot < 0 || slot >= maxAgents) return;
     targetRadii[slot] = r;
+  }
+
+  // Update the light direction uniform from a world-space vector.
+  // scene.js calls this when the camera moves so the lit hemisphere
+  // stays anchored to the world light rather than rotating with the
+  // viewpoint.
+  function setLightDirView(viewSpaceDir) {
+    material.uniforms.uLightDirView.value.copy(viewSpaceDir);
   }
 
   function getPosition(idx, out) {
@@ -484,15 +462,16 @@ export function createAgents(scene, opts = {}) {
   }
 
   function invalidatePositions() {
-    geometry.attributes.position.needsUpdate = true;
+    // No-op now — positions go through setMatrixAt in tick(). Kept
+    // for API compat with the prior Points-based renderer.
   }
 
   function setVisible(visible) {
-    points.visible = !!visible;
+    mesh.visible = !!visible;
   }
 
   function dispose() {
-    scene.remove(points);
+    scene.remove(mesh);
     geometry.dispose();
     material.dispose();
     slotByIdx.clear();
@@ -503,12 +482,13 @@ export function createAgents(scene, opts = {}) {
   }
 
   return {
-    points,
+    mesh,
     handleCastSnapshot,
     tick,
     setBonds,
     resetTargetRadii,
     setSlotRadius,
+    setLightDirView,
     getPosition,
     setVisible,
     dispose,
