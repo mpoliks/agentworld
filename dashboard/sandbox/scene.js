@@ -82,6 +82,9 @@ function initScene() {
     minPersistFrames: theme.minPersistFrames,
     maxPersistFrames: theme.maxPersistFrames,
     magnitudeRef: theme.magnitudeRef,
+    sectorPalette: theme.sectorPalette,
+    sectorTintWeight: theme.sectorTintWeight,
+    degreePersistBoost: theme.degreePersistBoost,
   });
 
   window.addEventListener('resize', onResize);

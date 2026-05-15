@@ -3,18 +3,22 @@
 //
 // The sphere is a high-subdivision icosahedron; the whole grid is
 // rendered every frame via a barycentric-coordinate edge term in the
-// fragment shader. Engine trade events activate individual triangles
-// in greyscale; the activation persistence (how long the triangle
-// stays visible) is proportional to the magnitude of the wealth
-// change that fired it, and the brightness decays linearly toward
-// the base across that lifetime.
+// fragment shader. Engine trade events activate individual triangles;
+// the activation persistence (how long the triangle stays visible) is
+// proportional to the magnitude of the wealth change that fired it,
+// and the brightness decays linearly toward the base across that
+// lifetime.
 //
-// Semantics:
+// Semantics (engine-tied axes only):
 //   • Intensity (current brightness) ↔ recency. Just-fired triangles
 //     read at full active colour; older ones blend back toward base.
 //   • Lifetime (total visible duration) ↔ event magnitude. A
 //     near-threshold wealth move keeps the triangle visible for ~1s;
 //     a windfall persists 10+ seconds.
+//   • Active-colour hue ↔ agent sector. Each fire mixes a low-chroma
+//     sector tint into the dark active colour at sectorTintWeight.
+//   • Persistence multiplier ↔ degree_centrality. High-degree agents
+//     leave longer traces, normalised against the running max.
 //
 // Activations are also staggered: each cell's triggered fire-frame is
 // scheduled at currentFrame + random(0, STAGGER_FRAMES) so the
@@ -76,6 +80,13 @@ export function createSurface(scene, opts = {}) {
   const minPersistFrames = opts.minPersistFrames ?? MIN_PERSIST_FRAMES;
   const maxPersistFrames = opts.maxPersistFrames ?? MAX_PERSIST_FRAMES;
   const magnitudeRef = opts.magnitudeRef ?? MAGNITUDE_REF;
+  // Sector tint table and mix weight. Empty palette / weight 0
+  // disables the hue axis and falls back to pure activeColor.
+  const sectorPalette = opts.sectorPalette ?? [];
+  const sectorTintWeight = opts.sectorTintWeight ?? 0.0;
+  // Top end of the persistFrames multiplier when an agent's
+  // degree_centrality matches the running max. 1.0 disables the axis.
+  const degreePersistBoost = opts.degreePersistBoost ?? 1.0;
 
   // High-subdivision icosphere. Face count = 20 * (subdivisions+1)².
   const geometry = new THREE.IcosahedronGeometry(radius, subdivisions);
@@ -110,6 +121,10 @@ export function createSurface(scene, opts = {}) {
   const startFrameArr = new Float32Array(faceCount);
   startFrameArr.fill(-1);
   const persistFramesArr = new Float32Array(faceCount);
+  // Per-face active-colour target, baked at fire time from the
+  // agent's sector tint. Decay loop lerps from baseColor to this
+  // instead of the global activeColor.
+  const faceActiveColorArr = new Float32Array(faceCount * 3);
 
   const material = new THREE.ShaderMaterial({
     vertexShader: VERTEX_SHADER,
@@ -128,15 +143,23 @@ export function createSurface(scene, opts = {}) {
   scene.add(mesh);
 
   // Per-slot bookkeeping: idx → slot, last-seen wealth (for delta
-  // detection), scheduled fire frame, scheduled magnitude.
+  // detection), scheduled fire frame, scheduled magnitude, plus the
+  // most-recent sector and degree_centrality for the agent in that
+  // slot. Sector/degree are read at fire-release time so staggered
+  // activations use the snapshot that scheduled them.
   const slotByIdx = new Map();
   let slotToFaceArr = null;
   let lastWealthArr = null;
   let fireAtFrameArr = null;
   let fireMagnitudeArr = null;
+  let slotSectorArr = null;
+  let slotDegreeArr = null;
   let castCount = 0;
   let initialized = false;
   let frameCounter = 0;
+  // Running max degree_centrality. Used to normalise the persistence
+  // multiplier without re-scanning all slots each tick.
+  let maxDegreeSeen = 0;
 
   // 32-bit hash to scatter consecutive idx values across the full
   // face index space, so adjacent slots land on far-apart triangles.
@@ -154,6 +177,9 @@ export function createSurface(scene, opts = {}) {
     fireAtFrameArr = new Float32Array(castCount);
     fireAtFrameArr.fill(-1);
     fireMagnitudeArr = new Float32Array(castCount);
+    slotSectorArr = new Int8Array(castCount);
+    slotSectorArr.fill(-1);
+    slotDegreeArr = new Int32Array(castCount);
     for (let slot = 0; slot < castCount; slot += 1) {
       const entry = snapshot[slot];
       slotByIdx.set(entry.idx, slot);
@@ -171,6 +197,18 @@ export function createSurface(scene, opts = {}) {
       const entry = snapshot[i];
       const slot = slotByIdx.get(entry.idx);
       if (slot === undefined) continue;
+
+      // Latch the latest sector / degree before any fire scheduling
+      // so the release path reads current values.
+      const sec = entry.sector;
+      if (typeof sec === 'number' && sec >= 0) {
+        slotSectorArr[slot] = sec;
+      }
+      const deg = entry.degree_centrality;
+      if (typeof deg === 'number' && deg > 0) {
+        slotDegreeArr[slot] = deg;
+        if (deg > maxDegreeSeen) maxDegreeSeen = deg;
+      }
 
       const w = entry.wealth ?? 0;
       const prev = lastWealthArr[slot];
@@ -198,13 +236,50 @@ export function createSurface(scene, opts = {}) {
     return minPersistFrames + (maxPersistFrames - minPersistFrames) * f;
   }
 
+  // Resolve the per-face active colour at fire time: the dark
+  // activeColor blended with the agent's sector tint at the configured
+  // weight. A negative sector (no sector data yet) or empty palette
+  // falls through to the unmixed activeColor.
+  function activeColorForSector(sector, out, outBase) {
+    let tr = activeColor[0];
+    let tg = activeColor[1];
+    let tb = activeColor[2];
+    if (
+      sectorTintWeight > 0 &&
+      sector >= 0 &&
+      sector < sectorPalette.length
+    ) {
+      const tint = sectorPalette[sector];
+      const w = sectorTintWeight;
+      tr = activeColor[0] * (1 - w) + tint[0] * w;
+      tg = activeColor[1] * (1 - w) + tint[1] * w;
+      tb = activeColor[2] * (1 - w) + tint[2] * w;
+    }
+    out[outBase + 0] = tr;
+    out[outBase + 1] = tg;
+    out[outBase + 2] = tb;
+  }
+
+  // Scale persistFrames by the slot's degree_centrality, normalised
+  // against the running max. degree=0 (or maxDegreeSeen=0) leaves the
+  // base lifetime untouched; the top-degree agent gets the full boost.
+  function persistMultiplierForDegree(degree) {
+    if (degreePersistBoost <= 1.0 || maxDegreeSeen <= 0 || degree <= 0) {
+      return 1.0;
+    }
+    const t = degree / maxDegreeSeen;
+    return 1.0 + (degreePersistBoost - 1.0) * (t > 1 ? 1 : t);
+  }
+
   function tick() {
     frameCounter += 1;
 
     // 1) Release any scheduled activations whose stagger window has
     //    arrived. Sets startFrame + persistFrames on the target face,
     //    overwriting any prior live activation (re-fires reset the
-    //    triangle to full intensity).
+    //    triangle to full intensity). The per-face active colour is
+    //    baked from the agent's sector tint here, and the lifetime is
+    //    scaled by the agent's normalised degree_centrality.
     if (fireAtFrameArr !== null) {
       for (let slot = 0; slot < castCount; slot += 1) {
         const fr = fireAtFrameArr[slot];
@@ -213,13 +288,17 @@ export function createSurface(scene, opts = {}) {
 
         const f = slotToFaceArr[slot];
         startFrameArr[f] = frameCounter;
-        persistFramesArr[f] = persistenceForMagnitude(fireMagnitudeArr[slot]);
+        const base = persistenceForMagnitude(fireMagnitudeArr[slot]);
+        const mult = persistMultiplierForDegree(slotDegreeArr[slot]);
+        persistFramesArr[f] = base * mult;
+        activeColorForSector(slotSectorArr[slot], faceActiveColorArr, f * 3);
         fireAtFrameArr[slot] = -1;
       }
     }
 
-    // 2) Per-face decay. Each live face linearly fades from
-    //    activeColor at startFrame to baseColor at startFrame+persist.
+    // 2) Per-face decay. Each live face linearly fades from its
+    //    sector-tinted active colour at startFrame to baseColor at
+    //    startFrame+persist.
     let anyDirty = false;
     for (let f = 0; f < faceCount; f += 1) {
       const start = startFrameArr[f];
@@ -237,14 +316,15 @@ export function createSurface(scene, opts = {}) {
         activity = 1 - age / persist;
       }
 
-      const r = baseColor[0] + (activeColor[0] - baseColor[0]) * activity;
-      const g = baseColor[1] + (activeColor[1] - baseColor[1]) * activity;
-      const b = baseColor[2] + (activeColor[2] - baseColor[2]) * activity;
+      const ac = f * 3;
+      const r = baseColor[0] + (faceActiveColorArr[ac + 0] - baseColor[0]) * activity;
+      const g = baseColor[1] + (faceActiveColorArr[ac + 1] - baseColor[1]) * activity;
+      const b = baseColor[2] + (faceActiveColorArr[ac + 2] - baseColor[2]) * activity;
 
-      const base = f * 9;
-      colors[base + 0] = r; colors[base + 1] = g; colors[base + 2] = b;
-      colors[base + 3] = r; colors[base + 4] = g; colors[base + 5] = b;
-      colors[base + 6] = r; colors[base + 7] = g; colors[base + 8] = b;
+      const cbase = f * 9;
+      colors[cbase + 0] = r; colors[cbase + 1] = g; colors[cbase + 2] = b;
+      colors[cbase + 3] = r; colors[cbase + 4] = g; colors[cbase + 5] = b;
+      colors[cbase + 6] = r; colors[cbase + 7] = g; colors[cbase + 8] = b;
       anyDirty = true;
     }
     if (anyDirty) geometry.getAttribute('color').needsUpdate = true;
@@ -268,7 +348,13 @@ export function createSurface(scene, opts = {}) {
   }
 
   function diagnostics() {
-    return { faceCount, castCount, activeFaces: activeFaceCount(), frame: frameCounter };
+    return {
+      faceCount,
+      castCount,
+      activeFaces: activeFaceCount(),
+      frame: frameCounter,
+      maxDegreeSeen,
+    };
   }
 
   return { mesh, handleCastSnapshot, tick, setVisible, dispose, diagnostics };
