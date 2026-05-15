@@ -34,21 +34,31 @@ const ACTIVITY_BRIGHT_SCALE = 1.6;
 const ACTIVITY_SIZE_SCALE = 4.0;
 const FLASH_BRIGHT_GAIN = 0.9;
 const FLASH_SIZE_GAIN = 14.0;
-const BASE_SIZE_AGENT = 4.0;
+const BASE_SIZE_AGENT = 7.0;
 const BASE_SIZE_HUMAN = 18.0;
 const BASE_BRIGHTNESS = 0.30;
 
-// No constant orbital motion in Pass 7 — the sphere stays still so
-// the eye can pick up structure. Motion comes from wealth-delta
-// impulses (per-snapshot) and bond-spring forces (every frame from
-// agents.tick when bonds are attached via setBonds()). The whole
-// sphere never rotates as a unit.
-const WEALTH_IMPULSE_K = 18.0;       // velocity per |Δwealth| at impulse
-const WEALTH_IMPULSE_CAP = 22.0;     // clamp per-snapshot impulse
-const BOND_SPRING_K = 0.55;          // spring stiffness per unit bond strength
-const BOND_SPRING_REST = 16;         // rest length (~2.3° at r=400 — tight clusters)
-const MOTION_DAMPING = 0.86;         // per-frame velocity decay
-const MAX_SPEED = 22;                // clamp velocity magnitude per integration
+// Three motion sources stack in Pass 8:
+//   • Per-slot orbital drift — each slot gets a small random
+//     angular-velocity vector at first sight, magnitude varied per
+//     slot so motion never reads as global rotation. Each cell
+//     orbits at its own rate and direction.
+//   • Wealth-delta impulses on snapshot — trading cells get an extra
+//     tangential kick proportional to |Δwealth|.
+//   • Bond-spring force every frame — bonded pairs continuously pull
+//     each other so cabals contract into tight clusters.
+const WEALTH_IMPULSE_K = 14.0;
+const WEALTH_IMPULSE_CAP = 22.0;
+const BOND_SPRING_K = 0.55;
+const BOND_SPRING_REST = 16;
+const MOTION_DAMPING = 0.93;        // higher than Pass 7 so drift persists
+const MAX_SPEED = 26;
+// Orbital drift magnitudes (radians per frame at radius). Picked so
+// every cell wanders detectably without the field looking like a
+// rigid rotation. Per slot we draw a magnitude uniformly inside this
+// range, so faster cells stand out against slower ones.
+const ORBIT_MIN = 0.0008;
+const ORBIT_MAX = 0.0040;
 
 const NEVER_FLASHED = -1e9;
 
@@ -165,20 +175,19 @@ export function createAgents(scene, opts = {}) {
   const flashTimes = new Float32Array(maxAgents);
   flashTimes.fill(NEVER_FLASHED);
 
-  // Per-slot velocity (tangent to sphere by construction). Accumulated
-  // from wealth-delta impulses on snapshot + bond-spring forces every
-  // frame; damped + reprojected by tick().
+  // Per-slot velocity (tangent to sphere by construction).
   const velocities = new Float32Array(maxAgents * 3);
 
-  // Per-slot target sphere radius. Default = layoutRadius (the base
-  // shell). cabals.js writes higher radii for slots that belong to a
-  // cabal, so cabal members visibly rise above the base shell as a
-  // distinct altitude band — satellite-constellation style.
+  // Per-slot angular-momentum axis × magnitude. Drives the per-cell
+  // orbital drift baseline so motion never reads as global rotation.
+  const omega = new Float32Array(maxAgents * 3);
+
+  // Per-slot target sphere radius. cabals.js bumps cabal-member
+  // slots into elevated shells.
   const targetRadii = new Float32Array(maxAgents);
   targetRadii.fill(radius);
 
   // Optional bonds module reference for the per-frame spring loop.
-  // Wired by scene.js after both modules are constructed.
   let bondsRef = null;
 
   const geometry = new THREE.BufferGeometry();
@@ -254,6 +263,23 @@ export function createAgents(scene, opts = {}) {
       const human = !!entry.is_human;
       isHumanBuf[slot] = human ? 1.0 : 0.0;
       baseSizes[slot] = human ? BASE_SIZE_HUMAN : BASE_SIZE_AGENT;
+
+      // Per-slot omega: random unit axis, magnitude drawn from
+      // [ORBIT_MIN, ORBIT_MAX] uniformly. Each cell traces its own
+      // great-circle at its own rate, so the population never reads
+      // as a rigid rotating field.
+      let rx, ry, rz, l2;
+      do {
+        rx = Math.random() * 2 - 1;
+        ry = Math.random() * 2 - 1;
+        rz = Math.random() * 2 - 1;
+        l2 = rx * rx + ry * ry + rz * rz;
+      } while (l2 === 0 || l2 > 1);
+      const inv = 1 / Math.sqrt(l2);
+      const mag = ORBIT_MIN + Math.random() * (ORBIT_MAX - ORBIT_MIN);
+      omega[slot * 3 + 0] = rx * inv * mag;
+      omega[slot * 3 + 1] = ry * inv * mag;
+      omega[slot * 3 + 2] = rz * inv * mag;
     }
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.aBaseSize.needsUpdate = true;
@@ -329,10 +355,11 @@ export function createAgents(scene, opts = {}) {
 
   // Per-frame integration step.
   //
-  // 1. Apply bond springs into velocity (if bonds module is attached).
-  //    Strong-bonded pairs pull together so cabals visibly contract.
-  // 2. Damp velocities (a) and clamp peak speed so no slot teleports.
-  // 3. Integrate positions and reproject onto the layoutRadius sphere.
+  // 1. Bond springs accumulate force into velocity (if bonds attached).
+  // 2. Per-slot orbital drift adds omega × position as a baseline
+  //    tangential velocity. Each cell drifts at its own rate.
+  // 3. Damp + clamp velocity, integrate position, reproject onto
+  //    per-slot target shell (base or elevated cabal band).
   function tick() {
     currentFrame += 1;
     material.uniforms.uCurrentFrame.value = currentFrame;
@@ -349,7 +376,6 @@ export function createAgents(scene, opts = {}) {
         const dz = positions[b * 3 + 2] - az;
         const d2 = dx * dx + dy * dy + dz * dz + 1e-6;
         const d = Math.sqrt(d2);
-        // Hookean: f > 0 attracts when d > rest, repels closer.
         const f = BOND_SPRING_K * strength * (d - BOND_SPRING_REST) / d;
         const fx = dx * f;
         const fy = dy * f;
@@ -364,6 +390,21 @@ export function createAgents(scene, opts = {}) {
     }
 
     for (let i = 0; i < castCount; i += 1) {
+      const px = positions[i * 3 + 0];
+      const py = positions[i * 3 + 1];
+      const pz = positions[i * 3 + 2];
+
+      // Per-slot orbital drift: omega × position is tangent to the
+      // sphere at this slot's current point. Added to velocity, not
+      // assigned, so bond springs and wealth impulses still
+      // contribute.
+      const ox = omega[i * 3 + 0];
+      const oy = omega[i * 3 + 1];
+      const oz = omega[i * 3 + 2];
+      velocities[i * 3 + 0] += oy * pz - oz * py;
+      velocities[i * 3 + 1] += oz * px - ox * pz;
+      velocities[i * 3 + 2] += ox * py - oy * px;
+
       let vx = velocities[i * 3 + 0] * MOTION_DAMPING;
       let vy = velocities[i * 3 + 1] * MOTION_DAMPING;
       let vz = velocities[i * 3 + 2] * MOTION_DAMPING;

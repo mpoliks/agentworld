@@ -19,6 +19,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { createAgents } from './agents.js';
 import { createBonds } from './bonds.js';
 import { createCabals } from './cabals.js';
+import { createDust } from './dust.js';
 import { createTrails } from './trails.js';
 import { startStream } from './stream.js';
 
@@ -38,6 +39,7 @@ let agents = null;
 let bonds = null;
 let cabals = null;
 let trails = null;
+let dust = null;
 let summaryTimer = null;
 let stream = null;
 let frameCount = 0;
@@ -74,22 +76,23 @@ function initScene() {
   controls.dampingFactor = 0.05;
   controls.autoRotate = false;
 
-  // Solid occluder sphere. Sits at radius 380 — just inside the cell
-  // shell at radius 400 — so the back hemisphere of cells is hidden
-  // by the dark interior. Without this, the cast renders as a
-  // hollow point cloud and the eye can't tell front from back.
-  // depthWrite=true is what makes the z-occlusion work; everything
-  // else in the scene (cells, bonds, cabals, trails) is depthTest=true
-  // by default so the GPU rejects fragments behind this sphere.
-  const occluderGeo = new THREE.SphereGeometry(380, 96, 48);
+  // Solid occluder sphere. Sits at radius 392 — just inside the cell
+  // shell at radius 400 and dust shell at 395 — so back-hemisphere
+  // fragments z-cull cleanly. depthWrite=true is what makes the
+  // occlusion work; transparent=false ensures the depth buffer
+  // commits this geometry first.
+  const occluderGeo = new THREE.SphereGeometry(392, 128, 64);
   const occluderMat = new THREE.MeshBasicMaterial({
-    color: 0x05080f,
+    color: 0x070a14,
     depthWrite: true,
     transparent: false,
   });
   const occluder = new THREE.Mesh(occluderGeo, occluderMat);
   occluder.renderOrder = -10;
   scene.add(occluder);
+
+  // Dust before agents so the cast renders on top.
+  dust = createDust(scene, { count: 50000, radius: 395 });
 
   agents = createAgents(scene, { maxAgents: LEVERS.cast_size });
   trails = createTrails(scene, { agents });
