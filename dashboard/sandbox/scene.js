@@ -24,7 +24,24 @@ const LEVERS = {
 };
 
 const statusEl = document.getElementById('status');
+const loaderEl = document.getElementById('loader');
+const loaderFillEl = document.getElementById('loader-fill');
+const loaderLabelEl = document.getElementById('loader-label');
 const counters = { step: 0, cast: 0 };
+
+function setProgress(fraction, label) {
+  if (loaderFillEl) loaderFillEl.style.width = `${Math.min(100, Math.max(0, fraction * 100))}%`;
+  if (label && loaderLabelEl) loaderLabelEl.textContent = label;
+  if (fraction >= 1 && loaderEl) {
+    setTimeout(() => loaderEl.setAttribute('data-done', '1'), 250);
+  }
+}
+
+// Yield one animation frame so the browser repaints the loader fill
+// before the next synchronous chunk (icosphere build, adjacency, etc.).
+function nextFrame() {
+  return new Promise(resolve => requestAnimationFrame(() => resolve()));
+}
 
 let renderer, scene, camera, controls;
 let surface = null;
@@ -155,6 +172,7 @@ function onCastSnapshot(ev) {
   counters.cast += 1;
   surface?.handleCastSnapshot(ev.snapshot);
   agents?.handleCastSnapshot(ev.snapshot);
+  if (counters.cast === 1) setProgress(1.0, 'live');
 }
 
 function onTerminal(kind) {
@@ -168,8 +186,17 @@ function onConnectError() {
 }
 
 async function main() {
+  setProgress(0.05, 'scene init');
+  await nextFrame();
+  setProgress(0.18, 'icosphere build');
+  await nextFrame();
+  // Heavy: ~1-2 s for the 398k-face mesh + adjacency hash.
   initScene();
+  setProgress(0.62, 'topology ready');
+  await nextFrame();
   animate();
+  setProgress(0.78, 'stream connect');
+  await nextFrame();
   try {
     stream = await startStream(LEVERS, {
       onHello,
@@ -180,9 +207,11 @@ async function main() {
       onTerminal,
       onConnectError,
     });
+    setProgress(0.92, 'awaiting first frame');
   } catch (err) {
     setStatus(`error · ${err.message}`, 'error');
     console.error(err);
+    if (loaderEl) loaderEl.setAttribute('data-done', '1');
   }
 }
 

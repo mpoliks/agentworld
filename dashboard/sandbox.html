@@ -23,7 +23,7 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #04060c;
+    background: #f0eee6;
     color: var(--text);
     font-family: var(--mono);
   }
@@ -53,11 +53,47 @@
   #status[data-kind="error"]     { color: var(--red); }
   #status[data-kind="cancelled"] { color: var(--text-3); }
 
+  /* Init loader. Thin bar across the top whose fill matches the
+     caterpillar segment colour, on a faint grid-edge background.
+     Fades out once the first cast snapshot arrives. */
+  #loader {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    pointer-events: none;
+    transition: opacity 700ms ease-out;
+  }
+  #loader[data-done="1"] { opacity: 0; }
+  #loader-track {
+    height: 3px;
+    background: rgba(158, 152, 140, 0.30);
+  }
+  #loader-fill {
+    height: 100%;
+    width: 0%;
+    background: rgb(26, 20, 18);
+    transition: width 450ms ease-out;
+  }
+  #loader-label {
+    margin: 8px auto 0;
+    width: max-content;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.55);
+  }
+
 </style>
 </head>
 <body>
 
 <canvas id="scene"></canvas>
+<div id="loader" data-done="0">
+  <div id="loader-track"><div id="loader-fill"></div></div>
+  <div id="loader-label">init</div>
+</div>
 <div id="status" data-kind="">starting…</div>
 
 <script type="module" src="sandbox/scene.js"></script>
