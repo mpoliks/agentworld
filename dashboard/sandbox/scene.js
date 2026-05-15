@@ -79,10 +79,8 @@ function initScene() {
     fadeRate: theme.fadeRate,
     baseColor: theme.baseColor,
     activeColor: theme.activeColor,
-    useSectorPalette: theme.useSectorPalette,
-    wireframe: theme.wireframe,
-    wireframeColor: theme.wireframeColor,
-    wireframeOpacity: theme.wireframeOpacity,
+    edgeColor: theme.edgeColor,
+    edgeWidthPx: theme.edgeWidthPx,
     activationThreshold: theme.activationThreshold,
   });
 
