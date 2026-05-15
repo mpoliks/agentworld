@@ -51,6 +51,27 @@ const MAX_SPEED = 18;
 
 const NEVER_FLASHED = -1e9;
 
+// Map theme geometry strings to actual THREE buffer geometries. Each
+// resulting geometry is the unit-1 base; the InstancedMesh per-slot
+// matrix scales it.
+function buildCellGeometry(kind) {
+  switch (kind) {
+    case 'icosahedron':
+      return new THREE.IcosahedronGeometry(1, 1);
+    case 'octahedron':
+      return new THREE.OctahedronGeometry(1, 0);
+    case 'tetrahedron':
+      return new THREE.TetrahedronGeometry(1, 0);
+    case 'box':
+      return new THREE.BoxGeometry(1.4, 1.4, 1.4);
+    case 'sphere':
+      return new THREE.SphereGeometry(1, 12, 8);
+    case 'dodecahedron':
+    default:
+      return new THREE.DodecahedronGeometry(1, 0);
+  }
+}
+
 // Vertex shader: applies the per-instance matrix three.js attaches
 // to InstancedMesh, transforms the icosahedron's vertex normal into
 // view space for Lambert lighting, and passes flash/activity to the
@@ -147,11 +168,9 @@ export function createAgents(scene, opts = {}) {
 
   const palette = sectorPalette();
 
-  // Dodecahedron — 12 pentagonal faces (36 tris when triangulated).
-  // Reads as a crystalline polyhedron, not a sphere. Catches the
-  // directional light's specular hits on visible facets, so each
-  // cell shows clear angular structure as it rotates.
-  const geometry = new THREE.DodecahedronGeometry(1, 0);
+  // Cell geometry — themes can pick a different polyhedron via the
+  // `geometry` opt to vary the per-cell silhouette across the field.
+  const geometry = buildCellGeometry(opts.geometry ?? 'dodecahedron');
 
   // Per-instance attributes via InstancedBufferAttribute.
   const colorsBuf = new Float32Array(maxAgents * 3);

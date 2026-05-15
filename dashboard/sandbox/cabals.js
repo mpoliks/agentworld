@@ -69,8 +69,9 @@ const FRAGMENT_SHADER = /* glsl */ `
 `;
 
 // Stable hash-to-color: small palette of bright cabal tints so the
-// eye picks out distinct clusters at a glance.
-const CABAL_COLORS = [
+// eye picks out distinct clusters at a glance. Themes can override
+// via opts.palette.
+const DEFAULT_CABAL_COLORS = [
   [1.00, 0.74, 0.36],
   [0.42, 0.83, 0.99],
   [0.99, 0.50, 0.78],
@@ -81,16 +82,17 @@ const CABAL_COLORS = [
   [0.40, 1.00, 0.85],
 ];
 
-function colorForCabal(rootSlot) {
-  return CABAL_COLORS[rootSlot % CABAL_COLORS.length];
-}
-
 export function createCabals(scene, opts) {
   if (!opts || !opts.agents) throw new Error('createCabals requires opts.agents');
   if (!opts.bonds) throw new Error('createCabals requires opts.bonds');
   const { agents, bonds } = opts;
   const minBondStrength = opts.minBondStrength ?? MIN_BOND_STRENGTH;
   const minCabalSize = opts.minCabalSize ?? MIN_CABAL_SIZE;
+  const cabalColors =
+    Array.isArray(opts.palette) && opts.palette.length > 0
+      ? opts.palette
+      : DEFAULT_CABAL_COLORS;
+  const colorForCabal = (rootSlot) => cabalColors[rootSlot % cabalColors.length];
 
   const positions = agents.positions;
   const maxAgents = positions.length / 3;

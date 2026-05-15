@@ -21,7 +21,9 @@ import { createBonds } from './bonds.js';
 import { createCabals } from './cabals.js';
 import { createDust } from './dust.js';
 import { createTrails } from './trails.js';
+import { setActivePalette } from './palette.js';
 import { startStream } from './stream.js';
+import { getActiveTheme, THEMES } from './themes.js';
 
 const LEVERS = {
   scenario: 'spatial_sandbox',
@@ -46,6 +48,11 @@ let frameCount = 0;
 let lastFpsT = performance.now();
 let fps = 0;
 
+// Theme selected from the ?theme=N URL parameter. Pulled at module
+// init so every downstream module sees the same activated theme.
+const theme = getActiveTheme();
+setActivePalette(theme.palette);
+
 function initScene() {
   const canvas = document.getElementById('scene');
 
@@ -58,10 +65,10 @@ function initScene() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.85;
+  renderer.toneMappingExposure = theme.exposure ?? 0.85;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x04060c);
+  scene.background = new THREE.Color(theme.background ?? 0x04060c);
 
   camera = new THREE.PerspectiveCamera(
     50,
@@ -95,24 +102,36 @@ function initScene() {
   occluder.renderOrder = -10;
   scene.add(occluder);
 
-  // Scene lighting. A warm key-light off to the side gives the
-  // occluder + cells a lit hemisphere and a shadowed one — the same
-  // phase-shading look the LeoLabs reference has. A faint ambient
-  // floor keeps the unlit side readable.
-  const keyLight = new THREE.DirectionalLight(0xffeac8, 1.2);
-  keyLight.position.set(800, 1200, 800);
+  // Scene lighting — driven by the active theme. The key light is a
+  // theme-coloured directional sun; the ambient is a faint floor that
+  // keeps the shadowed hemisphere readable. Themes can flatten the
+  // scene (Ink) or push it to harsh contrast (Charcoal) by adjusting
+  // intensities.
+  const kl = theme.keyLight;
+  const keyLight = new THREE.DirectionalLight(kl.color, kl.intensity);
+  keyLight.position.set(kl.position[0], kl.position[1], kl.position[2]);
   scene.add(keyLight);
 
-  const ambientLight = new THREE.AmbientLight(0x3a4a70, 0.55);
+  const al = theme.ambient;
+  const ambientLight = new THREE.AmbientLight(al.color, al.intensity);
   scene.add(ambientLight);
 
   // Dust before agents so the cast renders on top.
-  dust = createDust(scene, { count: 50000, radius: 395 });
+  dust = createDust(scene, {
+    count: 50000,
+    radius: 395,
+    visible: theme.dust?.visible,
+    brightness: theme.dust?.brightness,
+    palette: theme.dust?.palette,
+  });
 
-  agents = createAgents(scene, { maxAgents: LEVERS.cast_size });
+  agents = createAgents(scene, {
+    maxAgents: LEVERS.cast_size,
+    geometry: theme.geometry,
+  });
   trails = createTrails(scene, { agents });
-  bonds = createBonds(scene, { agents });
-  cabals = createCabals(scene, { agents, bonds });
+  bonds = createBonds(scene, { agents, color: theme.bondColor });
+  cabals = createCabals(scene, { agents, bonds, palette: theme.cabalPalette });
 
   // Wire bond springs into the agents motion integrator.
   agents.setBonds(bonds);
@@ -126,10 +145,12 @@ function initScene() {
     Math.floor(window.innerWidth / 2),
     Math.floor(window.innerHeight / 2),
   );
-  // Selective bloom. Threshold 0.85 ensures only flashing/active
-  // cells push past — quiet-lit cells render crisp, then individual
-  // events spark with bloom on top.
-  bloomPass = new UnrealBloomPass(bloomSize, 0.7, 0.55, 0.85);
+  // Bloom driven by the active theme. Themes can dial bloom from off
+  // (Charcoal: strength 0) to dominant (Tron / Bioluminescent /
+  // Lava). Threshold sets which fragments push past into the bloom
+  // contribution.
+  const b = theme.bloom;
+  bloomPass = new UnrealBloomPass(bloomSize, b.strength, b.radius, b.threshold);
   composer.addPass(bloomPass);
 
   window.addEventListener('resize', onResize);

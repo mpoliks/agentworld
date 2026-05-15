@@ -33,13 +33,21 @@ function hslToRgb(h, s, l) {
   return [f(h + 1 / 3), f(h), f(h - 1 / 3)];
 }
 
-const PALETTE = SECTOR_NAMES.map((_, i) => {
+const DEFAULT_PALETTE = SECTOR_NAMES.map((_, i) => {
   const h = (i + 0.5) / SECTOR_NAMES.length;
   // Saturation 0.62 / lightness 0.58: vivid enough that additive blend
   // separates neighbours, dim enough that bloom can lift them.
   return hslToRgb(h, 0.62, 0.58);
 });
 
+let activePalette = DEFAULT_PALETTE;
+
+export function setActivePalette(palette) {
+  if (palette && Array.isArray(palette) && palette.length === SECTOR_NAMES.length) {
+    activePalette = palette;
+  }
+}
+
 export function sectorPalette() {
-  return PALETTE;
+  return activePalette;
 }

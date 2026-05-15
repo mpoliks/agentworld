@@ -48,9 +48,21 @@ const FRAGMENT_SHADER = /* glsl */ `
 `;
 
 export function createDust(scene, opts = {}) {
+  // Allow themes to disable the dust layer entirely (e.g. Charcoal),
+  // tint with their own palette, or change the brightness.
+  if (opts.visible === false) {
+    return {
+      points: null,
+      setVisible: () => {},
+      dispose: () => {},
+    };
+  }
   const count = opts.count ?? DUST_COUNT;
   const radius = opts.radius ?? DUST_RADIUS;
-  const palette = sectorPalette();
+  const brightness = opts.brightness ?? DUST_BRIGHTNESS;
+  const palette = Array.isArray(opts.palette) && opts.palette.length >= 4
+    ? opts.palette
+    : sectorPalette();
 
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
@@ -89,7 +101,7 @@ export function createDust(scene, opts = {}) {
     uniforms: {
       uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
       uSize: { value: DUST_BASE_SIZE },
-      uBrightness: { value: DUST_BRIGHTNESS },
+      uBrightness: { value: brightness },
     },
     transparent: true,
     depthWrite: false,
