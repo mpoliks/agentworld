@@ -38,27 +38,35 @@ const BASE_SIZE_AGENT = 7.0;
 const BASE_SIZE_HUMAN = 18.0;
 const BASE_BRIGHTNESS = 0.30;
 
-// Three motion sources stack in Pass 8:
-//   • Per-slot orbital drift — each slot gets a small random
-//     angular-velocity vector at first sight, magnitude varied per
-//     slot so motion never reads as global rotation. Each cell
-//     orbits at its own rate and direction.
-//   • Wealth-delta impulses on snapshot — trading cells get an extra
-//     tangential kick proportional to |Δwealth|.
-//   • Bond-spring force every frame — bonded pairs continuously pull
-//     each other so cabals contract into tight clusters.
+// Pass 9 motion model — short-distance random walks, not long
+// orbital traversals. Three sources stack:
+//
+//   • Home tether — each slot remembers its Fibonacci spawn position
+//     ("home") and gets a weak spring force back toward it every
+//     frame. Cells wander on a short leash; they never traverse the
+//     globe under their own steam. Bond springs can still pull
+//     bonded pairs together — the tether is weak enough to lose to
+//     a strong bond, but strong enough to dominate Brownian noise.
+//
+//   • Brownian tangential noise — small random tangent kick per slot
+//     per frame. Drives the per-cell "wiggle" that breaks the
+//     periodic feel without sending cells anywhere meaningful.
+//
+//   • Bond-spring force — bonded pairs continuously contract toward
+//     each other. Cabals form tight knots; far-apart bonds stretch
+//     the tether but eventually pull pairs together into clusters.
+//
+//   • Wealth-delta impulse on snapshot — trading cells get a one-off
+//     tangential kick scaled by |Δwealth| (capped). Cell wiggles
+//     locally then damps back toward home.
+const HOMING_K = 0.018;             // spring constant toward home (weak)
+const BROWNIAN_K = 0.22;             // per-frame random tangent magnitude
 const WEALTH_IMPULSE_K = 14.0;
 const WEALTH_IMPULSE_CAP = 22.0;
 const BOND_SPRING_K = 0.55;
 const BOND_SPRING_REST = 16;
-const MOTION_DAMPING = 0.93;        // higher than Pass 7 so drift persists
-const MAX_SPEED = 26;
-// Orbital drift magnitudes (radians per frame at radius). Picked so
-// every cell wanders detectably without the field looking like a
-// rigid rotation. Per slot we draw a magnitude uniformly inside this
-// range, so faster cells stand out against slower ones.
-const ORBIT_MIN = 0.0008;
-const ORBIT_MAX = 0.0040;
+const MOTION_DAMPING = 0.86;
+const MAX_SPEED = 18;
 
 const NEVER_FLASHED = -1e9;
 
@@ -178,9 +186,10 @@ export function createAgents(scene, opts = {}) {
   // Per-slot velocity (tangent to sphere by construction).
   const velocities = new Float32Array(maxAgents * 3);
 
-  // Per-slot angular-momentum axis × magnitude. Drives the per-cell
-  // orbital drift baseline so motion never reads as global rotation.
-  const omega = new Float32Array(maxAgents * 3);
+  // Per-slot home position — the Fibonacci slot the cell starts at.
+  // Tether force pulls each cell back toward home every frame so
+  // motion stays local instead of traversing the sphere.
+  const homes = new Float32Array(maxAgents * 3);
 
   // Per-slot target sphere radius. cabals.js bumps cabal-member
   // slots into elevated shells.
@@ -264,22 +273,10 @@ export function createAgents(scene, opts = {}) {
       isHumanBuf[slot] = human ? 1.0 : 0.0;
       baseSizes[slot] = human ? BASE_SIZE_HUMAN : BASE_SIZE_AGENT;
 
-      // Per-slot omega: random unit axis, magnitude drawn from
-      // [ORBIT_MIN, ORBIT_MAX] uniformly. Each cell traces its own
-      // great-circle at its own rate, so the population never reads
-      // as a rigid rotating field.
-      let rx, ry, rz, l2;
-      do {
-        rx = Math.random() * 2 - 1;
-        ry = Math.random() * 2 - 1;
-        rz = Math.random() * 2 - 1;
-        l2 = rx * rx + ry * ry + rz * rz;
-      } while (l2 === 0 || l2 > 1);
-      const inv = 1 / Math.sqrt(l2);
-      const mag = ORBIT_MIN + Math.random() * (ORBIT_MAX - ORBIT_MIN);
-      omega[slot * 3 + 0] = rx * inv * mag;
-      omega[slot * 3 + 1] = ry * inv * mag;
-      omega[slot * 3 + 2] = rz * inv * mag;
+      // Save home position so the tether force has a target.
+      homes[slot * 3 + 0] = tmp[0];
+      homes[slot * 3 + 1] = tmp[1];
+      homes[slot * 3 + 2] = tmp[2];
     }
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.aBaseSize.needsUpdate = true;
@@ -394,16 +391,30 @@ export function createAgents(scene, opts = {}) {
       const py = positions[i * 3 + 1];
       const pz = positions[i * 3 + 2];
 
-      // Per-slot orbital drift: omega × position is tangent to the
-      // sphere at this slot's current point. Added to velocity, not
-      // assigned, so bond springs and wealth impulses still
-      // contribute.
-      const ox = omega[i * 3 + 0];
-      const oy = omega[i * 3 + 1];
-      const oz = omega[i * 3 + 2];
-      velocities[i * 3 + 0] += oy * pz - oz * py;
-      velocities[i * 3 + 1] += oz * px - ox * pz;
-      velocities[i * 3 + 2] += ox * py - oy * px;
+      // Home tether — weak spring back to the Fibonacci home point.
+      // The radial component gets cancelled by reprojection at the
+      // end of the step; only the tangential component does work,
+      // pulling the cell back toward its starting direction.
+      velocities[i * 3 + 0] += (homes[i * 3 + 0] - px) * HOMING_K;
+      velocities[i * 3 + 1] += (homes[i * 3 + 1] - py) * HOMING_K;
+      velocities[i * 3 + 2] += (homes[i * 3 + 2] - pz) * HOMING_K;
+
+      // Brownian tangential noise — small random kick perpendicular
+      // to the current radius. Cross-product trick with a random
+      // 3-vector lands the kick on the tangent plane.
+      const rx = Math.random() - 0.5;
+      const ry = Math.random() - 0.5;
+      const rz = Math.random() - 0.5;
+      const tx = py * rz - pz * ry;
+      const ty = pz * rx - px * rz;
+      const tz = px * ry - py * rx;
+      const tlen2 = tx * tx + ty * ty + tz * tz;
+      if (tlen2 > 1e-6) {
+        const tinv = BROWNIAN_K / Math.sqrt(tlen2);
+        velocities[i * 3 + 0] += tx * tinv;
+        velocities[i * 3 + 1] += ty * tinv;
+        velocities[i * 3 + 2] += tz * tinv;
+      }
 
       let vx = velocities[i * 3 + 0] * MOTION_DAMPING;
       let vy = velocities[i * 3 + 1] * MOTION_DAMPING;

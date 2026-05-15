@@ -15,28 +15,54 @@ const MIN_BOND_STRENGTH = 0.30;   // bond strength to count toward cabal
 const MIN_CABAL_SIZE = 3;
 const MAX_CHORD_LINES = 16384;
 const MAX_HALO_POINTS = 8192;
-const HALO_SIZE = 80.0;           // halo pixel size — large enough to read
-                                  // as a distinct ring around the cabal cell
+const HALO_SIZE = 48.0;           // halo pixel size — small enough to keep
+                                  // cabals compact, large enough to ring
+                                  // the cabal cell clearly
 const NORMAL_COLOR = [1.0, 0.74, 0.36];   // amber by default
 
+// Chord shader. aT in {0, 1} marks which end of the segment the
+// vertex sits on; aPhase is a per-line phase offset. The fragment
+// shader runs a sinusoidal pulse along the segment so the X-shapes
+// have visible "data flow" rather than reading as inert line graphs.
 const VERTEX_SHADER = /* glsl */ `
   attribute vec3 aColor;
   attribute float aGlow;
+  attribute float aT;
+  attribute float aPhase;
+
   varying vec3 vColor;
   varying float vGlow;
+  varying float vT;
+  varying float vPhase;
+
   void main() {
     vColor = aColor;
     vGlow = aGlow;
+    vT = aT;
+    vPhase = aPhase;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 
 const FRAGMENT_SHADER = /* glsl */ `
   precision highp float;
+
+  uniform float uTime;
+
   varying vec3 vColor;
   varying float vGlow;
+  varying float vT;
+  varying float vPhase;
+
   void main() {
-    float alpha = clamp(vGlow, 0.0, 1.0);
+    // Travelling pulse along the segment. vT runs 0 → 1 between the
+    // segment's two endpoints; uTime ticks; vPhase is a per-line
+    // randomization. The sinusoid is offset by vT so the bright
+    // spot slides along the line rather than blinking uniformly.
+    float wave = sin(uTime * 1.8 + vPhase * 6.28318 + vT * 6.28318 * 1.4);
+    float pulse = 0.45 + 0.55 * (0.5 + 0.5 * wave);
+
+    float alpha = clamp(vGlow * pulse, 0.0, 1.0);
     if (alpha <= 0.0) discard;
     gl_FragColor = vec4(vColor * alpha, alpha);
   }
@@ -106,16 +132,38 @@ export function createCabals(scene, opts) {
   const linePositions = new Float32Array(MAX_CHORD_LINES * 2 * 3);
   const lineColors = new Float32Array(MAX_CHORD_LINES * 2 * 3);
   const lineGlows = new Float32Array(MAX_CHORD_LINES * 2);
+  // aT: 0 for the first vertex of the segment, 1 for the second.
+  // Used by the fragment shader to interpolate the pulse position
+  // along the segment.
+  const lineTs = new Float32Array(MAX_CHORD_LINES * 2);
+  for (let i = 0; i < MAX_CHORD_LINES; i += 1) {
+    lineTs[i * 2 + 0] = 0.0;
+    lineTs[i * 2 + 1] = 1.0;
+  }
+  // Per-line phase offset, replicated to both vertices. Stable for
+  // the lifetime of the geometry so individual chords pulse out of
+  // sync — gives the cabal lattice complex visual rhythm.
+  const linePhases = new Float32Array(MAX_CHORD_LINES * 2);
+  for (let i = 0; i < MAX_CHORD_LINES; i += 1) {
+    const ph = Math.random();
+    linePhases[i * 2 + 0] = ph;
+    linePhases[i * 2 + 1] = ph;
+  }
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
   geometry.setAttribute('aColor', new THREE.BufferAttribute(lineColors, 3));
   geometry.setAttribute('aGlow', new THREE.BufferAttribute(lineGlows, 1));
+  geometry.setAttribute('aT', new THREE.BufferAttribute(lineTs, 1));
+  geometry.setAttribute('aPhase', new THREE.BufferAttribute(linePhases, 1));
   geometry.setDrawRange(0, 0);
 
   const material = new THREE.ShaderMaterial({
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,
+    uniforms: {
+      uTime: { value: 0 },
+    },
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
@@ -225,14 +273,14 @@ export function createCabals(scene, opts) {
 
     // Push per-slot altitude back to agents. Non-members sit on the
     // base shell; cabal members rise into a higher band whose radius
-    // grows logarithmically with cabal size, so a 3-cabal looks like
-    // a small shoal and a 12-cabal like a clearly elevated cluster.
+    // grows logarithmically with cabal size. Lift is modest so the
+    // cabals read as compact local structures, not dramatic columns.
     if (typeof agents.resetTargetRadii === 'function') {
       agents.resetTargetRadii();
       const baseR = agents.layoutRadius;
       for (const slots of members.values()) {
         if (slots.length < minCabalSize) continue;
-        const lift = 40 + 18 * Math.log2(slots.length);
+        const lift = 22 + 7 * Math.log2(slots.length);
         const r = baseR + lift;
         for (let i = 0; i < slots.length; i += 1) {
           agents.setSlotRadius(slots[i], r);
@@ -242,6 +290,8 @@ export function createCabals(scene, opts) {
   }
 
   function tick() {
+    material.uniforms.uTime.value = performance.now() / 1000;
+
     let slot = 0;
     let haloSlot = 0;
     for (const [root, slots] of members) {
