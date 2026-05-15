@@ -38,10 +38,17 @@ const BASE_SIZE_AGENT = 4.0;
 const BASE_SIZE_HUMAN = 18.0;
 const BASE_BRIGHTNESS = 0.30;
 
-// Continuous-motion magnitudes (radians per frame at radius=400).
-// Humans drift slowly, agents fast.
-const ORBIT_HUMAN = 0.0030;
-const ORBIT_AGENT = 0.014;
+// No constant orbital motion in Pass 7 — the sphere stays still so
+// the eye can pick up structure. Motion comes from wealth-delta
+// impulses (per-snapshot) and bond-spring forces (every frame from
+// agents.tick when bonds are attached via setBonds()). The whole
+// sphere never rotates as a unit.
+const WEALTH_IMPULSE_K = 18.0;       // velocity per |Δwealth| at impulse
+const WEALTH_IMPULSE_CAP = 22.0;     // clamp per-snapshot impulse
+const BOND_SPRING_K = 0.55;          // spring stiffness per unit bond strength
+const BOND_SPRING_REST = 16;         // rest length (~2.3° at r=400 — tight clusters)
+const MOTION_DAMPING = 0.86;         // per-frame velocity decay
+const MAX_SPEED = 22;                // clamp velocity magnitude per integration
 
 const NEVER_FLASHED = -1e9;
 
@@ -158,10 +165,21 @@ export function createAgents(scene, opts = {}) {
   const flashTimes = new Float32Array(maxAgents);
   flashTimes.fill(NEVER_FLASHED);
 
-  // Angular-momentum axes (one per slot). Velocity per frame is
-  // omega × position, where omega is this axis times the per-slot
-  // orbit magnitude. force.js can write into this buffer to perturb.
-  const omega = new Float32Array(maxAgents * 3);
+  // Per-slot velocity (tangent to sphere by construction). Accumulated
+  // from wealth-delta impulses on snapshot + bond-spring forces every
+  // frame; damped + reprojected by tick().
+  const velocities = new Float32Array(maxAgents * 3);
+
+  // Per-slot target sphere radius. Default = layoutRadius (the base
+  // shell). cabals.js writes higher radii for slots that belong to a
+  // cabal, so cabal members visibly rise above the base shell as a
+  // distinct altitude band — satellite-constellation style.
+  const targetRadii = new Float32Array(maxAgents);
+  targetRadii.fill(radius);
+
+  // Optional bonds module reference for the per-frame spring loop.
+  // Wired by scene.js after both modules are constructed.
+  let bondsRef = null;
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -216,21 +234,6 @@ export function createAgents(scene, opts = {}) {
     out[2] = Math.sin(theta) * r * radius;
   }
 
-  // Random unit vector — used as the angular-momentum axis for each
-  // slot's orbital motion. Box-Muller style via two uniform draws to
-  // avoid the pole bias of naive rejection sampling.
-  function randomUnit(out) {
-    let x, y, z, l2;
-    do {
-      x = Math.random() * 2 - 1;
-      y = Math.random() * 2 - 1;
-      z = Math.random() * 2 - 1;
-      l2 = x * x + y * y + z * z;
-    } while (l2 === 0 || l2 > 1);
-    const l = Math.sqrt(l2);
-    out[0] = x / l; out[1] = y / l; out[2] = z / l;
-  }
-
   function initialLayout(snapshot) {
     const sorted = snapshot.slice().sort((a, b) => {
       if (a.sector !== b.sector) return a.sector - b.sector;
@@ -239,7 +242,6 @@ export function createAgents(scene, opts = {}) {
     castCount = Math.min(sorted.length, maxAgents);
 
     const tmp = [0, 0, 0];
-    const axis = [0, 0, 0];
     for (let slot = 0; slot < castCount; slot += 1) {
       const entry = sorted[slot];
       slotByIdx.set(entry.idx, slot);
@@ -252,15 +254,6 @@ export function createAgents(scene, opts = {}) {
       const human = !!entry.is_human;
       isHumanBuf[slot] = human ? 1.0 : 0.0;
       baseSizes[slot] = human ? BASE_SIZE_HUMAN : BASE_SIZE_AGENT;
-
-      // Pick an angular-momentum axis. The magnitude (orbit speed) is
-      // baked in: omega = axis × magnitude. Each slot orbits around
-      // its own great-circle.
-      randomUnit(axis);
-      const mag = human ? ORBIT_HUMAN : ORBIT_AGENT;
-      omega[slot * 3 + 0] = axis[0] * mag;
-      omega[slot * 3 + 1] = axis[1] * mag;
-      omega[slot * 3 + 2] = axis[2] * mag;
     }
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.aBaseSize.needsUpdate = true;
@@ -302,6 +295,31 @@ export function createAgents(scene, opts = {}) {
       if (rel > FLASH_REL_THRESHOLD || adelta > FLASH_ABS_FLOOR) {
         flashTimes[slot] = currentFrame;
       }
+
+      // Wealth-delta velocity impulse — a random tangential kick
+      // proportional to |Δwealth|. After damping settles a few frames
+      // later, the cell returns to (near) its rest position. Reads as
+      // a local twitch on trade, not a translation across the sphere.
+      if (adelta > 0) {
+        let mag = adelta * WEALTH_IMPULSE_K;
+        if (mag > WEALTH_IMPULSE_CAP) mag = WEALTH_IMPULSE_CAP;
+        const px = positions[slot * 3 + 0];
+        const py = positions[slot * 3 + 1];
+        const pz = positions[slot * 3 + 2];
+        const rx = Math.random() - 0.5;
+        const ry = Math.random() - 0.5;
+        const rz = Math.random() - 0.5;
+        const tx = py * rz - pz * ry;
+        const ty = pz * rx - px * rz;
+        const tz = px * ry - py * rx;
+        const tlen = Math.sqrt(tx * tx + ty * ty + tz * tz);
+        if (tlen > 1e-6) {
+          const s = mag / tlen;
+          velocities[slot * 3 + 0] += tx * s;
+          velocities[slot * 3 + 1] += ty * s;
+          velocities[slot * 3 + 2] += tz * s;
+        }
+      }
     }
 
     geometry.attributes.aColor.needsUpdate = true;
@@ -309,41 +327,88 @@ export function createAgents(scene, opts = {}) {
     geometry.attributes.aFlashTime.needsUpdate = true;
   }
 
-  // Per-frame integration step. Each slot's velocity is omega × position
-  // (always tangent to the sphere). Integrate, then reproject to the
-  // layoutRadius sphere to clean up float drift.
+  // Per-frame integration step.
+  //
+  // 1. Apply bond springs into velocity (if bonds module is attached).
+  //    Strong-bonded pairs pull together so cabals visibly contract.
+  // 2. Damp velocities (a) and clamp peak speed so no slot teleports.
+  // 3. Integrate positions and reproject onto the layoutRadius sphere.
   function tick() {
     currentFrame += 1;
     material.uniforms.uCurrentFrame.value = currentFrame;
 
     if (!initialized || castCount === 0) return;
 
+    if (bondsRef) {
+      for (const { a, b, strength } of bondsRef.iterBonds()) {
+        const ax = positions[a * 3 + 0];
+        const ay = positions[a * 3 + 1];
+        const az = positions[a * 3 + 2];
+        const dx = positions[b * 3 + 0] - ax;
+        const dy = positions[b * 3 + 1] - ay;
+        const dz = positions[b * 3 + 2] - az;
+        const d2 = dx * dx + dy * dy + dz * dz + 1e-6;
+        const d = Math.sqrt(d2);
+        // Hookean: f > 0 attracts when d > rest, repels closer.
+        const f = BOND_SPRING_K * strength * (d - BOND_SPRING_REST) / d;
+        const fx = dx * f;
+        const fy = dy * f;
+        const fz = dz * f;
+        velocities[a * 3 + 0] += fx;
+        velocities[a * 3 + 1] += fy;
+        velocities[a * 3 + 2] += fz;
+        velocities[b * 3 + 0] -= fx;
+        velocities[b * 3 + 1] -= fy;
+        velocities[b * 3 + 2] -= fz;
+      }
+    }
+
     for (let i = 0; i < castCount; i += 1) {
-      const px = positions[i * 3 + 0];
-      const py = positions[i * 3 + 1];
-      const pz = positions[i * 3 + 2];
-      const ox = omega[i * 3 + 0];
-      const oy = omega[i * 3 + 1];
-      const oz = omega[i * 3 + 2];
+      let vx = velocities[i * 3 + 0] * MOTION_DAMPING;
+      let vy = velocities[i * 3 + 1] * MOTION_DAMPING;
+      let vz = velocities[i * 3 + 2] * MOTION_DAMPING;
 
-      // velocity = omega × position (tangent to sphere by construction).
-      const vx = oy * pz - oz * py;
-      const vy = oz * px - ox * pz;
-      const vz = ox * py - oy * px;
+      const v2 = vx * vx + vy * vy + vz * vz;
+      if (v2 > MAX_SPEED * MAX_SPEED) {
+        const sc = MAX_SPEED / Math.sqrt(v2);
+        vx *= sc; vy *= sc; vz *= sc;
+      }
+      velocities[i * 3 + 0] = vx;
+      velocities[i * 3 + 1] = vy;
+      velocities[i * 3 + 2] = vz;
 
-      let nx = px + vx;
-      let ny = py + vy;
-      let nz = pz + vz;
+      const nx = positions[i * 3 + 0] + vx;
+      const ny = positions[i * 3 + 1] + vy;
+      const nz = positions[i * 3 + 2] + vz;
 
-      // Reproject to layoutRadius sphere.
       const r = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-      const s = radius / r;
+      const s = targetRadii[i] / r;
       positions[i * 3 + 0] = nx * s;
       positions[i * 3 + 1] = ny * s;
       positions[i * 3 + 2] = nz * s;
     }
 
     geometry.attributes.position.needsUpdate = true;
+  }
+
+  function setBonds(bonds) {
+    bondsRef = bonds;
+  }
+
+  // Reset every slot's target radius to the base shell. cabals.js
+  // calls this once per snapshot, then sets cabal-member slots to
+  // their elevated radii.
+  function resetTargetRadii() {
+    targetRadii.fill(radius);
+  }
+
+  // Set one slot's target radius. The next agents.tick reproject step
+  // honours this; the spring + impulse motion then traces tangent on
+  // the new shell. Smooth transitions aren't needed for V1 — joining
+  // a cabal is a discrete-enough event that the pop reads as meaningful.
+  function setSlotRadius(slot, r) {
+    if (slot < 0 || slot >= maxAgents) return;
+    targetRadii[slot] = r;
   }
 
   function getPosition(idx, out) {
@@ -389,6 +454,9 @@ export function createAgents(scene, opts = {}) {
     points,
     handleCastSnapshot,
     tick,
+    setBonds,
+    resetTargetRadii,
+    setSlotRadius,
     getPosition,
     setVisible,
     dispose,

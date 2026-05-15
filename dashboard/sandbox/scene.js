@@ -72,13 +72,32 @@ function initScene() {
   controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
-  controls.autoRotate = true;
-  controls.autoRotateSpeed = 0.25;
+  controls.autoRotate = false;
+
+  // Solid occluder sphere. Sits at radius 380 — just inside the cell
+  // shell at radius 400 — so the back hemisphere of cells is hidden
+  // by the dark interior. Without this, the cast renders as a
+  // hollow point cloud and the eye can't tell front from back.
+  // depthWrite=true is what makes the z-occlusion work; everything
+  // else in the scene (cells, bonds, cabals, trails) is depthTest=true
+  // by default so the GPU rejects fragments behind this sphere.
+  const occluderGeo = new THREE.SphereGeometry(380, 96, 48);
+  const occluderMat = new THREE.MeshBasicMaterial({
+    color: 0x05080f,
+    depthWrite: true,
+    transparent: false,
+  });
+  const occluder = new THREE.Mesh(occluderGeo, occluderMat);
+  occluder.renderOrder = -10;
+  scene.add(occluder);
 
   agents = createAgents(scene, { maxAgents: LEVERS.cast_size });
   trails = createTrails(scene, { agents });
   bonds = createBonds(scene, { agents });
   cabals = createCabals(scene, { agents, bonds });
+
+  // Wire bond springs into the agents motion integrator.
+  agents.setBonds(bonds);
 
   composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));

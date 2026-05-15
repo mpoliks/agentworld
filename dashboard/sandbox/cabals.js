@@ -14,6 +14,9 @@ import * as THREE from 'three';
 const MIN_BOND_STRENGTH = 0.30;   // bond strength to count toward cabal
 const MIN_CABAL_SIZE = 3;
 const MAX_CHORD_LINES = 16384;
+const MAX_HALO_POINTS = 8192;
+const HALO_SIZE = 80.0;           // halo pixel size — large enough to read
+                                  // as a distinct ring around the cabal cell
 const NORMAL_COLOR = [1.0, 0.74, 0.36];   // amber by default
 
 const VERTEX_SHADER = /* glsl */ `
@@ -122,6 +125,62 @@ export function createCabals(scene, opts) {
   lineSegments.frustumCulled = false;
   scene.add(lineSegments);
 
+  // Per-cabal-member halo layer. Each cabal member gets a large soft
+  // disc behind it so cabal membership reads at a glance even when
+  // chord lines tangle. Rendered as additive points so they pile up
+  // into a glow at dense cabal centroids.
+  const haloPositions = new Float32Array(MAX_HALO_POINTS * 3);
+  const haloColors = new Float32Array(MAX_HALO_POINTS * 3);
+
+  const haloGeometry = new THREE.BufferGeometry();
+  haloGeometry.setAttribute('position', new THREE.BufferAttribute(haloPositions, 3));
+  haloGeometry.setAttribute('aColor', new THREE.BufferAttribute(haloColors, 3));
+  haloGeometry.setDrawRange(0, 0);
+
+  const haloMaterial = new THREE.ShaderMaterial({
+    vertexShader: /* glsl */ `
+      attribute vec3 aColor;
+      uniform float uPixelRatio;
+      uniform float uSize;
+      varying vec3 vColor;
+      void main() {
+        vColor = aColor;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = uSize * uPixelRatio * (300.0 / -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      precision highp float;
+      varying vec3 vColor;
+      void main() {
+        vec2 uv = gl_PointCoord - 0.5;
+        float d = length(uv);
+        if (d > 0.5) discard;
+        // Soft annulus around the cell: peaks at d=0.32, fading both
+        // toward the cell (d→0.18) and outward (d→0.50). Bright
+        // enough to read clearly against the cell beneath it; thick
+        // enough that the eye reads it as "this cell belongs to a
+        // colored group" rather than "this cell is yellow."
+        float ring = exp(-pow((d - 0.32) / 0.14, 2.0));
+        float alpha = ring * 1.10;
+        if (alpha < 0.005) discard;
+        gl_FragColor = vec4(vColor * alpha * 1.6, alpha);
+      }
+    `,
+    uniforms: {
+      uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+      uSize: { value: HALO_SIZE },
+    },
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const haloPoints = new THREE.Points(haloGeometry, haloMaterial);
+  haloPoints.frustumCulled = false;
+  scene.add(haloPoints);
+
   // Members per cabal root. Rebuilt on snapshot (via handleCastSnapshot)
   // and reused every frame, since bond topology only changes on
   // snapshots; only the positions inside members move per frame.
@@ -163,16 +222,51 @@ export function createCabals(scene, opts) {
     // bonds is updated by scene.js before this is called. Re-derive
     // cabals once per snapshot, not per frame.
     rebuildCabals();
+
+    // Push per-slot altitude back to agents. Non-members sit on the
+    // base shell; cabal members rise into a higher band whose radius
+    // grows logarithmically with cabal size, so a 3-cabal looks like
+    // a small shoal and a 12-cabal like a clearly elevated cluster.
+    if (typeof agents.resetTargetRadii === 'function') {
+      agents.resetTargetRadii();
+      const baseR = agents.layoutRadius;
+      for (const slots of members.values()) {
+        if (slots.length < minCabalSize) continue;
+        const lift = 40 + 18 * Math.log2(slots.length);
+        const r = baseR + lift;
+        for (let i = 0; i < slots.length; i += 1) {
+          agents.setSlotRadius(slots[i], r);
+        }
+      }
+    }
   }
 
   function tick() {
     let slot = 0;
+    let haloSlot = 0;
     for (const [root, slots] of members) {
       if (slots.length < minCabalSize) continue;
       const col = colorForCabal(root);
-      // Render chord graph: every pair within the cabal becomes one
-      // line. N=3→3 lines, N=4→6, N=8→28. Strong cabals look like
-      // dense lattices.
+
+      // 1. Per-member halo: every cabal member gets a wide additive
+      //    disc in the cabal's color, drawn behind the cell. Cabal
+      //    membership reads at a glance even when chord lines
+      //    overlap with bonds.
+      for (let i = 0; i < slots.length && haloSlot < MAX_HALO_POINTS; i += 1) {
+        const m = slots[i];
+        haloPositions[haloSlot * 3 + 0] = positions[m * 3 + 0];
+        haloPositions[haloSlot * 3 + 1] = positions[m * 3 + 1];
+        haloPositions[haloSlot * 3 + 2] = positions[m * 3 + 2];
+        haloColors[haloSlot * 3 + 0] = col[0];
+        haloColors[haloSlot * 3 + 1] = col[1];
+        haloColors[haloSlot * 3 + 2] = col[2];
+        haloSlot += 1;
+      }
+
+      // 2. Chord graph between every pair of members. N=3→3 lines,
+      //    N=4→6, N=8→28. Bright per-cabal hue. Big cabals dim
+      //    slightly so a 12-clique doesn't blow out brighter than
+      //    a 3-clique.
       for (let i = 0; i < slots.length && slot < MAX_CHORD_LINES; i += 1) {
         for (let j = i + 1; j < slots.length && slot < MAX_CHORD_LINES; j += 1) {
           const a = slots[i];
@@ -193,11 +287,7 @@ export function createCabals(scene, opts) {
           lineColors[cBase + 4] = col[1];
           lineColors[cBase + 5] = col[2];
 
-          // Bigger cabals dim slightly so a 12-clique doesn't blow
-          // out brighter than a 3-clique — keep the structure
-          // legible across sizes. Floor at 0.55 so even big cabals
-          // read clearly against the dimmed bond layer.
-          const g = Math.max(0.55, 0.95 / Math.max(1, Math.log2(slots.length)));
+          const g = Math.max(0.85, 1.4 / Math.max(1, Math.log2(slots.length)));
           lineGlows[slot * 2 + 0] = g;
           lineGlows[slot * 2 + 1] = g;
 
@@ -209,6 +299,10 @@ export function createCabals(scene, opts) {
     geometry.attributes.aColor.needsUpdate = true;
     geometry.attributes.aGlow.needsUpdate = true;
     geometry.setDrawRange(0, slot * 2);
+
+    haloGeometry.attributes.position.needsUpdate = true;
+    haloGeometry.attributes.aColor.needsUpdate = true;
+    haloGeometry.setDrawRange(0, haloSlot);
   }
 
   function setVisible(visible) {
@@ -217,8 +311,11 @@ export function createCabals(scene, opts) {
 
   function dispose() {
     scene.remove(lineSegments);
+    scene.remove(haloPoints);
     geometry.dispose();
     material.dispose();
+    haloGeometry.dispose();
+    haloMaterial.dispose();
     members.clear();
   }
 
