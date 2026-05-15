@@ -24,11 +24,24 @@ const FLASH_REL_THRESHOLD = 0.02;
 const FLASH_ABS_FLOOR = 0.05;
 const ACTIVITY_FADE = 0.86;
 
-const BASE_SCALE_AGENT = 1.8;       // world units (radius of agent sphere)
-const BASE_SCALE_HUMAN = 4.5;       // world units (radius of human sphere)
+const BASE_SCALE_AGENT = 1.8;
+const BASE_SCALE_HUMAN = 4.5;
+// Cell size is wealth-driven. `scale = base * (SCALE_FLOOR +
+// log1p(wealth) * SCALE_GROWTH)` so a poor cell stays ~0.7× base and
+// a wealthy cell (wealth ~100) reaches ~2.5× base. Cells visibly
+// inflate and deflate as wealth flows through them.
+const SCALE_FLOOR = 0.7;
+const SCALE_GROWTH = 0.3;
+
+// Motion magnitudes get multiplied by per-cell autonomy. High-
+// autonomy cells wander and rotate visibly; low-autonomy ones barely
+// move. The two scalars are the base coefficients; per-cell scaling
+// happens inside tick().
+const BROWNIAN_BASE = 0.32;
+const ROT_SPEED_MIN = 0.002;        // rad/frame at autonomy = 0
+const ROT_SPEED_MAX = 0.018;        // rad/frame at autonomy = 1
 
 const HOMING_K = 0.018;
-const BROWNIAN_K = 0.22;
 const WEALTH_IMPULSE_K = 14.0;
 const WEALTH_IMPULSE_CAP = 22.0;
 const BOND_SPRING_K = 0.55;
@@ -134,10 +147,11 @@ export function createAgents(scene, opts = {}) {
 
   const palette = sectorPalette();
 
-  // Low-poly icosahedron — 80 triangles, smooth enough at our typical
-  // pixel size after the InstancedMesh scale. 5,000 * 80 = 400k tris,
-  // single draw call.
-  const geometry = new THREE.IcosahedronGeometry(1, 2);
+  // Dodecahedron — 12 pentagonal faces (36 tris when triangulated).
+  // Reads as a crystalline polyhedron, not a sphere. Catches the
+  // directional light's specular hits on visible facets, so each
+  // cell shows clear angular structure as it rotates.
+  const geometry = new THREE.DodecahedronGeometry(1, 0);
 
   // Per-instance attributes via InstancedBufferAttribute.
   const colorsBuf = new Float32Array(maxAgents * 3);
@@ -186,6 +200,19 @@ export function createAgents(scene, opts = {}) {
   const velocities = new Float32Array(maxAgents * 3);
   const homes = new Float32Array(maxAgents * 3);
   const scales = new Float32Array(maxAgents);
+  const baseSizes = new Float32Array(maxAgents);
+  // Per-slot wealth and autonomy snapshot from the engine. wealth
+  // drives the cell scale (size grows with wealth); autonomy drives
+  // motion magnitude + rotation speed (more autonomous = more
+  // movement and faster spin).
+  const wealths = new Float32Array(maxAgents);
+  const autonomies = new Float32Array(maxAgents);
+  // Per-cell rotation axis (unit vector) and accumulated angle for
+  // setMatrixAt. Each cell has its own random axis so the facet
+  // structure reads differently across the field.
+  const rotAxes = new Float32Array(maxAgents * 3);
+  const rotAngles = new Float32Array(maxAgents);
+  const rotSpeeds = new Float32Array(maxAgents);
   const targetRadii = new Float32Array(maxAgents);
   targetRadii.fill(radius);
 
@@ -202,6 +229,7 @@ export function createAgents(scene, opts = {}) {
   // setMatrixAt loop. Allocating these once and reusing avoids GC
   // pressure at 60fps × 5,000 instances.
   const dummy = new THREE.Object3D();
+  const _rotAxis = new THREE.Vector3();
 
   function fibonacci(slot, total, out) {
     if (total <= 1) {
@@ -241,19 +269,54 @@ export function createAgents(scene, opts = {}) {
 
       const human = !!entry.is_human;
       isHumanBuf[slot] = human ? 1.0 : 0.0;
-      scales[slot] = human ? BASE_SCALE_HUMAN : BASE_SCALE_AGENT;
+      baseSizes[slot] = human ? BASE_SCALE_HUMAN : BASE_SCALE_AGENT;
+
+      // Initial wealth + autonomy from the first snapshot. The per-
+      // snapshot handler keeps these up to date as the engine
+      // streams ticks; scale + rotation read from them every frame.
+      wealths[slot] = entry.wealth ?? 1.0;
+      autonomies[slot] = Math.max(0, Math.min(1, entry.autonomy ?? 0.5));
+
+      // Initial scale from wealth — gradient anchored before motion
+      // begins so cells boot at the right size.
+      scales[slot] = baseSizes[slot] *
+        (SCALE_FLOOR + Math.log1p(Math.max(0, wealths[slot])) * SCALE_GROWTH);
+
+      // Random unit axis for per-cell rotation.
+      let rx, ry, rz, l2;
+      do {
+        rx = Math.random() * 2 - 1;
+        ry = Math.random() * 2 - 1;
+        rz = Math.random() * 2 - 1;
+        l2 = rx * rx + ry * ry + rz * rz;
+      } while (l2 === 0 || l2 > 1);
+      const inv = 1 / Math.sqrt(l2);
+      rotAxes[slot * 3 + 0] = rx * inv;
+      rotAxes[slot * 3 + 1] = ry * inv;
+      rotAxes[slot * 3 + 2] = rz * inv;
+      // Rotation speed maps from autonomy. Cells with autonomy 1
+      // spin fast; cells with autonomy 0 barely turn.
+      rotSpeeds[slot] =
+        ROT_SPEED_MIN + (ROT_SPEED_MAX - ROT_SPEED_MIN) * autonomies[slot];
+      // Random initial phase so the field isn't synchronised.
+      rotAngles[slot] = Math.random() * Math.PI * 2;
     }
 
-    // Upload initial instance matrices to the GPU so the cells appear
-    // before the first rAF tick runs (Chrome aggressively background-
-    // throttles new tabs; without this, the canvas reads as empty
-    // until the user focuses the window).
+    // Upload initial instance matrices to the GPU so cells appear
+    // before the first rAF tick (Chrome background-throttles new
+    // tabs; without this, the canvas reads as empty until focus).
     for (let i = 0; i < castCount; i += 1) {
+      _rotAxis.set(
+        rotAxes[i * 3 + 0],
+        rotAxes[i * 3 + 1],
+        rotAxes[i * 3 + 2],
+      );
       dummy.position.set(
         positions[i * 3 + 0],
         positions[i * 3 + 1],
         positions[i * 3 + 2],
       );
+      dummy.quaternion.setFromAxisAngle(_rotAxis, rotAngles[i]);
       dummy.scale.setScalar(scales[i]);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
@@ -284,7 +347,18 @@ export function createAgents(scene, opts = {}) {
       colorsBuf[slot * 3 + 1] = rgb[1];
       colorsBuf[slot * 3 + 2] = rgb[2];
 
+      // Refresh wealth and autonomy from the snapshot. Scale is
+      // recomputed each tick from current wealth so cells visibly
+      // inflate/deflate as wealth flows. Autonomy updates the
+      // rotation speed and Brownian magnitude (read in tick()).
       const w = entry.wealth ?? 0;
+      wealths[slot] = w;
+      autonomies[slot] = Math.max(0, Math.min(1, entry.autonomy ?? autonomies[slot]));
+      scales[slot] = baseSizes[slot] *
+        (SCALE_FLOOR + Math.log1p(Math.max(0, w)) * SCALE_GROWTH);
+      rotSpeeds[slot] =
+        ROT_SPEED_MIN + (ROT_SPEED_MAX - ROT_SPEED_MIN) * autonomies[slot];
+
       const prev = lastWealth[slot];
       lastWealth[slot] = w;
       if (Number.isNaN(prev)) continue;
@@ -366,7 +440,10 @@ export function createAgents(scene, opts = {}) {
       velocities[i * 3 + 1] += (homes[i * 3 + 1] - py) * HOMING_K;
       velocities[i * 3 + 2] += (homes[i * 3 + 2] - pz) * HOMING_K;
 
-      // Brownian tangential noise.
+      // Autonomy-scaled tangential noise. Magnitude proportional to
+      // the cell's current autonomy — high-autonomy agents wander
+      // visibly, low-autonomy ones stay near home. Direction stays
+      // random per-frame so motion reads as walk, not drift.
       const rx = Math.random() - 0.5;
       const ry = Math.random() - 0.5;
       const rz = Math.random() - 0.5;
@@ -375,7 +452,8 @@ export function createAgents(scene, opts = {}) {
       const tz = px * ry - py * rx;
       const tlen2 = tx * tx + ty * ty + tz * tz;
       if (tlen2 > 1e-6) {
-        const tinv = BROWNIAN_K / Math.sqrt(tlen2);
+        const mag = BROWNIAN_BASE * autonomies[i];
+        const tinv = mag / Math.sqrt(tlen2);
         velocities[i * 3 + 0] += tx * tinv;
         velocities[i * 3 + 1] += ty * tinv;
         velocities[i * 3 + 2] += tz * tinv;
@@ -405,14 +483,23 @@ export function createAgents(scene, opts = {}) {
       positions[i * 3 + 2] = nz * s;
     }
 
-    // Re-pack the instance matrices. Position from the per-frame
-    // integrator, uniform scale per slot.
+    // Re-pack instance matrices: position + rotation + uniform scale.
+    // Rotation accumulates per slot at the slot's own speed so cells
+    // catch the directional light's specular hits at different
+    // angles, reading as crystalline objects rather than spheres.
     for (let i = 0; i < castCount; i += 1) {
+      rotAngles[i] += rotSpeeds[i];
+      _rotAxis.set(
+        rotAxes[i * 3 + 0],
+        rotAxes[i * 3 + 1],
+        rotAxes[i * 3 + 2],
+      );
       dummy.position.set(
         positions[i * 3 + 0],
         positions[i * 3 + 1],
         positions[i * 3 + 2],
       );
+      dummy.quaternion.setFromAxisAngle(_rotAxis, rotAngles[i]);
       dummy.scale.setScalar(scales[i]);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
