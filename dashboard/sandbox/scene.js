@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { createSurface } from './surface.js';
+import { createAgents } from './agents.js';
 import { startStream } from './stream.js';
 import { THEME } from './themes.js';
 
@@ -27,6 +28,7 @@ const counters = { step: 0, cast: 0 };
 
 let renderer, scene, camera, controls;
 let surface = null;
+let agents = null;
 let summaryTimer = null;
 let stream = null;
 let frameCount = 0;
@@ -87,6 +89,18 @@ function initScene() {
     degreePersistBoost: theme.degreePersistBoost,
   });
 
+  agents = createAgents(scene, surface, {
+    sphereRadius: theme.radius ?? 700,
+    stackLift: theme.stackLift,
+    maxStepsPerSec: theme.maxStepsPerSec,
+    minStepsPerSec: theme.minStepsPerSec,
+    partnerAttract: theme.partnerAttract,
+    firmAttract: theme.firmAttract,
+    segmentScale: theme.segmentScale,
+    humanLengthFactor: theme.humanLengthFactor,
+    segmentColor: theme.segmentColor,
+  });
+
   window.addEventListener('resize', onResize);
 }
 
@@ -100,6 +114,7 @@ function animate() {
   requestAnimationFrame(animate);
   controls.update();
   surface?.tick();
+  agents?.tick();
   renderer.render(scene, camera);
 
   frameCount += 1;
@@ -117,10 +132,12 @@ function setStatus(text, kind = '') {
 }
 
 function logSummary() {
-  const diag = surface?.diagnostics?.() ?? {};
+  const sd = surface?.diagnostics?.() ?? {};
+  const ad = agents?.diagnostics?.() ?? {};
   console.log(
     `[stream] tick=${counters.step}  cast=${counters.cast}  fps=${fps.toFixed(1)}  ` +
-    `faces=${diag.faceCount}  active=${diag.activeFaces}`,
+    `faces=${sd.faceCount}  active=${sd.activeFaces}  ` +
+    `agents=${ad.castCount}  segments=${ad.segments}  firms=${ad.firmCount}`,
   );
 }
 
@@ -137,6 +154,7 @@ function onStep(step) {
 function onCastSnapshot(ev) {
   counters.cast += 1;
   surface?.handleCastSnapshot(ev.snapshot);
+  agents?.handleCastSnapshot(ev.snapshot);
 }
 
 function onTerminal(kind) {
@@ -178,6 +196,7 @@ window.addEventListener('beforeunload', () => {
 window.__sandbox = {
   fps: () => fps,
   surface: () => surface?.diagnostics?.(),
+  agents: () => agents?.diagnostics?.(),
   counters: () => ({ ...counters }),
   theme: () => theme,
 };

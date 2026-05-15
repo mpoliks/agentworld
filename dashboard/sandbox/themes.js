@@ -50,4 +50,17 @@ export const THEME = {
   // 1.0 disables the axis; 1.6 means the top-degree agent's
   // activations last 60% longer than the baseline.
   degreePersistBoost: 1.6,
+  // Caterpillar agents (Pass 17c). The icosphere is both substrate
+  // and topology: each agent occupies one face and steps to an
+  // edge-adjacent face. Each body segment renders as the actual
+  // grid-face shape, scaled toward its centroid by segmentScale so
+  // gridlines remain visible around it.
+  stackLift: 28,
+  maxStepsPerSec: 24,        // step rate at capability = 1.0
+  minStepsPerSec: 8,         // step rate at capability = 0
+  partnerAttract: 1.0,       // weight on the recent-partners centroid pull
+  firmAttract: 3.0,          // weight on the firm-centroid pull
+  segmentScale: 0.75,        // shrink each segment toward its face centroid
+  humanLengthFactor: 1.6,    // humans get longer bodies (same triangle size)
+  segmentColor: [0.10, 0.08, 0.07],
 };

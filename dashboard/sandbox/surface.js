@@ -142,6 +142,77 @@ export function createSurface(scene, opts = {}) {
   mesh.frustumCulled = false;
   scene.add(mesh);
 
+  // Face centroids and 3-neighbour adjacency, precomputed once.
+  // The agent module reads these to walk the icosphere as a graph
+  // (each face has exactly 3 edge-sharing neighbours on a closed
+  // triangulation). Build cost is O(F) with integer-key dedup of the
+  // shared vertex positions.
+  const positions = positionAttr.array;
+  const faceCentroids = new Float32Array(faceCount * 3);
+  for (let f = 0; f < faceCount; f += 1) {
+    const v0 = f * 9;
+    faceCentroids[f * 3 + 0] = (positions[v0 + 0] + positions[v0 + 3] + positions[v0 + 6]) / 3;
+    faceCentroids[f * 3 + 1] = (positions[v0 + 1] + positions[v0 + 4] + positions[v0 + 7]) / 3;
+    faceCentroids[f * 3 + 2] = (positions[v0 + 2] + positions[v0 + 5] + positions[v0 + 8]) / 3;
+  }
+
+  // Vertex dedup: positions are reproducible to within 0.1 unit on an
+  // icosphere of this resolution, so rounding to 0.1 is safe.
+  // Packed key encoding stays under 2^53 for radius ≤ 700.
+  function pkey(x, y, z) {
+    const xi = Math.round(x * 10) + 7000;
+    const yi = Math.round(y * 10) + 7000;
+    const zi = Math.round(z * 10) + 7000;
+    return (xi * 16384 + yi) * 16384 + zi;
+  }
+  const vertMap = new Map();
+  let nextVid = 0;
+  const vertIds = new Int32Array(vertexCount);
+  for (let v = 0; v < vertexCount; v += 1) {
+    const k = pkey(positions[v * 3 + 0], positions[v * 3 + 1], positions[v * 3 + 2]);
+    let id = vertMap.get(k);
+    if (id === undefined) {
+      id = nextVid;
+      nextVid += 1;
+      vertMap.set(k, id);
+    }
+    vertIds[v] = id;
+  }
+
+  // Edge → [face_a, face_b]. Pack (lo, hi) vertex IDs into a number.
+  function ekey(a, b) {
+    return a < b ? a * 1000000 + b : b * 1000000 + a;
+  }
+  const edgeMap = new Map();
+  for (let f = 0; f < faceCount; f += 1) {
+    const v0 = vertIds[f * 3 + 0];
+    const v1 = vertIds[f * 3 + 1];
+    const v2 = vertIds[f * 3 + 2];
+    const e0 = ekey(v0, v1), e1 = ekey(v1, v2), e2 = ekey(v2, v0);
+    let r = edgeMap.get(e0); if (!r) { r = [-1, -1]; edgeMap.set(e0, r); }
+    if (r[0] === -1) r[0] = f; else if (r[1] === -1) r[1] = f;
+    r = edgeMap.get(e1); if (!r) { r = [-1, -1]; edgeMap.set(e1, r); }
+    if (r[0] === -1) r[0] = f; else if (r[1] === -1) r[1] = f;
+    r = edgeMap.get(e2); if (!r) { r = [-1, -1]; edgeMap.set(e2, r); }
+    if (r[0] === -1) r[0] = f; else if (r[1] === -1) r[1] = f;
+  }
+  const faceAdjacency = new Int32Array(faceCount * 3);
+  faceAdjacency.fill(-1);
+  for (let f = 0; f < faceCount; f += 1) {
+    const v0 = vertIds[f * 3 + 0];
+    const v1 = vertIds[f * 3 + 1];
+    const v2 = vertIds[f * 3 + 2];
+    const r0 = edgeMap.get(ekey(v0, v1));
+    const r1 = edgeMap.get(ekey(v1, v2));
+    const r2 = edgeMap.get(ekey(v2, v0));
+    faceAdjacency[f * 3 + 0] = r0[0] === f ? r0[1] : r0[0];
+    faceAdjacency[f * 3 + 1] = r1[0] === f ? r1[1] : r1[0];
+    faceAdjacency[f * 3 + 2] = r2[0] === f ? r2[1] : r2[0];
+  }
+  // Map metadata is no longer needed; let GC reclaim it.
+  vertMap.clear();
+  edgeMap.clear();
+
   // Per-slot bookkeeping: idx → slot, last-seen wealth (for delta
   // detection), scheduled fire frame, scheduled magnitude, plus the
   // most-recent sector and degree_centrality for the agent in that
@@ -357,5 +428,20 @@ export function createSurface(scene, opts = {}) {
     };
   }
 
-  return { mesh, handleCastSnapshot, tick, setVisible, dispose, diagnostics };
+  return {
+    mesh,
+    handleCastSnapshot,
+    tick,
+    setVisible,
+    dispose,
+    diagnostics,
+    faceCount,
+    faceCentroids,
+    faceAdjacency,
+    // The non-indexed positions array. Each face occupies 9
+    // consecutive floats: v0(xyz), v1(xyz), v2(xyz). Read-only as
+    // far as agents.js is concerned.
+    facePositions: positions,
+    radius,
+  };
 }
