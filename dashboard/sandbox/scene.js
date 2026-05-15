@@ -1,29 +1,19 @@
-// Spatial-sandbox three.js scene (Pass 6).
+// Spatial-sandbox scene (Pass 13) — tessellated-surface rendering.
 //
-// Render stack (back-to-front):
-//   1. trails.js   — fading sector-coloured streak behind every agent.
-//   2. agents.js   — cells: humans round + haloed, agents square + hard.
-//                    Continuous orbital motion driven inside agents.tick.
-//   3. bonds.js    — bright lines between repeat-trader pairs.
-//   4. cabals.js   — chord graph between members of every bond-cluster
-//                    of size ≥ 3 (the visible "structures").
+// The cells-on-a-sphere paradigm is gone. The sphere itself is a
+// high-subdivision icosahedron; engine events fill in and fade out
+// individual triangles on its surface. All themes are light mode.
 //
-// Bloom postprocess runs on the composed scene.
+// Modules: only surface.js renders. agents/bonds/cabals/dust/trails
+// from the prior paradigm are no longer wired in.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-import { createAgents } from './agents.js';
-import { createBonds } from './bonds.js';
-import { createCabals } from './cabals.js';
-import { createDust } from './dust.js';
-import { createTrails } from './trails.js';
+import { createSurface } from './surface.js';
 import { setActivePalette } from './palette.js';
 import { startStream } from './stream.js';
-import { getActiveTheme, THEMES } from './themes.js';
+import { getActiveTheme } from './themes.js';
 
 const LEVERS = {
   scenario: 'spatial_sandbox',
@@ -36,22 +26,17 @@ const LEVERS = {
 const statusEl = document.getElementById('status');
 const counters = { step: 0, cast: 0 };
 
-let renderer, scene, camera, controls, composer, bloomPass;
-let agents = null;
-let bonds = null;
-let cabals = null;
-let trails = null;
-let dust = null;
+let renderer, scene, camera, controls;
+let surface = null;
 let summaryTimer = null;
 let stream = null;
 let frameCount = 0;
 let lastFpsT = performance.now();
 let fps = 0;
 
-// Theme selected from the ?theme=N URL parameter. Pulled at module
-// init so every downstream module sees the same activated theme.
+// Theme selected via ?theme=N URL parameter.
 const theme = getActiveTheme();
-setActivePalette(theme.palette);
+if (theme.palette) setActivePalette(theme.palette);
 
 function initScene() {
   const canvas = document.getElementById('scene');
@@ -64,94 +49,42 @@ function initScene() {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight, false);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = theme.exposure ?? 0.85;
+  // Linear tonemap — light-mode themes need predictable colours, not
+  // the warm rolloff ACES gives.
+  renderer.toneMapping = THREE.NoToneMapping;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(theme.background ?? 0x04060c);
+  scene.background = new THREE.Color(theme.background ?? 0xffffff);
 
+  // Camera sits far enough back that the radius=600 sphere fills a
+  // generous portion of the viewport with margin for the activations
+  // at the silhouette.
   camera = new THREE.PerspectiveCamera(
-    50,
+    42,
     window.innerWidth / window.innerHeight,
-    0.1,
-    5000,
+    1,
+    8000,
   );
-  camera.position.set(0, 0, 950);
+  camera.position.set(0, 0, 1700);
 
   controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
-  controls.autoRotate = false;
+  controls.dampingFactor = 0.06;
+  controls.minDistance = 700;
+  controls.maxDistance = 4000;
 
-  // Solid occluder sphere. Sits at radius 392 — just inside the cell
-  // shell — so back-hemisphere fragments z-cull cleanly. The
-  // material is MeshStandardMaterial so the lighting falls on the
-  // sphere itself; combined with the directional + ambient lights
-  // below, the occluder reads as a real lit globe rather than a
-  // flat black disc.
-  const occluderGeo = new THREE.SphereGeometry(392, 128, 64);
-  const occluderMat = new THREE.MeshStandardMaterial({
-    color: 0x0a1020,
-    roughness: 0.92,
-    metalness: 0.05,
-    emissive: 0x05080f,
-    emissiveIntensity: 0.4,
-    depthWrite: true,
+  surface = createSurface(scene, {
+    radius: theme.radius,
+    subdivisions: theme.subdivisions,
+    fadeRate: theme.fadeRate,
+    baseColor: theme.baseColor,
+    activeColor: theme.activeColor,
+    useSectorPalette: theme.useSectorPalette,
+    wireframe: theme.wireframe,
+    wireframeColor: theme.wireframeColor,
+    wireframeOpacity: theme.wireframeOpacity,
+    activationThreshold: theme.activationThreshold,
   });
-  const occluder = new THREE.Mesh(occluderGeo, occluderMat);
-  occluder.renderOrder = -10;
-  scene.add(occluder);
-
-  // Scene lighting — driven by the active theme. The key light is a
-  // theme-coloured directional sun; the ambient is a faint floor that
-  // keeps the shadowed hemisphere readable. Themes can flatten the
-  // scene (Ink) or push it to harsh contrast (Charcoal) by adjusting
-  // intensities.
-  const kl = theme.keyLight;
-  const keyLight = new THREE.DirectionalLight(kl.color, kl.intensity);
-  keyLight.position.set(kl.position[0], kl.position[1], kl.position[2]);
-  scene.add(keyLight);
-
-  const al = theme.ambient;
-  const ambientLight = new THREE.AmbientLight(al.color, al.intensity);
-  scene.add(ambientLight);
-
-  // Dust before agents so the cast renders on top.
-  dust = createDust(scene, {
-    count: 50000,
-    radius: 395,
-    visible: theme.dust?.visible,
-    brightness: theme.dust?.brightness,
-    palette: theme.dust?.palette,
-  });
-
-  agents = createAgents(scene, {
-    maxAgents: LEVERS.cast_size,
-    geometry: theme.geometry,
-  });
-  trails = createTrails(scene, { agents });
-  bonds = createBonds(scene, { agents, color: theme.bondColor });
-  cabals = createCabals(scene, { agents, bonds, palette: theme.cabalPalette });
-
-  // Wire bond springs into the agents motion integrator.
-  agents.setBonds(bonds);
-
-  composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  // UnrealBloomPass internally downsamples — sizing this Vector2 at
-  // half-res cuts bloom GPU cost without making the bloom obviously
-  // blocky on top of the additive-blended cells.
-  const bloomSize = new THREE.Vector2(
-    Math.floor(window.innerWidth / 2),
-    Math.floor(window.innerHeight / 2),
-  );
-  // Bloom driven by the active theme. Themes can dial bloom from off
-  // (Charcoal: strength 0) to dominant (Tron / Bioluminescent /
-  // Lava). Threshold sets which fragments push past into the bloom
-  // contribution.
-  const b = theme.bloom;
-  bloomPass = new UnrealBloomPass(bloomSize, b.strength, b.radius, b.threshold);
-  composer.addPass(bloomPass);
 
   window.addEventListener('resize', onResize);
 }
@@ -160,30 +93,13 @@ function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight, false);
-  composer.setSize(window.innerWidth, window.innerHeight);
 }
-
-// Scratch vectors for the per-frame light-direction transform.
-const _lightWorldDir = new THREE.Vector3(0.4, 0.8, 0.6).normalize();
-const _lightViewDir = new THREE.Vector3();
 
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
-
-  // Push the world-space light direction into the cast shader's
-  // view-space uniform so the lit hemisphere stays anchored to the
-  // world (not the camera). Cheap: one Vector3 transform per frame.
-  if (agents) {
-    _lightViewDir.copy(_lightWorldDir).transformDirection(camera.matrixWorldInverse);
-    agents.setLightDirView(_lightViewDir);
-  }
-
-  agents?.tick();
-  trails?.tick();
-  bonds?.tick();
-  cabals?.tick();
-  composer.render();
+  surface?.tick();
+  renderer.render(scene, camera);
 
   frameCount += 1;
   const now = performance.now();
@@ -200,32 +116,29 @@ function setStatus(text, kind = '') {
 }
 
 function logSummary() {
+  const diag = surface?.diagnostics?.() ?? {};
   console.log(
     `[stream] tick=${counters.step}  cast=${counters.cast}  fps=${fps.toFixed(1)}  ` +
-    `bonds=${bonds?.bondCount() ?? 0}  cabals=${cabals?.diagnostics().cabalCount ?? 0}`,
+    `faces=${diag.faceCount}  active=${diag.activeFaces}`,
   );
 }
 
 function onHello(meta) {
-  setStatus(`live · ${meta.run_id} · ${meta.scenario}`, 'live');
+  setStatus(`live · ${theme.name} · ${meta.scenario}`, 'live');
   summaryTimer = setInterval(logSummary, 1000);
 }
 
 function onStep(step) {
   counters.step += 1;
-  const alpha = (step.alpha ?? 0).toFixed(2);
-  const ebi = (step.exo_baroque_index ?? 0).toFixed(2);
-  setStatus(`tick ${step.step} · α ${alpha} · EBI ${ebi}`, 'live');
+  setStatus(`${theme.name} · tick ${step.step}`, 'live');
 }
 
 function onCastSnapshot(ev) {
   counters.cast += 1;
-  agents?.handleCastSnapshot(ev.snapshot);
-  bonds?.handleCastSnapshot(ev.snapshot);
-  cabals?.handleCastSnapshot(ev.snapshot);
+  surface?.handleCastSnapshot(ev.snapshot);
 }
 
-function onTerminal(kind, payload) {
+function onTerminal(kind) {
   if (summaryTimer) { clearInterval(summaryTimer); summaryTimer = null; }
   setStatus(`${kind}`, kind);
 }
@@ -263,32 +176,9 @@ window.addEventListener('beforeunload', () => {
 
 window.__sandbox = {
   fps: () => fps,
-  agents: () => agents?.diagnostics?.(),
-  bonds: () => ({ count: bonds?.bondCount() ?? 0 }),
-  cabals: () => cabals?.diagnostics?.(),
+  surface: () => surface?.diagnostics?.(),
   counters: () => ({ ...counters }),
-  samplePositions: (n = 4) => {
-    if (!agents) return null;
-    const out = [];
-    for (let i = 0; i < n; i += 1) {
-      out.push([
-        Math.round(agents.positions[i * 3 + 0] * 100) / 100,
-        Math.round(agents.positions[i * 3 + 1] * 100) / 100,
-        Math.round(agents.positions[i * 3 + 2] * 100) / 100,
-      ]);
-    }
-    return out;
-  },
-  // Bond strength distribution for the verifier.
-  bondHist: () => {
-    if (!bonds) return null;
-    const buckets = [0, 0, 0, 0, 0];
-    for (const { strength } of bonds.iterBonds()) {
-      const b = Math.min(4, Math.floor(strength));
-      buckets[b] += 1;
-    }
-    return { '0-1': buckets[0], '1-2': buckets[1], '2-3': buckets[2], '3-4': buckets[3], '4+': buckets[4] };
-  },
+  theme: () => theme,
 };
 
 main();
