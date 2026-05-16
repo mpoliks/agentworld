@@ -205,6 +205,13 @@ class StepMetrics:
     top_decile_share_change: float = 0.0
     gini_wealth_change_abs: float = 0.0
 
+    # Aggregate wealth share held by humans:
+    # `sum(weight[is_human] * wealth[is_human]) / sum(weight * wealth)`.
+    # Stock-level, weighted by population size. 0 when no humans;
+    # ~0.5 in a balanced economy and drifts as labour wedges and
+    # parasitic flows shift wealth between humans and AIs.
+    human_wealth_share: float = 0.0
+
     # ---- Permeability boundary (W1c) -----------------------------------------
     # Cross-stack pairs rejected at the Tomašev / Jacobs sandbox boundary
     # before any Matryoshka filter. Zero when `cross_stack_permeability == 1.0`
@@ -397,6 +404,7 @@ class Metrics:
         # Gini.
         self._last_gini_human = 0.0
         self._last_gini = 0.0
+        self._last_human_wealth_share = 0.0
         # Snapshot of per-prototype wealth at step 0; used to compute the
         # flow-sensitive inequality metrics. Set on the first call to
         # `step_metrics`. Stored as float64 so the (wealth - wealth_initial)
@@ -505,6 +513,19 @@ class Metrics:
                 )
             else:
                 self._last_gini_human = 0.0
+
+            # Aggregate human wealth share (weighted): stock-level
+            # fraction of total wealth held by humans. Used by the
+            # spatial-sandbox dashboard as the headline welfare
+            # readout.
+            total_pop_w = float(np.sum(pop.wealth * pop.weight))
+            if h_mask.any() and total_pop_w > 0:
+                total_h_w = float(
+                    np.sum(pop.wealth[h_mask] * pop.weight[h_mask])
+                )
+                self._last_human_wealth_share = total_h_w / total_pop_w
+            else:
+                self._last_human_wealth_share = 0.0
 
             # Capture the initial wealth state on the first call so the
             # flow-sensitive metrics can reference it on every subsequent
@@ -766,6 +787,7 @@ class Metrics:
             ],
             gini_wealth_human=float(self._last_gini_human),
             real_per_capita_welfare_human=float(per_cap_human),
+            human_wealth_share=float(self._last_human_wealth_share),
         )
         self.history.append(m)
         return m

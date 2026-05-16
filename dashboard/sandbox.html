@@ -117,6 +117,18 @@
     cursor: pointer;
     accent-color: rgba(102, 140, 200, 0.8);
   }
+  .toggle-divider {
+    height: 1px;
+    background: rgba(102, 140, 200, 0.18);
+    margin: 1px 0;
+  }
+  .metric-toggle .swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    border: 1px solid rgba(26, 20, 18, 0.20);
+  }
   #trade-counter {
     padding-top: 5px;
     margin-top: 2px;
@@ -128,6 +140,91 @@
   #trade-counter-value {
     color: rgba(26, 20, 18, 0.95);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Wealth flow meter. Bottom-right corner. Stacked rows showing
+     the share of wealth captured by each Sankey segment, with the
+     cumulative total at the top. */
+  #welfare-panel {
+    position: fixed;
+    bottom: 14px;
+    right: 18px;
+    z-index: 50;
+    background: rgba(245, 240, 230, 0.94);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 9px 12px 11px;
+    font-family: var(--mono);
+    color: rgba(26, 20, 18, 0.85);
+    width: 240px;
+  }
+  #welfare-title {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.65);
+    margin-bottom: 4px;
+  }
+  #welfare-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 7px;
+    margin-bottom: 7px;
+    border-bottom: 1px solid rgba(102, 140, 200, 0.18);
+  }
+  #welfare-total-label {
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.55);
+  }
+  #welfare-total-value {
+    font-size: 14px;
+    color: rgba(26, 20, 18, 0.95);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+  .meter-row {
+    margin-top: 5px;
+  }
+  .meter-row:first-of-type {
+    margin-top: 0;
+  }
+  .meter-row-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 10px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.75);
+  }
+  .meter-row-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .meter-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 1px;
+  }
+  .meter-row-value {
+    font-variant-numeric: tabular-nums;
+    color: rgba(26, 20, 18, 0.85);
+  }
+  .meter-bar {
+    height: 5px;
+    background: rgba(26, 20, 18, 0.07);
+    margin-top: 2px;
+    border-radius: 1px;
+    overflow: hidden;
+  }
+  .meter-fill {
+    height: 100%;
+    width: 0%;
   }
 
   /* Sector hover label. Follows the cursor when the pointer is
@@ -156,6 +253,14 @@
 <div id="loader" data-done="0">
   <div id="loader-track"><div id="loader-fill"></div></div>
   <div id="loader-label">init</div>
+</div>
+<div id="welfare-panel">
+  <div id="welfare-title">wealth flow</div>
+  <div id="welfare-total-row">
+    <span id="welfare-total-label">cumulative</span>
+    <span id="welfare-total-value">0</span>
+  </div>
+  <div id="welfare-meter"></div>
 </div>
 <div id="sector-label"></div>
 <div id="toggles">

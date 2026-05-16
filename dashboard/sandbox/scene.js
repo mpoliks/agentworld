@@ -22,7 +22,22 @@ const LEVERS = {
   seed: 24601,
   cast_size: 5000,
   pair_sample_k: 1500,
+  // Run indefinitely — the counter should keep climbing while the
+  // dashboard is open.
+  continuous: true,
 };
+
+// Wealth-flow meter segments. Each row shows what share of the
+// economy is captured by that segment. `source` reads the value
+// from a step payload. Humans / AI together approximate the stock
+// split; governance / legal / recycling are per-tick flow rates.
+const METER_SEGMENTS = [
+  { key: 'humans',     label: 'humans',        color: 'rgb(217, 166, 77)',  source: (s) => s.human_wealth_share ?? 0 },
+  { key: 'ai',         label: 'ai',            color: 'rgb(110, 130, 155)', source: (s) => Math.max(0, 1 - (s.human_wealth_share ?? 0)) },
+  { key: 'matryoshka', label: 'matryoshka',    color: 'rgb(140, 102, 191)', source: (s) => s.governance_overhead_fraction ?? 0 },
+  { key: 'legal',      label: 'legal capture', color: 'rgb(217, 89, 89)',   source: (s) => s.law_surplus_loss_fraction ?? 0 },
+  { key: 'recycling',  label: 'recycling',     color: 'rgb(89, 178, 115)',  source: (s) => s.pigouvian_effective_rate ?? 0 },
+];
 
 const statusEl = document.getElementById('status');
 const loaderEl = document.getElementById('loader');
@@ -32,9 +47,68 @@ const sectorLabelEl = document.getElementById('sector-label');
 const toggleTradesEl = document.getElementById('toggle-trades');
 const toggleSectorsEl = document.getElementById('toggle-sectors');
 const tradeCounterEl = document.getElementById('trade-counter-value');
+const welfareTotalEl = document.getElementById('welfare-total-value');
+const welfareMeterEl = document.getElementById('welfare-meter');
 let sectorsEnabled = toggleSectorsEl?.checked ?? true;
 let _counterFrame = 0;
 let cumulativeTrades = 0;       // monotonic — increments per snapshot
+let cumulativeWealth = 0;       // real_welfare_cumulative from engine
+
+// Build the wealth-flow meter rows from METER_SEGMENTS.
+function initWelfareMeter() {
+  if (!welfareMeterEl) return;
+  meterRows = METER_SEGMENTS.map((seg) => {
+    const row = document.createElement('div');
+    row.className = 'meter-row';
+    const header = document.createElement('div');
+    header.className = 'meter-row-header';
+    const labelWrap = document.createElement('span');
+    labelWrap.className = 'meter-row-label';
+    const dot = document.createElement('span');
+    dot.className = 'meter-dot';
+    dot.style.background = seg.color;
+    labelWrap.appendChild(dot);
+    labelWrap.appendChild(document.createTextNode(seg.label));
+    const valueEl = document.createElement('span');
+    valueEl.className = 'meter-row-value';
+    valueEl.textContent = '--';
+    header.appendChild(labelWrap);
+    header.appendChild(valueEl);
+    const bar = document.createElement('div');
+    bar.className = 'meter-bar';
+    const fillEl = document.createElement('div');
+    fillEl.className = 'meter-fill';
+    fillEl.style.background = seg.color;
+    bar.appendChild(fillEl);
+    row.appendChild(header);
+    row.appendChild(bar);
+    welfareMeterEl.appendChild(row);
+    return {
+      key: seg.key,
+      source: seg.source,
+      target: 0,
+      valueEl,
+      fillEl,
+      phase: Math.random() * 6.2832,
+    };
+  });
+}
+
+// Per-frame jitter so the bars wobble even when the share is stable.
+const METER_JITTER_AMP = 0.012;        // ±1.2 % wobble
+const METER_JITTER_RATE = 1.4;         // rad / s
+function updateWelfareMeter() {
+  if (!meterRows) return;
+  const t = performance.now() * 0.001;
+  for (let i = 0; i < meterRows.length; i += 1) {
+    const r = meterRows[i];
+    const noise = Math.sin(t * METER_JITTER_RATE + r.phase) * METER_JITTER_AMP;
+    let v = r.target + noise;
+    if (v < 0) v = 0; else if (v > 1) v = 1;
+    r.fillEl.style.width = (v * 100).toFixed(2) + '%';
+    r.valueEl.textContent = (v * 100).toFixed(1) + '%';
+  }
+}
 const counters = { step: 0, cast: 0 };
 
 // Canonical sector names from engine/core/population.py.
@@ -62,6 +136,8 @@ let renderer, scene, camera, controls;
 let surface = null;
 let agents = null;
 let edges = null;
+// Wealth-flow meter state. Each entry: { key, target, label, color, valueEl, fillEl, phase }.
+let meterRows = null;
 let summaryTimer = null;
 let stream = null;
 let frameCount = 0;
@@ -137,6 +213,8 @@ function initScene() {
   edges = createEdges(scene, surface, agents, {
     sphereRadius: theme.radius ?? 700,
   });
+
+  initWelfareMeter();
 
   window.addEventListener('resize', onResize);
   renderer.domElement.addEventListener('mousemove', onPointerMove);
@@ -223,6 +301,9 @@ function animate() {
   surface?.tick();
   agents?.tick();
   edges?.tick();
+  // Wealth-flow meter bars jitter every frame so the readout has
+  // life even when the underlying shares are stable.
+  updateWelfareMeter();
   renderer.render(scene, camera);
 
   // Throttle trade-counter DOM updates to ~10 Hz. Cumulative count
@@ -269,6 +350,20 @@ function onHello(meta) {
 function onStep(step) {
   counters.step += 1;
   setStatus(`${theme.name} · tick ${step.step}`, 'live');
+
+  // Push each meter row's target value from the step payload, plus
+  // the running cumulative wealth total at the panel header.
+  if (meterRows) {
+    for (let i = 0; i < meterRows.length; i += 1) {
+      const r = meterRows[i];
+      const v = r.source(step);
+      r.target = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
+    }
+  }
+  if (typeof step.real_welfare_cumulative === 'number') {
+    cumulativeWealth = step.real_welfare_cumulative;
+    if (welfareTotalEl) welfareTotalEl.textContent = Math.round(cumulativeWealth).toLocaleString();
+  }
   // Pass 19b: per-step modulation re-enabled with much smaller
   // coefficients than Pass 19. The setters also clamp on the surface
   // side as a second line of defence.
