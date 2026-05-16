@@ -38,21 +38,51 @@ const MIN_PERSIST_FRAMES = 60;       // 1.0s at 60fps
 const MAX_PERSIST_FRAMES = 720;      // 12s at 60fps
 const MAGNITUDE_REF = 10.0;          // wealth-delta saturation point
 
+// Per-vertex `altitude` is a smoothed per-unique-vertex signed
+// fraction of the base radius. The shader displaces each vertex
+// radially by (1 + (altitude + uGlobalAltitude) * uAltitudeScale).
+// Adjacent faces sharing a vertex agree on its altitude, so the
+// mesh stays continuous instead of leaving cliffs.
+//
+// Very light shading is done per-vertex: the brightness multiplier
+// vShade = 1 + altitude * uTiltShade is interpolated across each
+// face. A flat patch (all 3 corners at same altitude) renders at
+// constant shade; a tilted face (corners at different altitudes)
+// shows a gradient from one corner to another — which reads as
+// face angle. No screen-space derivatives, no extensions, GLSL1.
+// Pass 19b: per-vertex altitude drives radial displacement. A second
+// uniform additive offset (uGlobalAltitude) lets system-wide signals
+// (EBI, reject fraction) bulge or contract the whole sphere on top
+// of zonal bumps. uTiltShade folds altitude into a per-vertex
+// brightness multiplier — peaks brighten, pits darken, tilted faces
+// gradient between corners (very light, max ±8% at altitude=±0.20).
+// Both global modulations are CLAMPED tightly on the JS side so the
+// displacement formula can't reach the grid-killing extremes we hit
+// earlier.
 const VERTEX_SHADER = /* glsl */ `
   attribute vec3 color;
   attribute vec3 barycentric;
+  attribute float altitude;
+  uniform float uAltitudeScale;
+  uniform float uGlobalAltitude;
+  uniform float uTiltShade;
   varying vec3 vColor;
   varying vec3 vBary;
+  varying float vShade;
   void main() {
     vColor = color;
     vBary = barycentric;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    float a = altitude + uGlobalAltitude;
+    vec3 displaced = position * (1.0 + a * uAltitudeScale);
+    // Altitude-only shading. vShade=1.0 at altitude=0 so flat areas
+    // render at the original brightness; peaks brighten and pits
+    // darken proportionally. Within a face (corners at different
+    // altitudes) the gradient reads as the face's tilt.
+    vShade = 1.0 + altitude * uTiltShade;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
   }
 `;
 
-// Per-triangle flat fill, switched to the edge colour inside the
-// barycentric edge band so the grid renders on every fragment near
-// a triangle boundary. No GLSL extensions required.
 const FRAGMENT_SHADER = /* glsl */ `
   precision highp float;
 
@@ -61,11 +91,12 @@ const FRAGMENT_SHADER = /* glsl */ `
 
   varying vec3 vColor;
   varying vec3 vBary;
+  varying float vShade;
 
   void main() {
     float minBary = min(vBary.x, min(vBary.y, vBary.z));
     vec3 col = minBary < uEdgeThreshold ? uEdgeColor : vColor;
-    gl_FragColor = vec4(col, 1.0);
+    gl_FragColor = vec4(col * vShade, 1.0);
   }
 `;
 
@@ -87,6 +118,14 @@ export function createSurface(scene, opts = {}) {
   // Top end of the persistFrames multiplier when an agent's
   // degree_centrality matches the running max. 1.0 disables the axis.
   const degreePersistBoost = opts.degreePersistBoost ?? 1.0;
+  // Pass 18a heightmap parameters. altitudeMax caps |face altitude|
+  // so runaway accumulation can't push the mesh inside-out.
+  // altitudeDecay is per-frame multiplicative relaxation back toward
+  // zero. altitudeBaseScale is the uniform multiplier in the shader
+  // (modulated upward by EBI at runtime).
+  const altitudeMax = opts.altitudeMax ?? 0.20;
+  const altitudeDecay = opts.altitudeDecay ?? 0.9985;
+  const altitudeBaseScale = opts.altitudeBaseScale ?? 1.0;
 
   // High-subdivision icosphere. Face count = 20 * (subdivisions+1)².
   const geometry = new THREE.IcosahedronGeometry(radius, subdivisions);
@@ -115,6 +154,24 @@ export function createSurface(scene, opts = {}) {
   }
   geometry.setAttribute('barycentric', new THREE.BufferAttribute(bary, 3));
 
+  // Per-unique-vertex altitude (Pass 18a). The icosphere geometry
+  // is non-indexed so each face has its own three vertex copies; the
+  // vertIds map (built below during adjacency) tells us which copies
+  // share a physical position. Storing altitude per unique vertex
+  // and replicating into the non-indexed attribute each tick gives
+  // smooth continuity across face boundaries — each face becomes a
+  // flat triangle whose three corners ramp into neighbours, instead
+  // of a rigid radial block with cliffs at every edge.
+  let vertAltitudes = null;      // Float32Array[uniqueVertCount], filled after vertIds is built
+  const altitudeArr = new Float32Array(vertexCount);
+  const altitudeAttr = new THREE.BufferAttribute(altitudeArr, 1);
+  altitudeAttr.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('altitude', altitudeAttr);
+  // Per-face altitude is derived (average of the face's three unique
+  // vertex altitudes) and refreshed each tick. agents.js reads it
+  // for the caterpillar segment lift.
+  const faceAltitudes = new Float32Array(faceCount);
+
   // Per-face activation state. startFrame = -1 when the face has no
   // live activation. persistFrames = total lifetime in frames when
   // activated, used to compute the linear brightness decay.
@@ -132,6 +189,9 @@ export function createSurface(scene, opts = {}) {
     uniforms: {
       uEdgeColor: { value: new THREE.Color().fromArray(edgeColor) },
       uEdgeThreshold: { value: edgeThreshold },
+      uAltitudeScale: { value: altitudeBaseScale },
+      uGlobalAltitude: { value: 0.0 },
+      uTiltShade: { value: 1.2 },
     },
     side: THREE.FrontSide,
     transparent: false,
@@ -212,6 +272,10 @@ export function createSurface(scene, opts = {}) {
   // Map metadata is no longer needed; let GC reclaim it.
   vertMap.clear();
   edgeMap.clear();
+  // Now that the unique-vertex count is known, allocate per-vertex
+  // altitudes. vertIds maps each non-indexed vertex into this array.
+  const uniqueVertCount = nextVid;
+  vertAltitudes = new Float32Array(uniqueVertCount);
 
   // Per-slot bookkeeping: idx → slot, last-seen wealth (for delta
   // detection), scheduled fire frame, scheduled magnitude, plus the
@@ -292,6 +356,50 @@ export function createSurface(scene, opts = {}) {
       fireAtFrameArr[slot] = frameCounter + Math.random() * STAGGER_FRAMES;
       fireMagnitudeArr[slot] = delta;
     }
+  }
+
+  // Pass 18a heightmap state. foldCascadeMultiplier is set per step
+  // from fold_max_depth, so deep cascades amplify the radial impact
+  // of subsequent wealth-delta bumps. altitudeScale is mutated per
+  // step from EBI so high-baroque economies get dramatic terrain.
+  let foldCascadeMultiplier = 1.0;
+  function setFoldCascadeMultiplier(m) {
+    if (Number.isFinite(m)) foldCascadeMultiplier = m;
+  }
+  // Both setters clamp tightly. Earlier (Pass 19) loose ranges drove
+  // the displacement into regimes where the grid edges vanished from
+  // the substrate render; these clamps cap how far the global
+  // modulation can stretch the geometry while still letting EBI and
+  // reject fraction nudge it visibly.
+  function setAltitudeScale(s) {
+    if (!Number.isFinite(s)) return;
+    if (s < 0.9) s = 0.9;
+    else if (s > 1.10) s = 1.10;
+    material.uniforms.uAltitudeScale.value = s;
+  }
+  function setGlobalAltitude(g) {
+    if (!Number.isFinite(g)) return;
+    if (g < -0.03) g = -0.03;
+    else if (g > 0.03) g = 0.03;
+    material.uniforms.uGlobalAltitude.value = g;
+  }
+  function bumpAltitude(faceIdx, magnitude) {
+    if (faceIdx < 0 || faceIdx >= faceCount) return;
+    const m = magnitude * foldCascadeMultiplier;
+    const base = faceIdx * 3;
+    const u0 = vertIds[base + 0];
+    const u1 = vertIds[base + 1];
+    const u2 = vertIds[base + 2];
+    let a;
+    a = vertAltitudes[u0] + m;
+    if (a > altitudeMax) a = altitudeMax; else if (a < -altitudeMax) a = -altitudeMax;
+    vertAltitudes[u0] = a;
+    a = vertAltitudes[u1] + m;
+    if (a > altitudeMax) a = altitudeMax; else if (a < -altitudeMax) a = -altitudeMax;
+    vertAltitudes[u1] = a;
+    a = vertAltitudes[u2] + m;
+    if (a > altitudeMax) a = altitudeMax; else if (a < -altitudeMax) a = -altitudeMax;
+    vertAltitudes[u2] = a;
   }
 
   // Mapping wealth-delta magnitude → lifetime in frames.
@@ -399,6 +507,37 @@ export function createSurface(scene, opts = {}) {
       anyDirty = true;
     }
     if (anyDirty) geometry.getAttribute('color').needsUpdate = true;
+
+    // Altitude decay on the unique-vertex store, then replicate to
+    // the non-indexed attribute and to the per-face average (which
+    // agents.js reads for caterpillar lift). Per-vertex storage means
+    // adjacent faces sharing a vertex agree on its height, so the
+    // displaced mesh stays continuous instead of cliffed.
+    let anyNonZero = false;
+    for (let u = 0; u < uniqueVertCount; u += 1) {
+      let a = vertAltitudes[u];
+      if (a === 0) continue;
+      a *= altitudeDecay;
+      if (a < 1e-5 && a > -1e-5) a = 0;
+      vertAltitudes[u] = a;
+      if (a !== 0) anyNonZero = true;
+    }
+    // Always refresh — agents.js depends on faceAltitudes for the
+    // caterpillar segment lift even on frames where everything
+    // decays to zero (so segments settle back to base radius).
+    for (let v = 0; v < vertexCount; v += 1) {
+      altitudeArr[v] = vertAltitudes[vertIds[v]];
+    }
+    for (let f = 0; f < faceCount; f += 1) {
+      const b = f * 3;
+      faceAltitudes[f] = (
+        vertAltitudes[vertIds[b + 0]] +
+        vertAltitudes[vertIds[b + 1]] +
+        vertAltitudes[vertIds[b + 2]]
+      ) / 3;
+    }
+    altitudeAttr.needsUpdate = true;
+    void anyNonZero;  // reserved for future dirty-skip optimisation
   }
 
   function activeFaceCount() {
@@ -443,5 +582,21 @@ export function createSurface(scene, opts = {}) {
     // far as agents.js is concerned.
     facePositions: positions,
     radius,
+    // Heightmap (Pass 18a). agents.js reads faceAltitudes to lift
+    // caterpillar segments onto the deformed terrain, and calls
+    // bumpAltitude() on wealth-delta events to write into it.
+    // scene.js drives setFoldCascadeMultiplier / setAltitudeScale
+    // from per-step engine metrics.
+    faceAltitudes,
+    // Per-unique-vertex altitudes + the non-indexed → unique map.
+    // agents.js reads these to lift each segment vertex by its
+    // matching face-vertex altitude, so segments stay on the
+    // substrate's tilted plane instead of riding the face average.
+    vertAltitudes,
+    vertIds,
+    bumpAltitude,
+    setFoldCascadeMultiplier,
+    setAltitudeScale,
+    setGlobalAltitude,
   };
 }

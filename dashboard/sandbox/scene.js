@@ -108,7 +108,7 @@ function initScene() {
 
   agents = createAgents(scene, surface, {
     sphereRadius: theme.radius ?? 700,
-    stackLift: theme.stackLift,
+    stackInwardScale: theme.stackInwardScale,
     maxStepsPerSec: theme.maxStepsPerSec,
     minStepsPerSec: theme.minStepsPerSec,
     partnerAttract: theme.partnerAttract,
@@ -166,6 +166,32 @@ function onHello(meta) {
 function onStep(step) {
   counters.step += 1;
   setStatus(`${theme.name} · tick ${step.step}`, 'live');
+  // Pass 19b: per-step modulation re-enabled with much smaller
+  // coefficients than Pass 19. The setters also clamp on the surface
+  // side as a second line of defence.
+  if (surface) {
+    const ebi = step.exo_baroque_index;
+    if (Number.isFinite(ebi)) {
+      // 1.0..1.10 effective range (clamped on the setter side).
+      surface.setAltitudeScale(1.0 + Math.max(0, ebi - 1.0) * 0.10);
+    }
+    const depth = step.fold_max_depth;
+    if (Number.isFinite(depth)) {
+      surface.setFoldCascadeMultiplier(1.0 + depth * 0.25);
+    }
+    const rejectFrac = (
+      (step.rejected_law ?? 0) +
+      (step.rejected_market ?? 0) +
+      (step.rejected_align ?? 0) +
+      (step.rejected_cost ?? 0) +
+      (step.rejected_compute ?? 0) +
+      (step.rejected_permeability ?? 0) +
+      (step.rejected_regulator ?? 0)
+    );
+    const ebiBulge = Number.isFinite(ebi) ? Math.max(0, ebi - 1.0) * 0.02 : 0;
+    const rejectContract = rejectFrac * 0.03;
+    surface.setGlobalAltitude(ebiBulge - rejectContract);
+  }
 }
 
 function onCastSnapshot(ev) {
@@ -173,6 +199,30 @@ function onCastSnapshot(ev) {
   surface?.handleCastSnapshot(ev.snapshot);
   agents?.handleCastSnapshot(ev.snapshot);
   if (counters.cast === 1) setProgress(1.0, 'live');
+}
+
+// Pass 18a: each rejected pair dings the rejected agents' current
+// faces with a small negative altitude — repeated failures dig
+// shallow craters where the substrate is failing. PairSample carries
+// proto_a / proto_b agent idxs and a non-empty reject_reason when
+// the trade didn't clear.
+const REJECT_BUMP = 0.004;
+function onEdges(ev) {
+  if (!surface || !agents || !ev.edges) return;
+  for (let i = 0; i < ev.edges.length; i += 1) {
+    const e = ev.edges[i];
+    if (!e || !e.reject_reason) continue;
+    const a = e.proto_a ?? -1;
+    const b = e.proto_b ?? -1;
+    if (a >= 0) {
+      const f = agents.currentFaceForIdx(a);
+      if (f >= 0) surface.bumpAltitude(f, -REJECT_BUMP);
+    }
+    if (b >= 0) {
+      const f = agents.currentFaceForIdx(b);
+      if (f >= 0) surface.bumpAltitude(f, -REJECT_BUMP);
+    }
+  }
 }
 
 function onTerminal(kind) {
@@ -202,7 +252,7 @@ async function main() {
       onHello,
       onStep,
       onCastSnapshot,
-      onEdges: () => {},
+      onEdges,
       onFolds: () => {},
       onTerminal,
       onConnectError,
@@ -228,6 +278,10 @@ window.__sandbox = {
   agents: () => agents?.diagnostics?.(),
   counters: () => ({ ...counters }),
   theme: () => theme,
+  // Debug toggles for diagnosing grid-visibility issues.
+  hideAgents: (h = true) => { if (agents) agents.mesh.visible = !h; },
+  hideSurface: (h = true) => { if (surface) surface.mesh.visible = !h; },
+  disableTopology: () => { surface?.setAltitudeScale(0); surface?.setGlobalAltitude(0); },
 };
 
 main();

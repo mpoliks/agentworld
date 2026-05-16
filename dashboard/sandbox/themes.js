@@ -20,7 +20,7 @@ export const THEME = {
   baseColor: [0.90, 0.89, 0.85],
   activeColor: [0.08, 0.08, 0.10],
   edgeColor: [0.62, 0.60, 0.55],
-  edgeThreshold: 0.03,
+  edgeThreshold: 0.06,
   activationThreshold: 0.02,
   // Lifetime curve — see surface.js. Tiny events persist
   // MIN_PERSIST_FRAMES (~1s); a large event saturates at
@@ -50,12 +50,14 @@ export const THEME = {
   // 1.0 disables the axis; 1.6 means the top-degree agent's
   // activations last 60% longer than the baseline.
   degreePersistBoost: 1.6,
-  // Caterpillar agents (Pass 17c). The icosphere is both substrate
+  // Caterpillar agents (Pass 18b). The icosphere is both substrate
   // and topology: each agent occupies one face and steps to an
   // edge-adjacent face. Each body segment renders as the actual
   // grid-face shape, scaled toward its centroid by segmentScale so
-  // gridlines remain visible around it.
-  stackLift: 28,
+  // gridlines remain visible around it. Matryoshka stack is
+  // expressed as inward substrate carving (stackInwardScale), not
+  // as a floating lift.
+  stackInwardScale: 0.00012, // per-step inward altitude pull, scaled by stack
   maxStepsPerSec: 24,        // step rate at capability = 1.0
   minStepsPerSec: 8,         // step rate at capability = 0
   partnerAttract: 1.0,       // weight on the recent-partners centroid pull
