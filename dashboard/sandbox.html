@@ -117,6 +117,23 @@
     cursor: pointer;
     accent-color: rgba(102, 140, 200, 0.8);
   }
+  #toggles .ratio-control {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    cursor: default;
+  }
+  #toggles .ratio-control .ratio-readout {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  #toggles input[type="range"] {
+    margin: 0;
+    width: 140px;
+    accent-color: rgba(217, 166, 77, 0.9);
+    cursor: pointer;
+  }
   .toggle-divider {
     height: 1px;
     background: rgba(102, 140, 200, 0.18);
@@ -184,6 +201,17 @@
     color: rgba(26, 20, 18, 0.95);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.02em;
+  }
+  .meter-section-header {
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.45);
+    margin-top: 9px;
+    margin-bottom: 4px;
+  }
+  .meter-section-header:first-of-type {
+    margin-top: 0;
   }
   .meter-row {
     margin-top: 5px;
@@ -255,17 +283,25 @@
   <div id="loader-label">init</div>
 </div>
 <div id="welfare-panel">
-  <div id="welfare-title">wealth flow</div>
+  <div id="welfare-title">wealth</div>
   <div id="welfare-total-row">
     <span id="welfare-total-label">cumulative</span>
     <span id="welfare-total-value">0</span>
   </div>
-  <div id="welfare-meter"></div>
+  <div class="meter-section-header">stock</div>
+  <div id="welfare-stock"></div>
+  <div class="meter-section-header">per-tick flow</div>
+  <div id="welfare-flow"></div>
 </div>
 <div id="sector-label"></div>
 <div id="toggles">
   <label><input type="checkbox" id="toggle-trades" checked> show trades</label>
   <label><input type="checkbox" id="toggle-sectors" checked> show sectors</label>
+  <label><input type="checkbox" id="toggle-humans-only"> show humans only</label>
+  <div class="ratio-control">
+    <div class="ratio-readout"><span>humans : agents</span><span>1 : <span id="ratio-value">100</span></span></div>
+    <input type="range" id="ratio-slider" min="0" max="100" value="67" step="1">
+  </div>
   <div id="trade-counter"><span>trades</span><span id="trade-counter-value">0</span></div>
 </div>
 <div id="status" data-kind="">starting…</div>

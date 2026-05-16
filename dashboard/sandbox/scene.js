@@ -27,13 +27,15 @@ const LEVERS = {
   continuous: true,
 };
 
-// Wealth-flow meter segments. Each row shows what share of the
-// economy is captured by that segment. `source` reads the value
-// from a step payload. Humans / AI together approximate the stock
-// split; governance / legal / recycling are per-tick flow rates.
-const METER_SEGMENTS = [
-  { key: 'humans',     label: 'humans',        color: 'rgb(217, 166, 77)',  source: (s) => s.human_wealth_share ?? 0 },
-  { key: 'ai',         label: 'ai',            color: 'rgb(110, 130, 155)', source: (s) => Math.max(0, 1 - (s.human_wealth_share ?? 0)) },
+// Wealth meter splits into two sections so the percentages stay
+// honest — stock fractions (humans + ai) sum to 100% by
+// construction, per-tick flow rates (matryoshka / legal / recycling)
+// are independent rates on their own scale.
+const STOCK_SEGMENTS = [
+  { key: 'humans', label: 'humans', color: 'rgb(217, 166, 77)',  source: (s) => s.human_wealth_share ?? 0 },
+  { key: 'ai',     label: 'ai',     color: 'rgb(110, 130, 155)', source: (s) => Math.max(0, 1 - (s.human_wealth_share ?? 0)) },
+];
+const FLOW_SEGMENTS = [
   { key: 'matryoshka', label: 'matryoshka',    color: 'rgb(140, 102, 191)', source: (s) => s.governance_overhead_fraction ?? 0 },
   { key: 'legal',      label: 'legal capture', color: 'rgb(217, 89, 89)',   source: (s) => s.law_surplus_loss_fraction ?? 0 },
   { key: 'recycling',  label: 'recycling',     color: 'rgb(89, 178, 115)',  source: (s) => s.pigouvian_effective_rate ?? 0 },
@@ -46,52 +48,70 @@ const loaderLabelEl = document.getElementById('loader-label');
 const sectorLabelEl = document.getElementById('sector-label');
 const toggleTradesEl = document.getElementById('toggle-trades');
 const toggleSectorsEl = document.getElementById('toggle-sectors');
+const toggleHumansOnlyEl = document.getElementById('toggle-humans-only');
+const ratioSliderEl = document.getElementById('ratio-slider');
+const ratioValueEl = document.getElementById('ratio-value');
+// Slider value 0..100 maps log-scale to agentsPerHuman 1..1000.
+// At slider=67, value ≈ 100 (real-population default of 1 human : 100 agents).
+function sliderToAgentsPerHuman(s) {
+  return Math.max(1, Math.round(Math.pow(10, (Number(s) / 100) * 3)));
+}
 const tradeCounterEl = document.getElementById('trade-counter-value');
 const welfareTotalEl = document.getElementById('welfare-total-value');
-const welfareMeterEl = document.getElementById('welfare-meter');
+const welfareStockEl = document.getElementById('welfare-stock');
+const welfareFlowEl = document.getElementById('welfare-flow');
 let sectorsEnabled = toggleSectorsEl?.checked ?? true;
 let _counterFrame = 0;
 let cumulativeTrades = 0;       // monotonic — increments per snapshot
 let cumulativeWealth = 0;       // real_welfare_cumulative from engine
 
-// Build the wealth-flow meter rows from METER_SEGMENTS.
+// Build the meter rows. Stock and flow sections are separate DOM
+// containers so the percentages don't pretend to compose into one
+// pie. meterRows stays a flat list — updateWelfareMeter() doesn't
+// care which section a row belongs to.
+function buildMeterRow(seg, container) {
+  const row = document.createElement('div');
+  row.className = 'meter-row';
+  const header = document.createElement('div');
+  header.className = 'meter-row-header';
+  const labelWrap = document.createElement('span');
+  labelWrap.className = 'meter-row-label';
+  const dot = document.createElement('span');
+  dot.className = 'meter-dot';
+  dot.style.background = seg.color;
+  labelWrap.appendChild(dot);
+  labelWrap.appendChild(document.createTextNode(seg.label));
+  const valueEl = document.createElement('span');
+  valueEl.className = 'meter-row-value';
+  valueEl.textContent = '--';
+  header.appendChild(labelWrap);
+  header.appendChild(valueEl);
+  const bar = document.createElement('div');
+  bar.className = 'meter-bar';
+  const fillEl = document.createElement('div');
+  fillEl.className = 'meter-fill';
+  fillEl.style.background = seg.color;
+  bar.appendChild(fillEl);
+  row.appendChild(header);
+  row.appendChild(bar);
+  container.appendChild(row);
+  return {
+    key: seg.key,
+    source: seg.source,
+    target: 0,
+    valueEl,
+    fillEl,
+    phase: Math.random() * 6.2832,
+  };
+}
 function initWelfareMeter() {
-  if (!welfareMeterEl) return;
-  meterRows = METER_SEGMENTS.map((seg) => {
-    const row = document.createElement('div');
-    row.className = 'meter-row';
-    const header = document.createElement('div');
-    header.className = 'meter-row-header';
-    const labelWrap = document.createElement('span');
-    labelWrap.className = 'meter-row-label';
-    const dot = document.createElement('span');
-    dot.className = 'meter-dot';
-    dot.style.background = seg.color;
-    labelWrap.appendChild(dot);
-    labelWrap.appendChild(document.createTextNode(seg.label));
-    const valueEl = document.createElement('span');
-    valueEl.className = 'meter-row-value';
-    valueEl.textContent = '--';
-    header.appendChild(labelWrap);
-    header.appendChild(valueEl);
-    const bar = document.createElement('div');
-    bar.className = 'meter-bar';
-    const fillEl = document.createElement('div');
-    fillEl.className = 'meter-fill';
-    fillEl.style.background = seg.color;
-    bar.appendChild(fillEl);
-    row.appendChild(header);
-    row.appendChild(bar);
-    welfareMeterEl.appendChild(row);
-    return {
-      key: seg.key,
-      source: seg.source,
-      target: 0,
-      valueEl,
-      fillEl,
-      phase: Math.random() * 6.2832,
-    };
-  });
+  meterRows = [];
+  if (welfareStockEl) {
+    for (const seg of STOCK_SEGMENTS) meterRows.push(buildMeterRow(seg, welfareStockEl));
+  }
+  if (welfareFlowEl) {
+    for (const seg of FLOW_SEGMENTS) meterRows.push(buildMeterRow(seg, welfareFlowEl));
+  }
 }
 
 // Per-frame jitter so the bars wobble even when the share is stable.
@@ -186,16 +206,8 @@ function initScene() {
     radius: theme.radius,
     subdivisions: theme.subdivisions,
     baseColor: theme.baseColor,
-    activeColor: theme.activeColor,
     edgeColor: theme.edgeColor,
     edgeThreshold: theme.edgeThreshold,
-    activationThreshold: theme.activationThreshold,
-    minPersistFrames: theme.minPersistFrames,
-    maxPersistFrames: theme.maxPersistFrames,
-    magnitudeRef: theme.magnitudeRef,
-    sectorPalette: theme.sectorPalette,
-    sectorTintWeight: theme.sectorTintWeight,
-    degreePersistBoost: theme.degreePersistBoost,
   });
 
   agents = createAgents(scene, surface, {
@@ -231,6 +243,18 @@ function initScene() {
       _lastHoveredSector = -1;
     }
   });
+  toggleHumansOnlyEl?.addEventListener('change', () => {
+    agents?.setHumansOnly(toggleHumansOnlyEl.checked);
+  });
+  if (ratioSliderEl) {
+    const applyRatio = () => {
+      const n = sliderToAgentsPerHuman(ratioSliderEl.value);
+      if (ratioValueEl) ratioValueEl.textContent = String(n);
+      agents?.setAgentsPerHuman(n);
+    };
+    applyRatio();
+    ratioSliderEl.addEventListener('input', applyRatio);
+  }
 }
 
 // Sector hover detection. Cheap analytic ray-vs-sphere intersection
@@ -336,7 +360,7 @@ function logSummary() {
   const ed = edges?.diagnostics?.() ?? {};
   console.log(
     `[stream] tick=${counters.step}  cast=${counters.cast}  fps=${fps.toFixed(1)}  ` +
-    `faces=${sd.faceCount}  active=${sd.activeFaces}  ` +
+    `faces=${sd.faceCount}  ` +
     `agents=${ad.castCount}  segments=${ad.segments}  firms=${ad.firmCount}  ` +
     `arcs=${ed.lineCount}`,
   );
@@ -394,7 +418,6 @@ function onStep(step) {
 
 function onCastSnapshot(ev) {
   counters.cast += 1;
-  surface?.handleCastSnapshot(ev.snapshot);
   agents?.handleCastSnapshot(ev.snapshot);
   if (counters.cast === 1) setProgress(1.0, 'live');
 }
