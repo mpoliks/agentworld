@@ -63,22 +63,24 @@ const VERTEX_SHADER = /* glsl */ `
   attribute vec3 color;
   attribute vec3 barycentric;
   attribute float altitude;
+  attribute float sectorIdx;
+  attribute vec3 sectorBoundary;
   uniform float uAltitudeScale;
   uniform float uGlobalAltitude;
   uniform float uTiltShade;
   varying vec3 vColor;
   varying vec3 vBary;
   varying float vShade;
+  varying float vSector;
+  varying vec3 vSectorBoundary;
   void main() {
     vColor = color;
     vBary = barycentric;
+    vSector = sectorIdx;
+    vSectorBoundary = sectorBoundary;
     float a = altitude + uGlobalAltitude;
     vec3 displaced = position * (1.0 + a * uAltitudeScale);
-    // Altitude-only shading. vShade=1.0 at altitude=0 so flat areas
-    // render at the original brightness; peaks brighten and pits
-    // darken proportionally. Within a face (corners at different
-    // altitudes) the gradient reads as the face's tilt.
-    vShade = 1.0 + altitude * uTiltShade;
+    vShade = max(0.55, 1.0 + altitude * uTiltShade);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
   }
 `;
@@ -88,15 +90,38 @@ const FRAGMENT_SHADER = /* glsl */ `
 
   uniform vec3 uEdgeColor;
   uniform float uEdgeThreshold;
+  uniform vec3 uHoverOutline;
+  uniform float uHoverBoundary;
+  uniform float uHoverShade;
+  uniform float uHoveredSector;
 
   varying vec3 vColor;
   varying vec3 vBary;
   varying float vShade;
+  varying float vSector;
+  varying vec3 vSectorBoundary;
 
   void main() {
     float minBary = min(vBary.x, min(vBary.y, vBary.z));
-    vec3 col = minBary < uEdgeThreshold ? uEdgeColor : vColor;
-    gl_FragColor = vec4(col * vShade, 1.0);
+    bool inHovered = uHoveredSector >= 0.0 && abs(vSector - uHoveredSector) < 0.5;
+    // Boundary detection: near an edge whose neighbour face is in a
+    // different sector. Only painted when this face's sector matches
+    // the hovered sector.
+    bool nearBoundary = inHovered && (
+      (vBary.x < uHoverBoundary && vSectorBoundary.x > 0.5) ||
+      (vBary.y < uHoverBoundary && vSectorBoundary.y > 0.5) ||
+      (vBary.z < uHoverBoundary && vSectorBoundary.z > 0.5)
+    );
+    vec3 col;
+    if (nearBoundary) {
+      col = uHoverOutline;
+    } else if (minBary < uEdgeThreshold) {
+      col = uEdgeColor;
+    } else {
+      col = vColor;
+    }
+    float hover = inHovered ? uHoverShade : 1.0;
+    gl_FragColor = vec4(col * vShade * hover, 1.0);
   }
 `;
 
@@ -123,8 +148,13 @@ export function createSurface(scene, opts = {}) {
   // altitudeDecay is per-frame multiplicative relaxation back toward
   // zero. altitudeBaseScale is the uniform multiplier in the shader
   // (modulated upward by EBI at runtime).
-  const altitudeMax = opts.altitudeMax ?? 0.20;
-  const altitudeDecay = opts.altitudeDecay ?? 0.9985;
+  // Asymmetric caps: positive (peaks) and negative (pits) clamp at
+  // different magnitudes so the four inward forces (losses + stack
+  // carve + rejects + decay) can't drown out the single positive
+  // source. Pits floor early, peaks have headroom.
+  const altitudeMaxPos = opts.altitudeMaxPos ?? 0.40;
+  const altitudeMaxNeg = opts.altitudeMaxNeg ?? 0.12;
+  const altitudeDecay = opts.altitudeDecay ?? 0.9991;
   const altitudeBaseScale = opts.altitudeBaseScale ?? 1.0;
 
   // High-subdivision icosphere. Face count = 20 * (subdivisions+1)².
@@ -191,7 +221,15 @@ export function createSurface(scene, opts = {}) {
       uEdgeThreshold: { value: edgeThreshold },
       uAltitudeScale: { value: altitudeBaseScale },
       uGlobalAltitude: { value: 0.0 },
-      uTiltShade: { value: 1.2 },
+      uTiltShade: { value: 1.8 },
+      // Sector hover (Pass 22). uHoveredSector = -1 means no hover.
+      // uHoverBoundary thickens the boundary edge band (~0.10 ≈ 30%
+      // of face width). uHoverShade brightens the hovered sector
+      // very lightly. uHoverOutline is a soft sandy blue.
+      uHoveredSector: { value: -1.0 },
+      uHoverBoundary: { value: 0.10 },
+      uHoverShade: { value: 1.06 },
+      uHoverOutline: { value: new THREE.Color(0.40, 0.55, 0.78) },
     },
     side: THREE.FrontSide,
     transparent: false,
@@ -276,6 +314,76 @@ export function createSurface(scene, opts = {}) {
   // altitudes. vertIds maps each non-indexed vertex into this array.
   const uniqueVertCount = nextVid;
   vertAltitudes = new Float32Array(uniqueVertCount);
+
+  // Sector partition (Pass 22). 12 Fibonacci-distributed anchor
+  // points on the unit sphere; each face is tagged with the sector
+  // whose anchor is closest to its centroid. The K=12 engine sector
+  // enum maps 1:1 onto these regions — agent walks are filtered to
+  // same-sector neighbours, so each economic sector visibly occupies
+  // its own contiguous patch of the substrate.
+  const sectorCount = opts.sectorCount ?? 12;
+  const sectorAnchors = new Float32Array(sectorCount * 3);
+  {
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    for (let k = 0; k < sectorCount; k += 1) {
+      const y = sectorCount === 1 ? 0 : 1 - (k / (sectorCount - 1)) * 2;
+      const rxz = Math.sqrt(Math.max(0, 1 - y * y));
+      const theta = golden * k;
+      sectorAnchors[k * 3 + 0] = Math.cos(theta) * rxz;
+      sectorAnchors[k * 3 + 1] = y;
+      sectorAnchors[k * 3 + 2] = Math.sin(theta) * rxz;
+    }
+  }
+  const faceSector = new Int8Array(faceCount);
+  const facesBySector = new Array(sectorCount);
+  for (let k = 0; k < sectorCount; k += 1) facesBySector[k] = [];
+  for (let f = 0; f < faceCount; f += 1) {
+    const cx = faceCentroids[f * 3 + 0];
+    const cy = faceCentroids[f * 3 + 1];
+    const cz = faceCentroids[f * 3 + 2];
+    const cn = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
+    const ux = cx / cn, uy = cy / cn, uz = cz / cn;
+    let best = 0, bestDot = -Infinity;
+    for (let k = 0; k < sectorCount; k += 1) {
+      const ax = sectorAnchors[k * 3 + 0];
+      const ay = sectorAnchors[k * 3 + 1];
+      const az = sectorAnchors[k * 3 + 2];
+      const d = ux * ax + uy * ay + uz * az;
+      if (d > bestDot) { bestDot = d; best = k; }
+    }
+    faceSector[f] = best;
+    facesBySector[best].push(f);
+  }
+
+  // Per-vertex sector + boundary attributes for the hover render
+  // path. sectorIdx is the face's sector replicated to its 3
+  // vertices; sectorBoundary is a vec3 flag triple where each
+  // component is 1.0 if the edge OPPOSITE that vertex is a sector
+  // boundary (neighbour face has a different sector).
+  const sectorArr = new Float32Array(vertexCount);
+  const sectorBoundaryArr = new Float32Array(vertexCount * 3);
+  for (let f = 0; f < faceCount; f += 1) {
+    const sf = faceSector[f];
+    sectorArr[f * 3 + 0] = sf;
+    sectorArr[f * 3 + 1] = sf;
+    sectorArr[f * 3 + 2] = sf;
+    // faceAdjacency[f*3 + e] = neighbour across edge e:
+    //   e=0: edge (v0,v1) — opposite v2
+    //   e=1: edge (v1,v2) — opposite v0
+    //   e=2: edge (v2,v0) — opposite v1
+    const n01 = faceAdjacency[f * 3 + 0];
+    const n12 = faceAdjacency[f * 3 + 1];
+    const n20 = faceAdjacency[f * 3 + 2];
+    const b0 = (n12 >= 0 && faceSector[n12] !== sf) ? 1 : 0;   // opp v0
+    const b1 = (n20 >= 0 && faceSector[n20] !== sf) ? 1 : 0;   // opp v1
+    const b2 = (n01 >= 0 && faceSector[n01] !== sf) ? 1 : 0;   // opp v2
+    const fb = f * 9;
+    sectorBoundaryArr[fb + 0] = b0; sectorBoundaryArr[fb + 1] = b1; sectorBoundaryArr[fb + 2] = b2;
+    sectorBoundaryArr[fb + 3] = b0; sectorBoundaryArr[fb + 4] = b1; sectorBoundaryArr[fb + 5] = b2;
+    sectorBoundaryArr[fb + 6] = b0; sectorBoundaryArr[fb + 7] = b1; sectorBoundaryArr[fb + 8] = b2;
+  }
+  geometry.setAttribute('sectorIdx', new THREE.BufferAttribute(sectorArr, 1));
+  geometry.setAttribute('sectorBoundary', new THREE.BufferAttribute(sectorBoundaryArr, 3));
 
   // Per-slot bookkeeping: idx → slot, last-seen wealth (for delta
   // detection), scheduled fire frame, scheduled magnitude, plus the
@@ -383,6 +491,10 @@ export function createSurface(scene, opts = {}) {
     else if (g > 0.03) g = 0.03;
     material.uniforms.uGlobalAltitude.value = g;
   }
+  function setHoveredSector(idx) {
+    material.uniforms.uHoveredSector.value =
+      Number.isFinite(idx) && idx >= 0 ? idx : -1.0;
+  }
   function bumpAltitude(faceIdx, magnitude) {
     if (faceIdx < 0 || faceIdx >= faceCount) return;
     const m = magnitude * foldCascadeMultiplier;
@@ -392,13 +504,16 @@ export function createSurface(scene, opts = {}) {
     const u2 = vertIds[base + 2];
     let a;
     a = vertAltitudes[u0] + m;
-    if (a > altitudeMax) a = altitudeMax; else if (a < -altitudeMax) a = -altitudeMax;
+    if (a > altitudeMaxPos) a = altitudeMaxPos;
+    else if (a < -altitudeMaxNeg) a = -altitudeMaxNeg;
     vertAltitudes[u0] = a;
     a = vertAltitudes[u1] + m;
-    if (a > altitudeMax) a = altitudeMax; else if (a < -altitudeMax) a = -altitudeMax;
+    if (a > altitudeMaxPos) a = altitudeMaxPos;
+    else if (a < -altitudeMaxNeg) a = -altitudeMaxNeg;
     vertAltitudes[u1] = a;
     a = vertAltitudes[u2] + m;
-    if (a > altitudeMax) a = altitudeMax; else if (a < -altitudeMax) a = -altitudeMax;
+    if (a > altitudeMaxPos) a = altitudeMaxPos;
+    else if (a < -altitudeMaxNeg) a = -altitudeMaxNeg;
     vertAltitudes[u2] = a;
   }
 
@@ -594,9 +709,16 @@ export function createSurface(scene, opts = {}) {
     // substrate's tilted plane instead of riding the face average.
     vertAltitudes,
     vertIds,
+    // Sector partition (Pass 22). faceSector[f] in [0, sectorCount-1];
+    // facesBySector[k] is the list of face indices in sector k.
+    faceSector,
+    facesBySector,
+    sectorCount,
+    sectorAnchors,
     bumpAltitude,
     setFoldCascadeMultiplier,
     setAltitudeScale,
     setGlobalAltitude,
+    setHoveredSector,
   };
 }

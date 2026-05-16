@@ -57,7 +57,7 @@ export const THEME = {
   // gridlines remain visible around it. Matryoshka stack is
   // expressed as inward substrate carving (stackInwardScale), not
   // as a floating lift.
-  stackInwardScale: 0.00012, // per-step inward altitude pull, scaled by stack
+  stackInwardScale: 0.00004, // per-step inward altitude pull, scaled by stack
   maxStepsPerSec: 24,        // step rate at capability = 1.0
   minStepsPerSec: 8,         // step rate at capability = 0
   partnerAttract: 1.0,       // weight on the recent-partners centroid pull

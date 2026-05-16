@@ -32,6 +32,7 @@ export function createAgents(scene, surface, opts = {}) {
   const {
     faceCentroids, faceAdjacency, faceCount, facePositions,
     faceAltitudes, vertAltitudes, vertIds, radius,
+    faceSector, facesBySector,
   } = surface;
   const sphereRadius = opts.sphereRadius ?? radius ?? 700;
   // Per-step inward altitude pull, scaled by the agent's Matryoshka
@@ -50,13 +51,13 @@ export function createAgents(scene, surface, opts = {}) {
   // agent's current face. log1p() so a runaway wealthy agent doesn't
   // create a single dominant peak; threshold filters out the
   // population-level noise that's always present.
-  const altitudeBumpScale = opts.altitudeBumpScale ?? 0.012;
-  const altitudeBumpThreshold = opts.altitudeBumpThreshold ?? 0.02;
-  // Asymmetric scaling: positive wealth deltas push outward 2x
-  // harder than negative deltas push inward. Counterweights the
-  // omnipresent inward forces (stack carving + rejects) so wealth
-  // peaks remain legible against the inward-drifting baseline.
-  const positiveBumpFactor = opts.positiveBumpFactor ?? 2.0;
+  const altitudeBumpScale = opts.altitudeBumpScale ?? 0.08;
+  const altitudeBumpThreshold = opts.altitudeBumpThreshold ?? 0.005;
+  // Asymmetric scaling: positive wealth deltas push outward
+  // positiveBumpFactor× harder than negative deltas push inward.
+  // Counterweights the omnipresent inward forces (stack carving +
+  // rejects) so wealth peaks dominate the visual.
+  const positiveBumpFactor = opts.positiveBumpFactor ?? 10.0;
 
   // Single mesh, single big position buffer. Per frame we rewrite the
   // live vertex range; setDrawRange() caps the GPU at the live count.
@@ -101,6 +102,7 @@ export function createAgents(scene, surface, opts = {}) {
   let firmId = null;            // Int32Array[castCount]
   let recentPartners = null;    // Array<Array<number>>[castCount]
   let lastWealth = null;        // Float32Array[castCount] — for wealth-delta bumps
+  let agentSector = null;       // Int8Array[castCount] — each agent's fixed sector
   let initialized = false;
 
   // Firm centroids in 3D position space, rebuilt each snapshot.
@@ -121,11 +123,20 @@ export function createAgents(scene, surface, opts = {}) {
     recentPartners = new Array(castCount);
     lastWealth = new Float32Array(castCount);
     lastWealth.fill(NaN);
+    agentSector = new Int8Array(castCount);
 
     for (let i = 0; i < castCount; i += 1) {
       const e = snapshot[i];
       slotByIdx.set(e.idx, i);
-      const f = Math.floor(Math.random() * faceCount);
+      // Sector-bound spawn: pick a random face from this agent's
+      // sector region. Falls back to global random if the sector
+      // list is empty (shouldn't happen with the K=12 partition).
+      const sec = (typeof e.sector === 'number' && e.sector >= 0) ? e.sector : 0;
+      agentSector[i] = sec;
+      const list = facesBySector ? facesBySector[sec] : null;
+      const f = (list && list.length > 0)
+        ? list[Math.floor(Math.random() * list.length)]
+        : Math.floor(Math.random() * faceCount);
       // Seed trail with spawn face so the agent is visible from the
       // first frame (1 segment showing at the spawn cell).
       for (let t = 0; t < MAX_TRAIL; t += 1) trail[i * MAX_TRAIL + t] = f;
@@ -154,6 +165,7 @@ export function createAgents(scene, surface, opts = {}) {
       isHuman[slot] = e.is_human ? 1 : 0;
       stack[slot] = typeof e.stack === 'number' ? e.stack : 0;
       firmId[slot] = typeof e.firm_id === 'number' ? e.firm_id : -1;
+      if (typeof e.sector === 'number' && e.sector >= 0) agentSector[slot] = e.sector;
 
       const w = Math.max(0, e.wealth ?? 0);
       let b = Math.floor(Math.log2(w + 1)) + 2;
@@ -174,7 +186,10 @@ export function createAgents(scene, surface, opts = {}) {
         const deltaMag = Math.abs(deltaSigned);
         if (deltaMag >= altitudeBumpThreshold) {
           const cur = trail[slot * MAX_TRAIL + trailHead[slot]];
-          const baseBump = altitudeBumpScale * Math.log1p(deltaMag);
+          // sqrt response: small deltas still produce visible bumps
+          // (log1p was over-compressing the long tail of tiny wealth
+          // changes that dominate most ticks).
+          const baseBump = altitudeBumpScale * Math.sqrt(deltaMag);
           const signed = deltaSigned >= 0 ? baseBump * positiveBumpFactor : -baseBump;
           surface.bumpAltitude(cur, signed);
         }
@@ -217,13 +232,36 @@ export function createAgents(scene, surface, opts = {}) {
     const n1 = faceAdjacency[cur * 3 + 1];
     const n2 = faceAdjacency[cur * 3 + 2];
 
-    // Filter out the immediate previous face. Keep at least one
-    // candidate even if all three are the prev (shouldn't happen on a
-    // closed manifold, but defensive).
+    // Sector-bound walk: prefer neighbours in the agent's own sector
+    // so each economic sector occupies a coherent region of the
+    // sphere. If no same-sector neighbour exists (true only at the
+    // edge of a Voronoi region for that one face's geometry), fall
+    // back progressively: any non-prev neighbour, then any neighbour
+    // at all.
+    const sec = agentSector ? agentSector[slot] : -1;
+    const sameSector = sec >= 0 && faceSector !== undefined;
     const cands = [];
-    if (n0 >= 0 && n0 !== prev) cands.push(n0);
-    if (n1 >= 0 && n1 !== prev) cands.push(n1);
-    if (n2 >= 0 && n2 !== prev) cands.push(n2);
+    if (sameSector) {
+      if (n0 >= 0 && n0 !== prev && faceSector[n0] === sec) cands.push(n0);
+      if (n1 >= 0 && n1 !== prev && faceSector[n1] === sec) cands.push(n1);
+      if (n2 >= 0 && n2 !== prev && faceSector[n2] === sec) cands.push(n2);
+    } else {
+      if (n0 >= 0 && n0 !== prev) cands.push(n0);
+      if (n1 >= 0 && n1 !== prev) cands.push(n1);
+      if (n2 >= 0 && n2 !== prev) cands.push(n2);
+    }
+    if (cands.length === 0 && sameSector) {
+      // Same-sector but prev-blocked — allow stepping back.
+      if (n0 >= 0 && faceSector[n0] === sec) cands.push(n0);
+      if (n1 >= 0 && faceSector[n1] === sec) cands.push(n1);
+      if (n2 >= 0 && faceSector[n2] === sec) cands.push(n2);
+    }
+    if (cands.length === 0) {
+      // Surrounded by other sectors — take any neighbour to escape.
+      if (n0 >= 0) cands.push(n0);
+      if (n1 >= 0) cands.push(n1);
+      if (n2 >= 0) cands.push(n2);
+    }
     if (cands.length === 0) {
       return n0 >= 0 ? n0 : n1 >= 0 ? n1 : n2;
     }
