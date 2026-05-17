@@ -110,15 +110,24 @@ const btnPauseEl = document.getElementById('btn-pause');
 const btnRestartEl = document.getElementById('btn-restart');
 let cumulativeTrades = 0;       // monotonic — increments per snapshot
 let cumulativeWealth = 0;       // real_welfare_cumulative from engine
-// EMA of per-tick EBI. Drives the world-shape morph: as EBI climbs,
-// the sphere squashes toward a disc along the Y axis. α=0.06 per
-// step (~5 Hz tick rate) → ~3 s half-life — fast enough to react to
-// lever changes, slow enough to filter per-snapshot sampling noise.
-let _ebiSmoothed = 1.0;
-let _shapeFlatten = 0;          // 0 = sphere, 0.85 = near-disc
-const EBI_FLATTEN_FLOOR = 1.0;  // EBI <= this → sphere
-const EBI_FLATTEN_CEIL = 5.0;   // EBI >= this → maximum flatten
-const SHAPE_FLATTEN_MAX = 0.85; // 85% squash is dramatic but readable
+// EMA of per-tick EBI. Drives the world-shape morph. α=0.06 per
+// step (~5 Hz tick rate) → ~3 s half-life — fast enough to react
+// to lever changes, slow enough to filter per-snapshot sampling
+// noise. Initialised at the neutral midpoint so the first few
+// frames don't snap to disc/chaos before the engine produces a
+// meaningful EBI.
+let _ebiSmoothed = 2.0;
+// Two morph axes, mutually exclusive by EBI regime:
+//   EBI <= 2.0  →  flatten toward disc       (smooth/clean economy)
+//   EBI ~= 2.0  →  clean sphere, just pockmarks from trade bumps
+//   EBI  > 2.0  →  chaos warp (lumpy hyperspherical lobes)
+let _shapeFlatten = 0;
+let _shapeChaos = 0;
+const SHAPE_FLATTEN_MAX = 0.85;        // 85% squash at EBI≈0.5 (extreme smooth)
+const SHAPE_FLATTEN_EBI_HIGH = 2.0;    // above this → no flatten
+const SHAPE_FLATTEN_EBI_LOW = 0.5;     // at or below this → full flatten
+const SHAPE_CHAOS_EBI_LOW = 2.0;       // at or below this → no chaos
+const SHAPE_CHAOS_EBI_HIGH = 5.0;      // at or above this → full chaos
 const CUM_WEALTH_BAR_CAP = 1e8; // 100M real welfare → full bar. Linear scale,
                                 // saturates past the cap. The number text below
                                 // keeps climbing past the bar's ceiling.
@@ -568,7 +577,10 @@ function logSummary() {
 // sphere geometry.
 function applyShape() {
   const sy = 1 - _shapeFlatten;
-  if (surface) surface.mesh.scale.y = sy;
+  if (surface) {
+    surface.mesh.scale.y = sy;
+    surface.setChaos(_shapeChaos);
+  }
   if (agents) {
     agents.mesh.scale.y = sy;
     if (agents.indicatorMesh) agents.indicatorMesh.scale.y = sy;
@@ -599,9 +611,16 @@ function onStep(step) {
       const ebi = nstep / rstep;
       hudEbiEl.textContent = ebi.toFixed(3);
       _ebiSmoothed = _ebiSmoothed * 0.94 + ebi * 0.06;
-      _shapeFlatten = Math.max(0, Math.min(SHAPE_FLATTEN_MAX,
-        (_ebiSmoothed - EBI_FLATTEN_FLOOR)
-          / (EBI_FLATTEN_CEIL - EBI_FLATTEN_FLOOR) * SHAPE_FLATTEN_MAX));
+      // Flatten ramp on the low side: EBI < 2.0 starts compressing
+      // toward disc; at EBI 0.5 (or below) the sphere is fully flat.
+      const flatT = (SHAPE_FLATTEN_EBI_HIGH - _ebiSmoothed)
+        / (SHAPE_FLATTEN_EBI_HIGH - SHAPE_FLATTEN_EBI_LOW);
+      _shapeFlatten = Math.max(0, Math.min(SHAPE_FLATTEN_MAX, flatT * SHAPE_FLATTEN_MAX));
+      // Chaos ramp on the high side: EBI > 2.0 starts adding lobes;
+      // saturates at EBI 5.0.
+      const chaosT = (_ebiSmoothed - SHAPE_CHAOS_EBI_LOW)
+        / (SHAPE_CHAOS_EBI_HIGH - SHAPE_CHAOS_EBI_LOW);
+      _shapeChaos = Math.max(0, Math.min(1, chaosT));
       applyShape();
     }
   }
@@ -764,8 +783,9 @@ async function restartRun() {
   cumulativeTrades = 0;
   _stepArrivalCount = 0;
   _stepArrivalI = 0;
-  _ebiSmoothed = 1.0;
+  _ebiSmoothed = 2.0;
   _shapeFlatten = 0;
+  _shapeChaos = 0;
   applyShape();
   if (welfareTotalEl) welfareTotalEl.textContent = '0';
   if (cumulativeBarFillEl) cumulativeBarFillEl.style.width = '0%';

@@ -55,11 +55,29 @@ const VERTEX_SHADER = /* glsl */ `
   uniform float uAltitudeScale;
   uniform float uGlobalAltitude;
   uniform float uTiltShade;
+  // Pass 28: high-EBI chaos warp. Multi-frequency sinusoidal
+  // displacement turns the sphere into a lumpy hyperspherical
+  // shape as EBI ratchets up. Driven by uChaos in [0, 1].
+  uniform float uChaos;
+  uniform float uChaosAmplitude;
   varying vec3 vColor;
   varying vec3 vBary;
   varying float vShade;
   varying float vSector;
   varying vec3 vSectorBoundary;
+
+  vec3 chaosOffset(vec3 n) {
+    // Three orthogonal sinusoidal trios so the lobes are 3D and
+    // not planar. Frequencies are coprime-ish to avoid tiling.
+    float a = sin(n.x * 3.7 + n.y * 5.1) * cos(n.z * 4.3);
+    float b = sin(n.y * 7.2 + n.z * 3.9) * cos(n.x * 6.5);
+    float c = sin(n.z * 5.8 + n.x * 4.1) * cos(n.y * 8.3);
+    float d = sin(n.x * 11.0 + n.z * 13.0) * 0.4;
+    float e = cos(n.y * 9.0 + n.x * 12.0) * 0.4;
+    float f = sin(n.z * 10.5 + n.y * 14.0) * 0.4;
+    return vec3(a + d, b + e, c + f);
+  }
+
   void main() {
     vColor = color;
     vBary = barycentric;
@@ -67,6 +85,10 @@ const VERTEX_SHADER = /* glsl */ `
     vSectorBoundary = sectorBoundary;
     float a = altitude + uGlobalAltitude;
     vec3 displaced = position * (1.0 + a * uAltitudeScale);
+    if (uChaos > 0.0) {
+      vec3 n = normalize(position);
+      displaced += chaosOffset(n) * uChaos * uChaosAmplitude;
+    }
     vShade = max(0.55, 1.0 + altitude * uTiltShade);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
   }
@@ -194,6 +216,10 @@ export function createSurface(scene, opts = {}) {
       uHoverBoundary: { value: 0.10 },
       uHoverShade: { value: 1.06 },
       uHoverOutline: { value: new THREE.Color(0.40, 0.55, 0.78) },
+      uChaos: { value: 0.0 },
+      // 18% of radius at max chaos — visible lobes without
+      // breaking the silhouette so badly the sphere reads as garbage.
+      uChaosAmplitude: { value: radius * 0.18 },
     },
     side: THREE.FrontSide,
     transparent: false,
@@ -380,6 +406,11 @@ export function createSurface(scene, opts = {}) {
     material.uniforms.uHoveredSector.value =
       Number.isFinite(idx) && idx >= 0 ? idx : -1.0;
   }
+  function setChaos(t) {
+    if (!Number.isFinite(t)) return;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    material.uniforms.uChaos.value = t;
+  }
   function bumpAltitude(faceIdx, magnitude) {
     if (faceIdx < 0 || faceIdx >= faceCount) return;
     const m = magnitude * foldCascadeMultiplier;
@@ -500,5 +531,6 @@ export function createSurface(scene, opts = {}) {
     setAltitudeScale,
     setGlobalAltitude,
     setHoveredSector,
+    setChaos,
   };
 }
