@@ -107,7 +107,6 @@ let sectorsEnabled = toggleSectorsEl?.checked ?? true;
 let paused = false;
 const btnPauseEl = document.getElementById('btn-pause');
 const btnRestartEl = document.getElementById('btn-restart');
-let _counterFrame = 0;
 let cumulativeTrades = 0;       // monotonic — increments per snapshot
 let cumulativeWealth = 0;       // real_welfare_cumulative from engine
 
@@ -504,15 +503,9 @@ function animate() {
   updateWelfareMeter();
   renderer.render(scene, camera);
 
-  // Throttle trade-counter DOM updates to ~10 Hz. Cumulative count
-  // since the run started.
-  _counterFrame += 1;
-  if (_counterFrame >= 6) {
-    _counterFrame = 0;
-    if (tradeCounterEl) {
-      tradeCounterEl.textContent = cumulativeTrades.toLocaleString();
-    }
-  }
+  // Trade counter updates moved to onEdges (event-driven) so the
+  // readout works even when animate() is rAF-throttled in
+  // backgrounded tabs.
 
   frameCount += 1;
   const now = performance.now();
@@ -659,7 +652,14 @@ function onEdges(ev) {
   // Draw the live trade arcs (blue success, red reject) over the
   // current substrate. Replaces previous snapshot's lines.
   edges?.handleEdges(ev.edges);
-  if (ev.edges) cumulativeTrades += ev.edges.length;
+  if (ev.edges) {
+    cumulativeTrades += ev.edges.length;
+    // Update the counter DOM here instead of in animate() — animate
+    // is rAF-throttled when the tab is in the background, but SSE
+    // events keep landing, so a counter-from-rAF reads "0" forever
+    // for backgrounded users.
+    if (tradeCounterEl) tradeCounterEl.textContent = cumulativeTrades.toLocaleString();
+  }
 }
 
 function onTerminal(kind) {
