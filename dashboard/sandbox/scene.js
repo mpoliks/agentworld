@@ -35,8 +35,20 @@ const STOCK_SEGMENTS = [
   { key: 'humans', label: 'humans', color: 'rgb(217, 166, 77)',  source: (s) => s.human_wealth_share ?? 0 },
   { key: 'ai',     label: 'ai',     color: 'rgb(110, 130, 155)', source: (s) => Math.max(0, 1 - (s.human_wealth_share ?? 0)) },
 ];
+// matryoshka: parasitic nominal value-add per tick as a fraction of
+// nominal GDP. Sourced from (nominal_step − real_step) / nominal_step
+// — not from governance_overhead_fraction, which the engine defines
+// as gate-rejection rate (law + market + regulator + align), not
+// fold overhead. Alpha moves this number directly because more folds
+// = bigger per-tick nominal-real gap.
 const FLOW_SEGMENTS = [
-  { key: 'matryoshka', label: 'matryoshka',    color: 'rgb(140, 102, 191)', source: (s) => s.governance_overhead_fraction ?? 0 },
+  { key: 'matryoshka', label: 'matryoshka',    color: 'rgb(140, 102, 191)', source: (s) => {
+    const n = s.nominal_gdp_step;
+    const r = s.real_welfare_step;
+    if (!Number.isFinite(n) || n <= 0 || !Number.isFinite(r)) return 0;
+    const v = (n - r) / n;
+    return v < 0 ? 0 : v > 1 ? 1 : v;
+  } },
   { key: 'legal',      label: 'legal capture', color: 'rgb(217, 89, 89)',   source: (s) => s.law_surplus_loss_fraction ?? 0 },
   { key: 'recycling',  label: 'recycling',     color: 'rgb(89, 178, 115)',  source: (s) => s.pigouvian_effective_rate ?? 0 },
 ];
@@ -51,6 +63,23 @@ const toggleSectorsEl = document.getElementById('toggle-sectors');
 const toggleHumansOnlyEl = document.getElementById('toggle-humans-only');
 const ratioSliderEl = document.getElementById('ratio-slider');
 const ratioValueEl = document.getElementById('ratio-value');
+// HUD readout (top-right). Numeric mirror of the engine signals
+// that drive the visual — α, EBI, per-tick welfare delta, gini,
+// engine ticks/sec.
+const hudAlphaEl = document.getElementById('hud-alpha');
+const hudEbiEl = document.getElementById('hud-ebi');
+const hudWelfareStepEl = document.getElementById('hud-welfare-step');
+const hudGiniEl = document.getElementById('hud-gini');
+const hudTpsEl = document.getElementById('hud-tps');
+// Live levers panel (right side under the HUD). One slider per
+// engine parameter that's whitelisted by _LIVE_TUNABLE in
+// engine/serve.py and pushed via POST /runs/{id}/update. α was
+// dropped — it's an outcome of governance/tax/capability conditions,
+// not a knob a regulator actually has (the path-dependence test in
+// Pass 26 confirmed turning α down doesn't unwind fold accumulation).
+// HUD α row stays as a read-only readout.
+const leverMarketTaxEl = document.getElementById('lever-market-tax');
+const leverMarketTaxValueEl = document.getElementById('lever-market-tax-value');
 // Slider value 0..100 maps log-scale to agentsPerHuman 1..1000.
 // At slider=67, value ≈ 100 (real-population default of 1 human : 100 agents).
 function sliderToAgentsPerHuman(s) {
@@ -61,6 +90,12 @@ const welfareTotalEl = document.getElementById('welfare-total-value');
 const welfareStockEl = document.getElementById('welfare-stock');
 const welfareFlowEl = document.getElementById('welfare-flow');
 let sectorsEnabled = toggleSectorsEl?.checked ?? true;
+// Dashboard-side pause. The engine keeps running; we skip processing
+// new step / cast / edge events so the visual freezes. Toggling off
+// resumes from the next event (no catch-up backlog — we just drop
+// what arrived during the pause).
+let paused = false;
+const togglePauseEl = document.getElementById('toggle-pause');
 let _counterFrame = 0;
 let cumulativeTrades = 0;       // monotonic — increments per snapshot
 let cumulativeWealth = 0;       // real_welfare_cumulative from engine
@@ -101,7 +136,7 @@ function buildMeterRow(seg, container) {
     target: 0,
     valueEl,
     fillEl,
-    phase: Math.random() * 6.2832,
+    smoothed: NaN,
   };
 }
 function initWelfareMeter() {
@@ -114,16 +149,44 @@ function initWelfareMeter() {
   }
 }
 
-// Per-frame jitter so the bars wobble even when the share is stable.
-const METER_JITTER_AMP = 0.012;        // ±1.2 % wobble
-const METER_JITTER_RATE = 1.4;         // rad / s
+// HUD ticks/sec — ring buffer of recent step arrival timestamps.
+// Engine cadence is distinct from render FPS (the scene animates at
+// the browser's rAF rate while step events arrive ~5 Hz).
+const HUD_TPS_WINDOW = 10;
+const _stepArrivalT = new Float32Array(HUD_TPS_WINDOW);
+let _stepArrivalI = 0;
+let _stepArrivalCount = 0;
+function pushStepArrival(tSec) {
+  _stepArrivalT[_stepArrivalI] = tSec;
+  _stepArrivalI = (_stepArrivalI + 1) % HUD_TPS_WINDOW;
+  if (_stepArrivalCount < HUD_TPS_WINDOW) _stepArrivalCount += 1;
+}
+function ticksPerSec() {
+  if (_stepArrivalCount < 2) return 0;
+  const newestI = (_stepArrivalI - 1 + HUD_TPS_WINDOW) % HUD_TPS_WINDOW;
+  const oldestI = _stepArrivalCount < HUD_TPS_WINDOW
+    ? 0
+    : _stepArrivalI;
+  const newest = _stepArrivalT[newestI];
+  const oldest = _stepArrivalT[oldestI];
+  const span = newest - oldest;
+  if (span <= 0) return 0;
+  return (_stepArrivalCount - 1) / span;
+}
+
+// EMA smoothing on each meter row so per-snapshot sampling noise
+// doesn't drown out alpha-driven trends. α=0.08 per frame → ~0.4s
+// half-life, fast enough to feel responsive, slow enough to smooth
+// the engine's 5 Hz tick-to-tick variance. Earlier cosmetic sine
+// jitter was making real signal changes look random — removed.
+const METER_EMA_ALPHA = 0.08;
 function updateWelfareMeter() {
   if (!meterRows) return;
-  const t = performance.now() * 0.001;
   for (let i = 0; i < meterRows.length; i += 1) {
     const r = meterRows[i];
-    const noise = Math.sin(t * METER_JITTER_RATE + r.phase) * METER_JITTER_AMP;
-    let v = r.target + noise;
+    if (!Number.isFinite(r.smoothed)) r.smoothed = r.target;
+    r.smoothed = r.smoothed * (1 - METER_EMA_ALPHA) + r.target * METER_EMA_ALPHA;
+    let v = r.smoothed;
     if (v < 0) v = 0; else if (v > 1) v = 1;
     r.fillEl.style.width = (v * 100).toFixed(2) + '%';
     r.valueEl.textContent = (v * 100).toFixed(1) + '%';
@@ -156,7 +219,7 @@ let renderer, scene, camera, controls;
 let surface = null;
 let agents = null;
 let edges = null;
-// Wealth-flow meter state. Each entry: { key, target, label, color, valueEl, fillEl, phase }.
+// Wealth-flow meter state. Each entry: { key, target, smoothed, valueEl, fillEl }.
 let meterRows = null;
 let summaryTimer = null;
 let stream = null;
@@ -246,6 +309,10 @@ function initScene() {
   toggleHumansOnlyEl?.addEventListener('change', () => {
     agents?.setHumansOnly(toggleHumansOnlyEl.checked);
   });
+  togglePauseEl?.addEventListener('change', () => {
+    paused = togglePauseEl.checked;
+    setStatus(paused ? `${theme.name} · paused` : `${theme.name} · live`, paused ? '' : 'live');
+  });
   if (ratioSliderEl) {
     const applyRatio = () => {
       const n = sliderToAgentsPerHuman(ratioSliderEl.value);
@@ -255,6 +322,51 @@ function initScene() {
     applyRatio();
     ratioSliderEl.addEventListener('input', applyRatio);
   }
+  // Live levers — debounced POST /runs/{id}/update so dragging
+  // the slider doesn't fire ~60 requests/sec. The readout updates
+  // immediately; the request waits LEVER_DEBOUNCE_MS for the drag
+  // to settle.
+  if (leverMarketTaxEl) {
+    leverMarketTaxEl.addEventListener('input', () => {
+      const v = parseFloat(leverMarketTaxEl.value);
+      if (!Number.isFinite(v)) return;
+      if (leverMarketTaxValueEl) leverMarketTaxValueEl.textContent = (v * 100).toFixed(1) + '%';
+      scheduleLeverUpdate('market_layer_tax', v);
+    });
+  }
+}
+
+// Debounced live-update POST. Per-key timer so simultaneous sliders
+// on different keys don't cancel each other. The engine validates
+// against _LIVE_TUNABLE + Sobol bounds; a 400/409 response is logged
+// but doesn't unwind the slider — the user can drag back.
+const LEVER_DEBOUNCE_MS = 200;
+const _leverTimers = new Map();
+const _leverPending = new Map();
+function scheduleLeverUpdate(key, value) {
+  _leverPending.set(key, value);
+  const prev = _leverTimers.get(key);
+  if (prev !== undefined) clearTimeout(prev);
+  _leverTimers.set(key, setTimeout(() => {
+    _leverTimers.delete(key);
+    flushLeverUpdates();
+  }, LEVER_DEBOUNCE_MS));
+}
+function flushLeverUpdates() {
+  if (!stream?.runId || _leverPending.size === 0) return;
+  const overrides = Object.fromEntries(_leverPending);
+  _leverPending.clear();
+  fetch(`/runs/${stream.runId}/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ overrides }),
+  }).then((res) => {
+    if (!res.ok) {
+      res.text().then((t) => console.warn(`[lever] ${res.status}: ${t}`));
+    }
+  }).catch((err) => {
+    console.warn(`[lever] network: ${err.message}`);
+  });
 }
 
 // Sector hover detection. Cheap analytic ray-vs-sphere intersection
@@ -372,8 +484,29 @@ function onHello(meta) {
 }
 
 function onStep(step) {
+  if (paused) return;
   counters.step += 1;
   setStatus(`${theme.name} · tick ${step.step}`, 'live');
+
+  pushStepArrival(performance.now() * 0.001);
+  if (hudAlphaEl && Number.isFinite(step.alpha)) hudAlphaEl.textContent = step.alpha.toFixed(3);
+  // Per-tick EBI = nominal_step / real_step. Reads the *current*
+  // regime instead of the cumulative ratio, which can only ratchet
+  // up. Falls through when real_step is unusable.
+  if (hudEbiEl) {
+    const nstep = step.nominal_gdp_step;
+    const rstep = step.real_welfare_step;
+    if (Number.isFinite(nstep) && Number.isFinite(rstep) && rstep > 0) {
+      hudEbiEl.textContent = (nstep / rstep).toFixed(3);
+    }
+  }
+  if (hudWelfareStepEl && Number.isFinite(step.real_welfare_step)) {
+    const v = step.real_welfare_step;
+    const sign = v >= 0 ? '+' : '';
+    hudWelfareStepEl.textContent = sign + v.toFixed(1);
+  }
+  if (hudGiniEl && Number.isFinite(step.gini_wealth)) hudGiniEl.textContent = step.gini_wealth.toFixed(3);
+  if (hudTpsEl) hudTpsEl.textContent = ticksPerSec().toFixed(1);
 
   // Push each meter row's target value from the step payload, plus
   // the running cumulative wealth total at the panel header.
@@ -417,6 +550,7 @@ function onStep(step) {
 }
 
 function onCastSnapshot(ev) {
+  if (paused) return;
   counters.cast += 1;
   agents?.handleCastSnapshot(ev.snapshot);
   if (counters.cast === 1) setProgress(1.0, 'live');
@@ -431,6 +565,7 @@ function onCastSnapshot(ev) {
 const REJECT_BUMP = 0.0015;
 const TRADE_BUMP_BASE = 0.009;
 function onEdges(ev) {
+  if (paused) return;
   if (!surface || !agents || !ev.edges) return;
   for (let i = 0; i < ev.edges.length; i += 1) {
     const e = ev.edges[i];
