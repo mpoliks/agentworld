@@ -80,6 +80,10 @@ const hudTpsEl = document.getElementById('hud-tps');
 // HUD α row stays as a read-only readout.
 const leverMarketTaxEl = document.getElementById('lever-market-tax');
 const leverMarketTaxValueEl = document.getElementById('lever-market-tax-value');
+const leverPigTaxEl = document.getElementById('lever-pig-tax');
+const leverPigTaxValueEl = document.getElementById('lever-pig-tax-value');
+const leverPigProgEl = document.getElementById('lever-pig-prog');
+const leverPigProgValueEl = document.getElementById('lever-pig-prog-value');
 // Slider value 0..100 maps log-scale to agentsPerHuman 1..1000.
 // At slider=67, value ≈ 100 (real-population default of 1 human : 100 agents).
 function sliderToAgentsPerHuman(s) {
@@ -332,6 +336,22 @@ function initScene() {
       if (!Number.isFinite(v)) return;
       if (leverMarketTaxValueEl) leverMarketTaxValueEl.textContent = (v * 100).toFixed(1) + '%';
       scheduleLeverUpdate('market_layer_tax', v);
+    });
+  }
+  if (leverPigTaxEl) {
+    leverPigTaxEl.addEventListener('input', () => {
+      const v = parseFloat(leverPigTaxEl.value);
+      if (!Number.isFinite(v)) return;
+      if (leverPigTaxValueEl) leverPigTaxValueEl.textContent = (v * 100).toFixed(1) + '%';
+      scheduleLeverUpdate('pigouvian.tax_rate', v);
+    });
+  }
+  if (leverPigProgEl) {
+    leverPigProgEl.addEventListener('input', () => {
+      const v = parseFloat(leverPigProgEl.value);
+      if (!Number.isFinite(v)) return;
+      if (leverPigProgValueEl) leverPigProgValueEl.textContent = v.toFixed(1);
+      scheduleLeverUpdate('pigouvian.recycling_progressivity', v);
     });
   }
 }

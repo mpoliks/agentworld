@@ -274,6 +274,12 @@ def _apply_overrides(cfg: Any, overrides: dict, *, extend_bounds: bool = False) 
     (e.g. `agent_capability_mean`). Keys are resolved in that order; the
     first config carrying a dataclass field of that name wins.
 
+    Dotted keys reach one level into a nested-dataclass field on
+    `cfg.topology` — e.g. `pigouvian.tax_rate` → `cfg.topology.pigouvian.tax_rate`,
+    `law.transaction_size_cap` → `cfg.topology.law.transaction_size_cap`.
+    Only one level of nesting is supported (TopologyConfig is the only
+    config that holds nested dataclasses).
+
     Live-engine parameters (the eight rows from
     `engine/data/live_parameter_meta.py`) are additionally bounds-checked
     against the N=2048 Sobol sampling box. Pass `extend_bounds=True` to
@@ -302,6 +308,32 @@ def _apply_overrides(cfg: Any, overrides: dict, *, extend_bounds: bool = False) 
                     f"{key}={fvalue} outside Sobol bounds "
                     f"[{p['sobol_min']}, {p['sobol_max']}]"
                 )
+
+        # Dotted key: one level into a nested dataclass on
+        # `cfg.topology`. The nested-config field name (head) must
+        # exist on TopologyConfig; the tail must be a field on that
+        # nested config. Engine code typically does
+        # `pig_cfg = self.topology.cfg.pigouvian` per step and then
+        # reads attributes off it, so attribute writes through this
+        # path take effect on the next tick without any further work.
+        if "." in key:
+            head, _, tail = key.partition(".")
+            if "." in tail:
+                raise OverrideError(
+                    f"override key {key!r}: only one level of nesting supported"
+                )
+            nested = getattr(cfg.topology, head, None)
+            if nested is None or not dataclasses.is_dataclass(nested):
+                raise OverrideError(
+                    f"override key {key!r}: {head!r} is not a nested config on TopologyConfig"
+                )
+            nested_fields = {f.name for f in dataclasses.fields(nested)}
+            if tail not in nested_fields:
+                raise OverrideError(
+                    f"override key {key!r}: {tail!r} is not a field of {type(nested).__name__}"
+                )
+            setattr(nested, tail, value)
+            continue
 
         # Resolution order: WorldConfig top-level → topology → population.
         if key in world_fields:
@@ -599,6 +631,11 @@ def create_app():
         "coase_exp", "cross_stack_compat", "market_layer_tax",
         "a2a_floor", "cap_slope", "productive_decay",
         "fold_real_efficiency",
+        # Nested-config knobs reached via dotted keys (one level into
+        # cfg.topology). Engine reads these as `self.topology.cfg.pigouvian.*`
+        # per step so writes take effect on the next tick.
+        "pigouvian.tax_rate",
+        "pigouvian.recycling_progressivity",
     }
 
     @app.post("/runs/{run_id}/update")

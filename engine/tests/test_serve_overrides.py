@@ -392,3 +392,69 @@ def test_post_run_pair_sample_k_zero_emits_empty_lists():
         body = _wait_terminal(client, body["run_id"])
         for step in body["history"]:
             assert step["pair_samples"] == []
+
+
+# ---- dotted-key overrides for nested configs ------------------------------
+
+
+def test_apply_overrides_dotted_key_reaches_nested_config():
+    cfg = WorldConfig()
+    _apply_overrides(cfg, {"pigouvian.tax_rate": 0.42}, extend_bounds=True)
+    assert cfg.topology.pigouvian.tax_rate == 0.42
+
+
+def test_apply_overrides_dotted_key_recycling_progressivity():
+    cfg = WorldConfig()
+    _apply_overrides(cfg, {"pigouvian.recycling_progressivity": 2.5}, extend_bounds=True)
+    assert cfg.topology.pigouvian.recycling_progressivity == 2.5
+
+
+def test_apply_overrides_dotted_key_unknown_head_rejected():
+    cfg = WorldConfig()
+    with pytest.raises(OverrideError, match="not a nested config"):
+        _apply_overrides(cfg, {"nope.something": 1.0}, extend_bounds=True)
+
+
+def test_apply_overrides_dotted_key_unknown_tail_rejected():
+    cfg = WorldConfig()
+    with pytest.raises(OverrideError, match="not a field"):
+        _apply_overrides(cfg, {"pigouvian.does_not_exist": 1.0}, extend_bounds=True)
+
+
+def test_apply_overrides_dotted_key_deeper_nesting_rejected():
+    cfg = WorldConfig()
+    with pytest.raises(OverrideError, match="only one level"):
+        _apply_overrides(cfg, {"pigouvian.something.deeper": 1.0}, extend_bounds=True)
+
+
+def test_update_endpoint_accepts_pigouvian_tax_rate():
+    with TestClient(create_app()) as client:
+        r = client.post(
+            "/runs",
+            json={"scenario": "spatial_sandbox", "n_steps": 0, "scale": "small", "cast_size": 50, "pair_sample_k": 50},
+        )
+        assert r.status_code == 200, r.text
+        run_id = r.json()["run_id"]
+        u = client.post(
+            f"/runs/{run_id}/update",
+            json={"overrides": {"pigouvian.tax_rate": 0.30}},
+        )
+        assert u.status_code == 200, u.text
+        client.post(f"/runs/{run_id}/cancel")
+
+
+def test_update_endpoint_rejects_unwhitelisted_nested_key():
+    with TestClient(create_app()) as client:
+        r = client.post(
+            "/runs",
+            json={"scenario": "spatial_sandbox", "n_steps": 0, "scale": "small", "cast_size": 50, "pair_sample_k": 50},
+        )
+        assert r.status_code == 200
+        run_id = r.json()["run_id"]
+        u = client.post(
+            f"/runs/{run_id}/update",
+            json={"overrides": {"pigouvian.enabled": False}},
+        )
+        assert u.status_code == 400
+        assert "not live-tunable" in u.json()["detail"]
+        client.post(f"/runs/{run_id}/cancel")
