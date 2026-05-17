@@ -71,6 +71,7 @@ const hudEbiEl = document.getElementById('hud-ebi');
 const hudWelfareStepEl = document.getElementById('hud-welfare-step');
 const hudGiniEl = document.getElementById('hud-gini');
 const hudTpsEl = document.getElementById('hud-tps');
+const hudStreamEl = document.getElementById('hud-stream');
 // Live levers panel (right side under the HUD). One slider per
 // engine parameter that's whitelisted by _LIVE_TUNABLE in
 // engine/serve.py and pushed via POST /runs/{id}/update. α was
@@ -117,6 +118,14 @@ let cumulativeWealth = 0;       // real_welfare_cumulative from engine
 // frames don't snap to disc/chaos before the engine produces a
 // meaningful EBI.
 let _ebiSmoothed = 2.0;
+// Stream-staleness tracking. The dashboard expects an edges_v2
+// burst on every engine tick (~5 Hz). If the gap grows beyond
+// STREAM_STALE_MS the HUD's "stream" row flips from "live" to
+// "Xs ago" so the user can tell engine-stop vs browser-throttle.
+// document.visibilityState makes the throttle case explicit:
+// backgrounded tabs prefix the readout with "bg".
+let _lastEdgeT = 0;
+const STREAM_STALE_MS = 2000;
 // Two morph axes, mutually exclusive by EBI regime:
 //   EBI <= 2.0  →  flatten toward disc       (smooth/clean economy)
 //   EBI ~= 2.0  →  clean sphere, just pockmarks from trade bumps
@@ -589,9 +598,31 @@ function applyShape() {
   if (edges) edges.mesh.scale.y = sy;
 }
 
+// Stream-age refresher. setInterval is also background-throttled,
+// but only to ~1 Hz (not stalled like rAF), so this still updates
+// the HUD readout often enough to tell live vs throttled at a
+// glance. Started in onHello, cleared in onTerminal/onConnectError.
+let streamAgeTimer = null;
+function updateStreamAge() {
+  if (!hudStreamEl) return;
+  const hidden = typeof document !== 'undefined' && document.hidden;
+  if (_lastEdgeT === 0) {
+    hudStreamEl.textContent = hidden ? 'bg · --' : '--';
+    return;
+  }
+  const ageMs = performance.now() - _lastEdgeT;
+  const prefix = hidden ? 'bg · ' : '';
+  if (ageMs < STREAM_STALE_MS) {
+    hudStreamEl.textContent = prefix + 'live';
+  } else {
+    hudStreamEl.textContent = prefix + (ageMs / 1000).toFixed(1) + 's';
+  }
+}
+
 function onHello(meta) {
   setStatus(`live · ${theme.name} · ${meta.scenario}`, 'live');
   summaryTimer = setInterval(logSummary, 1000);
+  if (streamAgeTimer === null) streamAgeTimer = setInterval(updateStreamAge, 500);
 }
 
 function onStep(step) {
@@ -733,16 +764,19 @@ function onEdges(ev) {
     // events keep landing, so a counter-from-rAF reads "0" forever
     // for backgrounded users.
     if (tradeCounterEl) tradeCounterEl.textContent = cumulativeTrades.toLocaleString();
+    _lastEdgeT = performance.now();
   }
 }
 
 function onTerminal(kind) {
   if (summaryTimer) { clearInterval(summaryTimer); summaryTimer = null; }
+  if (streamAgeTimer) { clearInterval(streamAgeTimer); streamAgeTimer = null; }
   setStatus(`${kind}`, kind);
 }
 
 function onConnectError() {
   if (summaryTimer) { clearInterval(summaryTimer); summaryTimer = null; }
+  if (streamAgeTimer) { clearInterval(streamAgeTimer); streamAgeTimer = null; }
   setStatus('stream closed', 'error');
 }
 
@@ -786,7 +820,9 @@ async function restartRun() {
   _ebiSmoothed = 2.0;
   _shapeFlatten = 0;
   _shapeChaos = 0;
+  _lastEdgeT = 0;
   applyShape();
+  if (hudStreamEl) hudStreamEl.textContent = '--';
   if (welfareTotalEl) welfareTotalEl.textContent = '0';
   if (cumulativeBarFillEl) cumulativeBarFillEl.style.width = '0%';
   if (tradeCounterEl) tradeCounterEl.textContent = '0';
