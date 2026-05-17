@@ -542,6 +542,18 @@ export function createAgents(scene, surface, opts = {}) {
     tetherMesh.visible = !!v;
   }
   function setHumansOnly(v) { humansOnly = !!v; }
+  // Restart hook — clear slot mapping + draw ranges so the next
+  // cast snapshot triggers a fresh initialLayout(). Typed arrays
+  // are re-allocated on the next snapshot since cast size may differ.
+  function reset() {
+    initialized = false;
+    slotByIdx.clear();
+    castCount = 0;
+    firmCentroids.clear();
+    geometry.setDrawRange(0, 0);
+    indicatorGeom.setDrawRange(0, 0);
+    tetherGeom.setDrawRange(0, 0);
+  }
   function setAgentsPerHuman(n) {
     const v = Number.isFinite(n) ? Math.max(1, n) : DEFAULT_AGENTS_PER_HUMAN;
     agentsPerHuman = v;
@@ -577,7 +589,7 @@ export function createAgents(scene, surface, opts = {}) {
 
   return {
     mesh, indicatorMesh, tetherMesh, handleCastSnapshot, tick, setVisible,
-    setIndicatorVisible, setHumansOnly, setAgentsPerHuman,
+    setIndicatorVisible, setHumansOnly, setAgentsPerHuman, reset,
     dispose, diagnostics, currentFaceForIdx,
   };
 }

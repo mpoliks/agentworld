@@ -99,7 +99,8 @@ let sectorsEnabled = toggleSectorsEl?.checked ?? true;
 // resumes from the next event (no catch-up backlog — we just drop
 // what arrived during the pause).
 let paused = false;
-const togglePauseEl = document.getElementById('toggle-pause');
+const btnPauseEl = document.getElementById('btn-pause');
+const btnRestartEl = document.getElementById('btn-restart');
 let _counterFrame = 0;
 let cumulativeTrades = 0;       // monotonic — increments per snapshot
 let cumulativeWealth = 0;       // real_welfare_cumulative from engine
@@ -213,10 +214,18 @@ function setProgress(fraction, label) {
   }
 }
 
-// Yield one animation frame so the browser repaints the loader fill
+// Yield to the event loop so the browser can repaint the loader fill
 // before the next synchronous chunk (icosphere build, adjacency, etc.).
+// MessageChannel.postMessage is not throttled in background tabs, so
+// initial load completes whether the user has the tab focused or not
+// — unlike rAF, which Chrome throttles to ~1Hz (or stalls entirely)
+// for backgrounded tabs and would leave main() hung at "scene init".
 function nextFrame() {
-  return new Promise(resolve => requestAnimationFrame(() => resolve()));
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => resolve();
+    channel.port2.postMessage(null);
+  });
 }
 
 let renderer, scene, camera, controls;
@@ -313,10 +322,13 @@ function initScene() {
   toggleHumansOnlyEl?.addEventListener('change', () => {
     agents?.setHumansOnly(toggleHumansOnlyEl.checked);
   });
-  togglePauseEl?.addEventListener('change', () => {
-    paused = togglePauseEl.checked;
+  btnPauseEl?.addEventListener('click', () => {
+    paused = !paused;
+    btnPauseEl.classList.toggle('toggled', paused);
+    btnPauseEl.textContent = paused ? 'resume' : 'pause';
     setStatus(paused ? `${theme.name} · paused` : `${theme.name} · live`, paused ? '' : 'live');
   });
+  btnRestartEl?.addEventListener('click', () => { restartRun(); });
   if (ratioSliderEl) {
     const applyRatio = () => {
       const n = sliderToAgentsPerHuman(ratioSliderEl.value);
@@ -628,6 +640,77 @@ function onTerminal(kind) {
 function onConnectError() {
   if (summaryTimer) { clearInterval(summaryTimer); summaryTimer = null; }
   setStatus('stream closed', 'error');
+}
+
+// Cancel the live run, reset dashboard state, and start a fresh
+// run with the current slider values applied as overrides. This is
+// the only way to clear path-dependent state (accumulated folds,
+// wealth gini, etc.) so the user can see the steady-state effect
+// of a lever set rather than fighting whatever the prior trajectory
+// dragged the world into.
+let _restarting = false;
+async function restartRun() {
+  if (_restarting) return;
+  _restarting = true;
+  if (btnRestartEl) btnRestartEl.disabled = true;
+  setStatus(`${theme.name} · restarting…`, '');
+
+  const overrides = {};
+  if (leverMarketTaxEl) overrides.market_layer_tax = parseFloat(leverMarketTaxEl.value);
+  if (leverPigTaxEl) overrides['pigouvian.tax_rate'] = parseFloat(leverPigTaxEl.value);
+  if (leverPigProgEl) overrides['pigouvian.recycling_progressivity'] = parseFloat(leverPigProgEl.value);
+
+  if (stream) {
+    try { await fetch(`/runs/${stream.runId}/cancel`, { method: 'POST' }); } catch (_) {}
+    stream.close();
+    stream = null;
+  }
+
+  agents?.reset();
+  surface?.resetHeightmap();
+  edges?.reset();
+
+  counters.step = 0;
+  counters.cast = 0;
+  cumulativeWealth = 0;
+  cumulativeTrades = 0;
+  _stepArrivalCount = 0;
+  _stepArrivalI = 0;
+  if (welfareTotalEl) welfareTotalEl.textContent = '0';
+  if (tradeCounterEl) tradeCounterEl.textContent = '0';
+  for (const id of ['hud-alpha', 'hud-ebi', 'hud-welfare-step', 'hud-gini', 'hud-tps']) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '--';
+  }
+  if (meterRows) {
+    for (const r of meterRows) {
+      r.target = 0;
+      r.smoothed = NaN;
+      r.valueEl.textContent = '--';
+      r.fillEl.style.width = '0%';
+    }
+  }
+  if (paused) {
+    paused = false;
+    if (btnPauseEl) {
+      btnPauseEl.classList.remove('toggled');
+      btnPauseEl.textContent = 'pause';
+    }
+  }
+
+  try {
+    stream = await startStream({ ...LEVERS, overrides }, {
+      onHello, onStep, onCastSnapshot, onEdges,
+      onFolds: () => {},
+      onTerminal, onConnectError,
+    });
+  } catch (err) {
+    setStatus(`error · ${err.message}`, 'error');
+    console.error(err);
+  } finally {
+    _restarting = false;
+    if (btnRestartEl) btnRestartEl.disabled = false;
+  }
 }
 
 async function main() {

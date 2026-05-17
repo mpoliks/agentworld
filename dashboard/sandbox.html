@@ -159,12 +159,56 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* HUD readout — top-right. Numeric mirror of the engine signals
-     that drive the visual: α (lever input), EBI (engine output),
-     welfare delta, gini, ticks/sec. */
-  #hud-panel {
+  /* Run-control bar — top-right. Pause / restart buttons live here
+     instead of with the visualization toggles because they affect
+     the engine, not the render. Restart cancels the live run and
+     spins up a fresh one with the current lever values applied as
+     overrides. */
+  #control-bar {
     position: fixed;
     top: 14px;
+    right: 18px;
+    z-index: 50;
+    display: flex;
+    gap: 6px;
+  }
+  .control-btn {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.78);
+    background: rgba(245, 240, 230, 0.94);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 6px 14px;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .control-btn:hover {
+    background: rgba(240, 232, 215, 1);
+    border-color: rgba(102, 140, 200, 0.55);
+  }
+  .control-btn:active {
+    background: rgba(225, 215, 195, 1);
+  }
+  .control-btn.toggled {
+    background: rgba(217, 89, 89, 0.92);
+    color: rgba(255, 252, 245, 0.97);
+    border-color: rgba(217, 89, 89, 0.92);
+  }
+  .control-btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* HUD readout — top-right under the control bar. Numeric mirror
+     of the engine signals that drive the visual: α (lever input),
+     EBI (engine output), welfare delta, gini, ticks/sec. */
+  #hud-panel {
+    position: fixed;
+    top: 54px;
     right: 18px;
     z-index: 50;
     background: rgba(245, 240, 230, 0.94);
@@ -196,7 +240,7 @@
      Starts with α (the master smooth/baroque axis). */
   #levers-panel {
     position: fixed;
-    top: 175px;
+    top: 215px;
     right: 18px;
     z-index: 50;
     background: rgba(245, 240, 230, 0.94);
@@ -360,6 +404,10 @@
   <div id="loader-track"><div id="loader-fill"></div></div>
   <div id="loader-label">init</div>
 </div>
+<div id="control-bar">
+  <button id="btn-pause" class="control-btn" type="button">pause</button>
+  <button id="btn-restart" class="control-btn" type="button">restart</button>
+</div>
 <div id="hud-panel">
   <div class="hud-row"><span class="hud-row-label">α</span><span class="hud-row-value" id="hud-alpha">--</span></div>
   <div class="hud-row"><span class="hud-row-label">ebi</span><span class="hud-row-value" id="hud-ebi">--</span></div>
@@ -395,7 +443,6 @@
 </div>
 <div id="sector-label"></div>
 <div id="toggles">
-  <label><input type="checkbox" id="toggle-pause"> pause</label>
   <label><input type="checkbox" id="toggle-trades" checked> show trades</label>
   <label><input type="checkbox" id="toggle-sectors" checked> show sectors</label>
   <label><input type="checkbox" id="toggle-humans-only"> show humans only</label>

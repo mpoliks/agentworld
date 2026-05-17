@@ -439,6 +439,16 @@ export function createSurface(scene, opts = {}) {
 
   function setVisible(visible) { mesh.visible = !!visible; }
 
+  // Restart hook — zero the heightmap so the substrate snaps back
+  // to base radius instead of slow-decaying over ~115s at the
+  // 0.9991/frame relaxation rate.
+  function resetHeightmap() {
+    if (vertAltitudes) vertAltitudes.fill(0);
+    faceAltitudes.fill(0);
+    altitudeArr.fill(0);
+    altitudeAttr.needsUpdate = true;
+  }
+
   function dispose() {
     scene.remove(mesh);
     geometry.dispose();
@@ -456,6 +466,7 @@ export function createSurface(scene, opts = {}) {
     mesh,
     tick,
     setVisible,
+    resetHeightmap,
     dispose,
     diagnostics,
     faceCount,

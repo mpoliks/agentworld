@@ -219,8 +219,14 @@ export function createEdges(scene, surface, agents, opts = {}) {
   function diagnostics() {
     return { active: active.length, segments: geometry.instanceCount };
   }
+  // Restart hook — drop in-flight arcs immediately so the new run
+  // doesn't render trade lines anchored to the prior cast's slots.
+  function reset() {
+    active.length = 0;
+    geometry.instanceCount = 0;
+  }
 
   return {
-    mesh, handleEdges, tick, setResolution, setVisible, dispose, diagnostics,
+    mesh, handleEdges, tick, setResolution, setVisible, dispose, diagnostics, reset,
   };
 }
