@@ -114,17 +114,13 @@ export function createEdges(scene, surface, agents, opts = {}) {
 
     const fade = edge.age / MAX_AGE_FRAMES;       // 0..1
     const base = edge.isReject ? rejectColor : successColor;
-    // Surplus weight: low-surplus trades fade toward the background
-    // cream so the big trades pop out of the 1,500-arc-per-tick
-    // firehose. sqrt curve so the long-tail of tiny surpluses
-    // doesn't all crowd at 0. Floor at 0.15 so micro-trades are
-    // still faintly visible — they tell the user a trade happened
-    // even if it wasn't meaningful.
-    const surplusFrac = Math.min(1, Math.sqrt(edge.surplus) / 6);
-    const w = 0.15 + 0.85 * surplusFrac;
-    const cr = (base[0] * (1 - fade) + FADE_R * fade) * w + FADE_R * (1 - w);
-    const cg = (base[1] * (1 - fade) + FADE_G * fade) * w + FADE_G * (1 - w);
-    const cbl = (base[2] * (1 - fade) + FADE_B * fade) * w + FADE_B * (1 - w);
+    // Age-only fade — earlier surplus-weighted blend toward FADE_*
+    // erased the success/reject hue identity at low surplus (which
+    // is most arcs). Keep edge.surplus captured for a future
+    // non-color-eating visualisation (per-arc opacity or thickness).
+    const cr = base[0] * (1 - fade) + FADE_R * fade;
+    const cg = base[1] * (1 - fade) + FADE_G * fade;
+    const cbl = base[2] * (1 - fade) + FADE_B * fade;
 
     let prevX = ax * ra * arcLift;
     let prevY = ay * ra * arcLift;
