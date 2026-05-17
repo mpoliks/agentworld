@@ -631,6 +631,10 @@ def create_app():
         "coase_exp", "cross_stack_compat", "market_layer_tax",
         "a2a_floor", "cap_slope", "productive_decay",
         "fold_real_efficiency",
+        # Phase 4 of spatial-sandbox-completeness.md §5: folding
+        # max-depth is read per-tick by the folding kernel
+        # (engine/core/folding.py:144, 183), so it's safe live.
+        "folding_max_depth",
         # Nested-config knobs reached via dotted keys (one level into
         # cfg.topology). Engine reads these as `self.topology.cfg.<head>.<tail>`
         # per step so writes take effect on the next tick.
@@ -638,6 +642,12 @@ def create_app():
         "pigouvian.recycling_progressivity",
         "compute.budget_per_tick",
         "compute.power_cost_per_trade",
+        # Phase 4 §5 — three additional nested-config knobs the
+        # engine reads per-tick:
+        #   - norms.update_rate    → norms.py:124 reads cfg each step
+        #   - law.transaction_size_cap → gate fires per-pair per tick
+        "norms.update_rate",
+        "law.transaction_size_cap",
         # Top-level TopologyConfig knob — gate that admits cross-stack
         # pairs before the Matryoshka cascade. cross_stack_compat
         # (the matrix value) is already above; permeability is a

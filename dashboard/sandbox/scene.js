@@ -90,25 +90,42 @@ const hudRejRegEl = document.getElementById('hud-rej-reg');
 const hudRejSumRowEl = document.getElementById('hud-rej-sum-row');
 const hudRejSumEl = document.getElementById('hud-rej-sum');
 const hudRegimeCaptionEl = document.getElementById('hud-regime-caption');
-// Live levers panel (right side under the HUD). One slider per
-// engine parameter that's whitelisted by _LIVE_TUNABLE in
-// engine/serve.py and pushed via POST /runs/{id}/update. α was
-// dropped — it's an outcome of governance/tax/capability conditions,
-// not a knob a regulator actually has (the path-dependence test in
-// Pass 26 confirmed turning α down doesn't unwind fold accumulation).
-// HUD α row stays as a read-only readout.
-const leverMarketTaxEl = document.getElementById('lever-market-tax');
-const leverMarketTaxValueEl = document.getElementById('lever-market-tax-value');
-const leverPigTaxEl = document.getElementById('lever-pig-tax');
-const leverPigTaxValueEl = document.getElementById('lever-pig-tax-value');
-const leverPigProgEl = document.getElementById('lever-pig-prog');
-const leverPigProgValueEl = document.getElementById('lever-pig-prog-value');
-const leverCbEl = document.getElementById('lever-cb');
-const leverCbValueEl = document.getElementById('lever-cb-value');
-const leverPcEl = document.getElementById('lever-pc');
-const leverPcValueEl = document.getElementById('lever-pc-value');
-const leverCspEl = document.getElementById('lever-csp');
-const leverCspValueEl = document.getElementById('lever-csp-value');
+const leversPendingRowEl = document.getElementById('levers-pending-row');
+// Lever panel — Phase 4 of spatial-sandbox-completeness.md §5.
+// Levers carry data-key (engine override key) and data-kind
+// ("live" → POST /update on every change; "structural" → queued
+// until the user clicks Restart). The HTML defines the 20 plan-§3
+// rows; this module reads them by attribute rather than by id so
+// new levers slot in without scene.js changes.
+//
+// Per-lever value formatting lives in LEVER_FORMAT below, keyed by
+// data-key. Levers not listed default to v.toFixed(2).
+const LEVER_FORMAT = {
+  // Live numeric levers
+  'market_layer_tax':                  (v) => (v * 100).toFixed(1) + '%',
+  'pigouvian.tax_rate':                (v) => (v * 100).toFixed(1) + '%',
+  'pigouvian.recycling_progressivity': (v) => v.toFixed(1),
+  'compute.budget_per_tick':           (v) => v.toFixed(2),
+  'compute.power_cost_per_trade':      (v) => v.toFixed(4),
+  'cross_stack_permeability':          (v) => (v * 100).toFixed(1) + '%',
+  'norms.update_rate':                 (v) => v.toFixed(3),
+  'law.transaction_size_cap':          (v) => (v >= 10 ? '∞' : v.toFixed(2)),
+  'folding_max_depth':                 (v) => String(Math.round(v)),
+  // Structural numeric levers
+  'agent_capability_mean':             (v) => v.toFixed(2),
+  'agent_autonomy_mean':               (v) => v.toFixed(2),
+  'agent_trade_rate_multiplier':       (v) => v.toFixed(1),
+  'network_p_local':                   (v) => v.toFixed(2),
+  'norms.certified_fraction':          (v) => v.toFixed(2),
+  'law.law_strength_initial':          (v) => v.toFixed(2),
+};
+// Levers that take a string value (selects). Some need translation
+// to the engine override shape (e.g. "on"/"off" → true/false).
+const LEVER_STRING_TRANSFORM = {
+  'regulator.enabled':  (s) => s === 'on',
+  // Pass-through values for the categorical levers (engine accepts
+  // the string directly).
+};
 // Slider value 0..100 maps log-scale to agentsPerHuman 1..1000.
 // At slider=67, value ≈ 100 (real-population default of 1 human : 100 agents).
 function sliderToAgentsPerHuman(s) {
@@ -402,58 +419,58 @@ function initScene() {
     applyRatio();
     ratioSliderEl.addEventListener('input', applyRatio);
   }
-  // Live levers — debounced POST /runs/{id}/update so dragging
-  // the slider doesn't fire ~60 requests/sec. The readout updates
-  // immediately; the request waits LEVER_DEBOUNCE_MS for the drag
-  // to settle.
-  if (leverMarketTaxEl) {
-    leverMarketTaxEl.addEventListener('input', () => {
-      const v = parseFloat(leverMarketTaxEl.value);
-      if (!Number.isFinite(v)) return;
-      if (leverMarketTaxValueEl) leverMarketTaxValueEl.textContent = (v * 100).toFixed(1) + '%';
-      scheduleLeverUpdate('market_layer_tax', v);
-    });
+  // Generic lever wiring. Every control inside #levers-panel that
+  // carries data-key gets one listener. data-kind="live" pushes to
+  // the engine immediately (debounced); "structural" queues for the
+  // next Restart and surfaces the pending banner.
+  initLeverControls();
+}
+
+function initLeverControls() {
+  const panel = document.getElementById('levers-panel');
+  if (!panel) return;
+  const controls = panel.querySelectorAll('[data-key]');
+  for (const el of controls) {
+    const key = el.dataset.key;
+    const kind = el.dataset.kind || 'live';
+    const valueEl = document.getElementById(`${el.id}-value`);
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'select') {
+      // Initial display already correct from selected option.
+      el.addEventListener('change', () => {
+        const raw = el.value;
+        if (valueEl) valueEl.textContent = raw;
+        const transform = LEVER_STRING_TRANSFORM[key];
+        const value = transform ? transform(raw) : raw;
+        applyLeverChange(key, value, kind);
+      });
+    } else {
+      // input[type="range"] or other numeric
+      const fmt = LEVER_FORMAT[key] ?? ((v) => v.toFixed(2));
+      el.addEventListener('input', () => {
+        const v = parseFloat(el.value);
+        if (!Number.isFinite(v)) return;
+        if (valueEl) valueEl.textContent = fmt(v);
+        applyLeverChange(key, v, kind);
+      });
+    }
   }
-  if (leverPigTaxEl) {
-    leverPigTaxEl.addEventListener('input', () => {
-      const v = parseFloat(leverPigTaxEl.value);
-      if (!Number.isFinite(v)) return;
-      if (leverPigTaxValueEl) leverPigTaxValueEl.textContent = (v * 100).toFixed(1) + '%';
-      scheduleLeverUpdate('pigouvian.tax_rate', v);
-    });
+}
+
+function applyLeverChange(key, value, kind) {
+  // Live: write through to engine. _leverState carries numeric
+  // values for the α-mapper, so don't pollute it with strings.
+  if (kind === 'live') {
+    if (typeof value === 'number') _leverState[key] = value;
+    scheduleLeverUpdate(key, value);
+    return;
   }
-  if (leverPigProgEl) {
-    leverPigProgEl.addEventListener('input', () => {
-      const v = parseFloat(leverPigProgEl.value);
-      if (!Number.isFinite(v)) return;
-      if (leverPigProgValueEl) leverPigProgValueEl.textContent = v.toFixed(1);
-      scheduleLeverUpdate('pigouvian.recycling_progressivity', v);
-    });
-  }
-  if (leverCbEl) {
-    leverCbEl.addEventListener('input', () => {
-      const v = parseFloat(leverCbEl.value);
-      if (!Number.isFinite(v)) return;
-      if (leverCbValueEl) leverCbValueEl.textContent = v.toFixed(2);
-      scheduleLeverUpdate('compute.budget_per_tick', v);
-    });
-  }
-  if (leverPcEl) {
-    leverPcEl.addEventListener('input', () => {
-      const v = parseFloat(leverPcEl.value);
-      if (!Number.isFinite(v)) return;
-      if (leverPcValueEl) leverPcValueEl.textContent = v.toFixed(4);
-      scheduleLeverUpdate('compute.power_cost_per_trade', v);
-    });
-  }
-  if (leverCspEl) {
-    leverCspEl.addEventListener('input', () => {
-      const v = parseFloat(leverCspEl.value);
-      if (!Number.isFinite(v)) return;
-      if (leverCspValueEl) leverCspValueEl.textContent = (v * 100).toFixed(1) + '%';
-      scheduleLeverUpdate('cross_stack_permeability', v);
-    });
-  }
+  // Structural: queue for restart. The structural-pending map is
+  // separate from the live debounce queue so they don't fight.
+  _structuralPending.set(key, value);
+  if (typeof value === 'number') _leverState[key] = value;
+  updateAlphaHud();
+  if (leversPendingRowEl) leversPendingRowEl.style.display = '';
 }
 
 // Debounced live-update POST. Per-key timer so simultaneous sliders
@@ -468,23 +485,23 @@ const _leverPending = new Map();
 // when the engine update POST is debounced. Initial values are
 // seeded from the slider DOM at main() startup.
 const _leverState = {};
+// Pending structural-lever changes. Drained into the Restart
+// overrides payload. Cleared after the restart completes.
+const _structuralPending = new Map();
 let _lastEngineAlpha = NaN;
 
-// Read current slider values into _leverState. Called once in
-// main() so the lever-α mapping has the right baseline before the
-// user touches anything. Keys match the engine-side override paths
-// the scheduleLeverUpdate listeners use.
+// Read every data-key control's current value into _leverState.
+// Called once in main() so the lever-α mapping has the right
+// baseline before the user touches anything.
 function seedLeverStateFromDom() {
-  const pairs = [
-    ['market_layer_tax',                  leverMarketTaxEl],
-    ['pigouvian.tax_rate',                leverPigTaxEl],
-    ['pigouvian.recycling_progressivity', leverPigProgEl],
-    ['compute.budget_per_tick',           leverCbEl],
-    ['compute.power_cost_per_trade',      leverPcEl],
-    ['cross_stack_permeability',          leverCspEl],
-  ];
-  for (const [key, el] of pairs) {
-    if (!el) continue;
+  const panel = document.getElementById('levers-panel');
+  if (!panel) return;
+  for (const el of panel.querySelectorAll('[data-key]')) {
+    const key = el.dataset.key;
+    if (el.tagName.toLowerCase() === 'select') {
+      // Strings don't feed the α-mapper, skip.
+      continue;
+    }
     const v = parseFloat(el.value);
     if (Number.isFinite(v)) _leverState[key] = v;
   }
@@ -1012,13 +1029,37 @@ async function restartRun() {
   if (btnRestartEl) btnRestartEl.disabled = true;
   setStatus(`${theme.name} · restarting…`, '');
 
+  // Restart override payload is the union of:
+  //   - every live numeric lever's current value (so the new run
+  //     starts at the same point the user has on screen);
+  //   - every queued structural lever change (drained here).
+  // `scale` is a RunRequest top-level field, not an override key —
+  // separated out so RunRequest carries it as a sibling of overrides.
   const overrides = {};
-  if (leverMarketTaxEl) overrides.market_layer_tax = parseFloat(leverMarketTaxEl.value);
-  if (leverPigTaxEl) overrides['pigouvian.tax_rate'] = parseFloat(leverPigTaxEl.value);
-  if (leverPigProgEl) overrides['pigouvian.recycling_progressivity'] = parseFloat(leverPigProgEl.value);
-  if (leverCbEl) overrides['compute.budget_per_tick'] = parseFloat(leverCbEl.value);
-  if (leverPcEl) overrides['compute.power_cost_per_trade'] = parseFloat(leverPcEl.value);
-  if (leverCspEl) overrides.cross_stack_permeability = parseFloat(leverCspEl.value);
+  let scaleOverride = null;
+  const panel = document.getElementById('levers-panel');
+  if (panel) {
+    for (const el of panel.querySelectorAll('[data-key]')) {
+      const key = el.dataset.key;
+      if (key === 'scale') {
+        scaleOverride = el.value;
+        continue;
+      }
+      if (el.tagName.toLowerCase() === 'select') {
+        const raw = el.value;
+        const transform = LEVER_STRING_TRANSFORM[key];
+        overrides[key] = transform ? transform(raw) : raw;
+      } else {
+        const v = parseFloat(el.value);
+        if (Number.isFinite(v)) overrides[key] = v;
+      }
+    }
+  }
+  // Structural pending takes precedence (the user's most recent
+  // edits should win over the seeded DOM values).
+  for (const [k, v] of _structuralPending) overrides[k] = v;
+  _structuralPending.clear();
+  if (leversPendingRowEl) leversPendingRowEl.style.display = 'none';
 
   if (stream) {
     stream.cancel();
@@ -1077,7 +1118,9 @@ async function restartRun() {
   }
 
   try {
-    stream = await startStream({ ...LEVERS, overrides }, {
+    const req = { ...LEVERS, overrides };
+    if (scaleOverride) req.scale = scaleOverride;
+    stream = await startStream(req, {
       onHello, onStep, onCastSnapshot, onEdges,
       onFolds,
       onTerminal, onConnectError,
