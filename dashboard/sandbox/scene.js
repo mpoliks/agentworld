@@ -110,16 +110,18 @@ const btnPauseEl = document.getElementById('btn-pause');
 const btnRestartEl = document.getElementById('btn-restart');
 let cumulativeTrades = 0;       // monotonic — increments per snapshot
 let cumulativeWealth = 0;       // real_welfare_cumulative from engine
-// EMA of per-tick EBI, used to drive the substrate hue shift.
-// α=0.06 per step at ~5 Hz tick rate → ~3 s half-life, fast enough
-// to feel responsive to lever changes, slow enough to filter the
-// per-snapshot sampling noise.
+// EMA of per-tick EBI. Drives the world-shape morph: as EBI climbs,
+// the sphere squashes toward a disc along the Y axis. α=0.06 per
+// step (~5 Hz tick rate) → ~3 s half-life — fast enough to react to
+// lever changes, slow enough to filter per-snapshot sampling noise.
 let _ebiSmoothed = 1.0;
-const EBI_TINT_FLOOR = 1.0;     // EBI <= this → no tint
-const EBI_TINT_CEIL = 4.0;      // EBI >= this → full tint
-const CUM_WEALTH_BAR_CAP = 1e8;  // 100M real welfare → full bar. Linear scale,
-                                 // saturates past the cap. The number text below
-                                 // keeps climbing past the bar's ceiling.
+let _shapeFlatten = 0;          // 0 = sphere, 0.85 = near-disc
+const EBI_FLATTEN_FLOOR = 1.0;  // EBI <= this → sphere
+const EBI_FLATTEN_CEIL = 5.0;   // EBI >= this → maximum flatten
+const SHAPE_FLATTEN_MAX = 0.85; // 85% squash is dramatic but readable
+const CUM_WEALTH_BAR_CAP = 1e8; // 100M real welfare → full bar. Linear scale,
+                                // saturates past the cap. The number text below
+                                // keeps climbing past the bar's ceiling.
 
 // Build the meter rows. Stock and flow sections are separate DOM
 // containers so the percentages don't pretend to compose into one
@@ -453,18 +455,31 @@ function onPointerMove(event) {
   _ndcMouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   _ndcMouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   _raycaster.setFromCamera(_ndcMouse, camera);
-  const o = _raycaster.ray.origin;
-  const d = _raycaster.ray.direction;
+  // Inverse-apply the world-shape morph so the ray runs against the
+  // original (unflattened) sphere. The morph is a Y-axis scale, so
+  // dividing oy/dy by (1 - flatten) puts the ray in the substrate's
+  // pre-morph frame. Direction must be re-normalised since scaling
+  // a unit vector breaks the |d|=1 assumption baked into the
+  // ray-vs-sphere formula below.
+  const sy = 1 - _shapeFlatten;
+  const ox = _raycaster.ray.origin.x;
+  const oy = _raycaster.ray.origin.y / sy;
+  const oz = _raycaster.ray.origin.z;
+  let dx = _raycaster.ray.direction.x;
+  let dy = _raycaster.ray.direction.y / sy;
+  let dz = _raycaster.ray.direction.z;
+  const dlen = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+  dx /= dlen; dy /= dlen; dz /= dlen;
   const R = surface.radius ?? 700;
-  const od = o.x * d.x + o.y * d.y + o.z * d.z;
-  const oo = o.x * o.x + o.y * o.y + o.z * o.z;
+  const od = ox * dx + oy * dy + oz * dz;
+  const oo = ox * ox + oy * oy + oz * oz;
   const disc = od * od - (oo - R * R);
   if (disc < 0) { setHoveredSector(-1); return; }
   const t = -od - Math.sqrt(disc);
   if (t < 0) { setHoveredSector(-1); return; }
-  const px = o.x + t * d.x;
-  const py = o.y + t * d.y;
-  const pz = o.z + t * d.z;
+  const px = ox + t * dx;
+  const py = oy + t * dy;
+  const pz = oz + t * dz;
   const n = Math.sqrt(px * px + py * py + pz * pz) || 1;
   const ux = px / n, uy = py / n, uz = pz / n;
   const anchors = surface.sectorAnchors;
@@ -544,6 +559,24 @@ function logSummary() {
   );
 }
 
+// Apply the world-shape morph to every mesh whose vertices live in
+// scene-space — substrate, caterpillars, indicator dots, tethers,
+// trade arcs. mesh.scale.y is the cheapest way to do this; no
+// shader changes, no per-vertex JS rewrites. Sector hover (which
+// does its own analytic ray-vs-sphere) inverse-transforms the ray
+// in onPointerMove so hit detection still resolves on the original
+// sphere geometry.
+function applyShape() {
+  const sy = 1 - _shapeFlatten;
+  if (surface) surface.mesh.scale.y = sy;
+  if (agents) {
+    agents.mesh.scale.y = sy;
+    if (agents.indicatorMesh) agents.indicatorMesh.scale.y = sy;
+    if (agents.tetherMesh) agents.tetherMesh.scale.y = sy;
+  }
+  if (edges) edges.mesh.scale.y = sy;
+}
+
 function onHello(meta) {
   setStatus(`live · ${theme.name} · ${meta.scenario}`, 'live');
   summaryTimer = setInterval(logSummary, 1000);
@@ -566,9 +599,10 @@ function onStep(step) {
       const ebi = nstep / rstep;
       hudEbiEl.textContent = ebi.toFixed(3);
       _ebiSmoothed = _ebiSmoothed * 0.94 + ebi * 0.06;
-      const tint = Math.max(0, Math.min(1,
-        (_ebiSmoothed - EBI_TINT_FLOOR) / (EBI_TINT_CEIL - EBI_TINT_FLOOR)));
-      surface?.setBaroqueTint(tint);
+      _shapeFlatten = Math.max(0, Math.min(SHAPE_FLATTEN_MAX,
+        (_ebiSmoothed - EBI_FLATTEN_FLOOR)
+          / (EBI_FLATTEN_CEIL - EBI_FLATTEN_FLOOR) * SHAPE_FLATTEN_MAX));
+      applyShape();
     }
   }
   if (hudWelfareStepEl && Number.isFinite(step.real_welfare_step)) {
@@ -731,10 +765,11 @@ async function restartRun() {
   _stepArrivalCount = 0;
   _stepArrivalI = 0;
   _ebiSmoothed = 1.0;
+  _shapeFlatten = 0;
+  applyShape();
   if (welfareTotalEl) welfareTotalEl.textContent = '0';
   if (cumulativeBarFillEl) cumulativeBarFillEl.style.width = '0%';
   if (tradeCounterEl) tradeCounterEl.textContent = '0';
-  surface?.setBaroqueTint(0);
   for (const id of ['hud-alpha', 'hud-ebi', 'hud-welfare-step', 'hud-gini', 'hud-tps']) {
     const el = document.getElementById(id);
     if (el) el.textContent = '--';

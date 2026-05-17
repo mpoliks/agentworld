@@ -81,13 +81,6 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uHoverBoundary;
   uniform float uHoverShade;
   uniform float uHoveredSector;
-  // Pass 27: substrate hue shift toward a muted purple as EBI
-  // climbs, so the global state of "how baroque is the economy
-  // right now" reads off the sphere instantly without needing
-  // the user to glance at the HUD. Scene drives uBaroqueTint
-  // in [0, 1] from per-tick EBI, smoothed.
-  uniform vec3 uBaroqueColor;
-  uniform float uBaroqueTint;
 
   varying vec3 vColor;
   varying vec3 vBary;
@@ -113,12 +106,6 @@ const FRAGMENT_SHADER = /* glsl */ `
       col = uEdgeColor;
     } else {
       col = vColor;
-    }
-    // Baroque tint applies only to the face fill, not edges or hover
-    // outlines (those should stay readable as structural lines).
-    bool tintTarget = !nearBoundary && minBary >= uEdgeThreshold;
-    if (tintTarget && uBaroqueTint > 0.0) {
-      col = mix(col, uBaroqueColor, uBaroqueTint * 0.55);
     }
     float hover = inHovered ? uHoverShade : 1.0;
     gl_FragColor = vec4(col * vShade * hover, 1.0);
@@ -207,12 +194,6 @@ export function createSurface(scene, opts = {}) {
       uHoverBoundary: { value: 0.10 },
       uHoverShade: { value: 1.06 },
       uHoverOutline: { value: new THREE.Color(0.40, 0.55, 0.78) },
-      // Muted matryoshka-palette purple. The wealth-meter dot for
-      // matryoshka uses rgb(140, 102, 191) ≈ (0.55, 0.40, 0.75);
-      // a slightly less saturated version reads cleaner as a wash
-      // across the substrate base color.
-      uBaroqueColor: { value: new THREE.Color(0.52, 0.40, 0.68) },
-      uBaroqueTint: { value: 0.0 },
     },
     side: THREE.FrontSide,
     transparent: false,
@@ -399,11 +380,6 @@ export function createSurface(scene, opts = {}) {
     material.uniforms.uHoveredSector.value =
       Number.isFinite(idx) && idx >= 0 ? idx : -1.0;
   }
-  function setBaroqueTint(t) {
-    if (!Number.isFinite(t)) return;
-    if (t < 0) t = 0; else if (t > 1) t = 1;
-    material.uniforms.uBaroqueTint.value = t;
-  }
   function bumpAltitude(faceIdx, magnitude) {
     if (faceIdx < 0 || faceIdx >= faceCount) return;
     const m = magnitude * foldCascadeMultiplier;
@@ -524,6 +500,5 @@ export function createSurface(scene, opts = {}) {
     setAltitudeScale,
     setGlobalAltitude,
     setHoveredSector,
-    setBaroqueTint,
   };
 }
