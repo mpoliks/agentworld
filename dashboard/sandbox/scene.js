@@ -15,6 +15,7 @@ import { createAgents } from './agents.js';
 import { createEdges } from './edges.js';
 import { createFirms } from './firms.js';
 import { createFolds } from './folds.js';
+import { createClusters } from './clusters.js';
 import { loadAlphaWeights, mapAlpha } from './alpha_map.js';
 import { startStream } from './stream.js';
 import { THEME } from './themes.js';
@@ -90,6 +91,7 @@ const hudRejRegEl = document.getElementById('hud-rej-reg');
 const hudRejSumRowEl = document.getElementById('hud-rej-sum-row');
 const hudRejSumEl = document.getElementById('hud-rej-sum');
 const hudRegimeCaptionEl = document.getElementById('hud-regime-caption');
+const hudCabalsEl = document.getElementById('hud-cabals');
 const leversPendingRowEl = document.getElementById('levers-pending-row');
 // Lever panel — Phase 4 of spatial-sandbox-completeness.md §5.
 // Levers carry data-key (engine override key) and data-kind
@@ -305,6 +307,7 @@ let agents = null;
 let edges = null;
 let firms = null;
 let folds = null;
+let clusters = null;
 // Wealth-flow meter state. Each entry: { key, target, smoothed, valueEl, fillEl }.
 let meterRows = null;
 let summaryTimer = null;
@@ -382,6 +385,8 @@ function initScene() {
   folds = createFolds(scene, surface, agents, {
     sphereRadius: theme.radius ?? 700,
   });
+
+  clusters = createClusters();
 
   initWelfareMeter();
 
@@ -892,6 +897,15 @@ function onStep(step) {
   // from the band table in spatial-sandbox-completeness.md §6.2.
   updateRegimeCaption(step.exo_baroque_index);
 
+  // Phase 2 §3.1: run Louvain over the rolling edge buffer. Decays
+  // are applied inside tick() so call once per engine step (not per
+  // animation frame). HUD CABALS row reads from this.
+  clusters?.tick();
+  if (hudCabalsEl) {
+    const d = clusters?.diagnostics?.();
+    hudCabalsEl.textContent = d ? String(d.cabals) : '--';
+  }
+
   // Push each meter row's target value from the step payload, plus
   // the running cumulative wealth total at the panel header.
   if (meterRows) {
@@ -944,6 +958,7 @@ function onCastSnapshot(ev) {
   agents?.handleCastSnapshot(ev.snapshot);
   firms?.handleCastSnapshot(ev.snapshot);
   folds?.handleCastSnapshot(ev.snapshot);
+  clusters?.ingestSnapshot(ev.snapshot);
   if (counters.cast === 1) setProgress(1.0, 'live');
 }
 
@@ -990,6 +1005,10 @@ function onEdges(ev) {
       }
     }
   }
+  // Phase 2 §3.1: feed pair samples into the rolling cluster
+  // detector. Reject pairs and weight-0 pairs are filtered inside
+  // ingestEdges; here we hand the whole batch.
+  clusters?.ingestEdges(ev.edges);
   // Draw the live trade arcs (blue success, red reject) over the
   // current substrate. Replaces previous snapshot's lines.
   edges?.handleEdges(ev.edges);
@@ -1071,6 +1090,7 @@ async function restartRun() {
   edges?.reset();
   firms?.reset();
   folds?.reset();
+  clusters?.reset();
 
   counters.step = 0;
   counters.cast = 0;
@@ -1093,7 +1113,7 @@ async function restartRun() {
     'hud-folds', 'hud-compute',
     'hud-rej-cost', 'hud-rej-market', 'hud-rej-align', 'hud-rej-law',
     'hud-rej-compute', 'hud-rej-perm', 'hud-rej-reg', 'hud-rej-sum',
-    'hud-regime-caption',
+    'hud-regime-caption', 'hud-cabals',
   ]) {
     const el = document.getElementById(id);
     if (el) el.textContent = '--';
@@ -1184,6 +1204,9 @@ window.__sandbox = {
   firmMembers: () => firms?.membersByFirm?.() ?? {},
   folds: () => folds?.diagnostics?.(),
   foldDepthColors: () => folds?.depthColors?.() ?? {},
+  clusters: () => clusters?.diagnostics?.(),
+  clusterPartition: () => clusters?.partition?.() ?? new Map(),
+  clusterCabalSizes: () => clusters?.cabalSizes?.() ?? new Map(),
   leverState: () => ({ ..._leverState }),
   alphaLever: () => mapAlpha(_leverState),
   alphaEngine: () => _lastEngineAlpha,
