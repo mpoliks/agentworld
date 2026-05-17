@@ -35,7 +35,11 @@ const HUE_STEPS = 96;
 const HCL_C = 0.62;
 const HCL_L = 0.50;
 const PATCH_LIFT = 1.006;             // hover just above substrate
-const PATCH_OPACITY = 0.10;
+const CABAL_OPACITY = 0.10;
+const SYNDICATE_OPACITY = 0.22;       // plan §3.3 — promoted clusters
+                                       // render bolder so the eye
+                                       // distinguishes lasting groups
+                                       // from transient ones
 
 // HSL → RGB (matches firms.js helper). HCL distinctness is close
 // enough at low opacity that HSL works.
@@ -105,7 +109,8 @@ function convexHull2d(points) {
 export function createClusterOverlay(scene, surface, agents, opts = {}) {
   const { faceCentroids, vertAltitudes, vertIds, radius } = surface;
   const sphereRadius = opts.sphereRadius ?? radius ?? 700;
-  const opacity = opts.opacity ?? PATCH_OPACITY;
+  const cabalOpacity = opts.cabalOpacity ?? CABAL_OPACITY;
+  const syndicateOpacity = opts.syndicateOpacity ?? SYNDICATE_OPACITY;
   const palette = buildHuePalette();
 
   // One mesh per cabal, kept in a pool keyed by cabalId. Rebuilt
@@ -138,7 +143,7 @@ export function createClusterOverlay(scene, surface, agents, opts = {}) {
     const geometry = new THREE.BufferGeometry();
     const material = new THREE.MeshBasicMaterial({
       transparent: true,
-      opacity,
+      opacity: cabalOpacity,
       side: THREE.DoubleSide,
       depthTest: true,
       depthWrite: false,
@@ -154,6 +159,12 @@ export function createClusterOverlay(scene, surface, agents, opts = {}) {
     mesh.renderOrder = 1;
     mesh.frustumCulled = false;
     return mesh;
+  }
+
+  function setMeshStatus(mesh, status) {
+    mesh.material.opacity = status === 'syndicate'
+      ? syndicateOpacity
+      : cabalOpacity;
   }
 
   function rebuildPatchGeometry(mesh, members) {
@@ -252,44 +263,51 @@ export function createClusterOverlay(scene, surface, agents, opts = {}) {
     mesh.visible = true;
   }
 
-  // Called each cluster tick. partition: Map<agentIdx, cabalId>.
-  function update(partition) {
+  // Called each cluster tick. `partition` is a Map<agentIdx, stableId>
+  // (or raw cabalId pre-§3.2). `labels` is the optional cluster_labels
+  // accessor so the overlay can read each cluster's status and tint
+  // the patch accordingly (cabal 0.10 opacity, syndicate 0.22).
+  function update(partition, labels = null) {
     if (!partition) return;
     const altScale = surface.mesh?.material?.uniforms?.uAltitudeScale?.value ?? 1.0;
     const globalAlt = surface.mesh?.material?.uniforms?.uGlobalAltitude?.value ?? 0.0;
 
-    // Group members by cabal, looking up each agent's current face.
-    const byCabal = new Map();
+    // Group members by cluster id, looking up each agent's current
+    // face.
+    const byCluster = new Map();
     const tmp = [0, 0, 0];
-    for (const [agentIdx, cabalId] of partition) {
-      if (cabalId < 0) continue;
+    for (const [agentIdx, clusterId] of partition) {
+      if (clusterId < 0) continue;
       const f = agents.currentFaceForIdx(agentIdx);
       if (f < 0) continue;
       faceDisplacedCentroid(f, altScale, globalAlt, tmp);
-      let arr = byCabal.get(cabalId);
-      if (!arr) { arr = []; byCabal.set(cabalId, arr); }
+      let arr = byCluster.get(clusterId);
+      if (!arr) { arr = []; byCluster.set(clusterId, arr); }
       arr.push({ x: tmp[0], y: tmp[1], z: tmp[2] });
     }
 
-    // Build / refresh meshes for every cabal in the partition.
+    // Build / refresh meshes for every cluster in the partition.
     const seen = new Set();
-    for (const [cabalId, members] of byCabal) {
-      seen.add(cabalId);
-      let mesh = meshByCabal.get(cabalId);
+    for (const [clusterId, members] of byCluster) {
+      seen.add(clusterId);
+      let mesh = meshByCabal.get(clusterId);
       if (!mesh) {
-        mesh = makeMesh(cabalId);
-        meshByCabal.set(cabalId, mesh);
+        mesh = makeMesh(clusterId);
+        meshByCabal.set(clusterId, mesh);
         group.add(mesh);
       }
       rebuildPatchGeometry(mesh, members);
+      if (labels) {
+        setMeshStatus(mesh, labels.statusOf(clusterId));
+      }
     }
-    // Drop meshes for cabals no longer in the partition.
-    for (const [cabalId, mesh] of meshByCabal) {
-      if (!seen.has(cabalId)) {
+    // Drop meshes for clusters no longer in the partition.
+    for (const [clusterId, mesh] of meshByCabal) {
+      if (!seen.has(clusterId)) {
         group.remove(mesh);
         mesh.geometry.dispose();
         mesh.material.dispose();
-        meshByCabal.delete(cabalId);
+        meshByCabal.delete(clusterId);
       }
     }
   }

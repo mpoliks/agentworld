@@ -16,6 +16,7 @@ import { createEdges } from './edges.js';
 import { createFirms } from './firms.js';
 import { createFolds } from './folds.js';
 import { createClusters } from './clusters.js';
+import { createClusterLabels } from './cluster_labels.js';
 import { createClusterOverlay } from './cluster_overlay.js';
 import { loadAlphaWeights, mapAlpha } from './alpha_map.js';
 import { startStream } from './stream.js';
@@ -93,6 +94,7 @@ const hudRejSumRowEl = document.getElementById('hud-rej-sum-row');
 const hudRejSumEl = document.getElementById('hud-rej-sum');
 const hudRegimeCaptionEl = document.getElementById('hud-regime-caption');
 const hudCabalsEl = document.getElementById('hud-cabals');
+const hudSyndicatesEl = document.getElementById('hud-syndicates');
 const leversPendingRowEl = document.getElementById('levers-pending-row');
 // Lever panel — Phase 4 of spatial-sandbox-completeness.md §5.
 // Levers carry data-key (engine override key) and data-kind
@@ -309,6 +311,7 @@ let edges = null;
 let firms = null;
 let folds = null;
 let clusters = null;
+let clusterLabels = null;
 let clusterOverlay = null;
 // Wealth-flow meter state. Each entry: { key, target, smoothed, valueEl, fillEl }.
 let meterRows = null;
@@ -389,6 +392,7 @@ function initScene() {
   });
 
   clusters = createClusters();
+  clusterLabels = createClusterLabels();
   clusterOverlay = createClusterOverlay(scene, surface, agents, {
     sphereRadius: theme.radius ?? 700,
   });
@@ -905,19 +909,27 @@ function onStep(step) {
 
   // Phase 2 §3.1: run Louvain over the rolling edge buffer. Decays
   // are applied inside tick() so call once per engine step (not per
-  // animation frame). HUD CABALS row reads from this.
+  // animation frame).
   clusters?.tick();
-  if (hudCabalsEl) {
-    const d = clusters?.diagnostics?.();
-    hudCabalsEl.textContent = d ? String(d.cabals) : '--';
+  // Phase 2 §3.2: feed the fresh partition through the cross-tick
+  // identity tracker. cluster_labels.js matches each raw cabal to
+  // its best Jaccard predecessor, assigns stable ids, and runs the
+  // promotion gates. The overlay and HUD read from clusterLabels
+  // so cabal hue + opacity track stable identity, not the raw
+  // Louvain id (which can re-label between passes).
+  if (clusters && clusterLabels) {
+    clusterLabels.update(clusters.partition());
   }
-  // Phase 2 §3.3: rebuild the cabal-hull overlay from the fresh
-  // partition. The overlay reads the agents module to map each
-  // member idx → face and the shader uniforms to displace by
-  // altitude, so the patches stay seated on the substrate as the
-  // shape morph deforms.
-  if (clusters && clusterOverlay) {
-    clusterOverlay.update(clusters.partition());
+  if (hudCabalsEl || hudSyndicatesEl) {
+    const d = clusterLabels?.diagnostics?.() ?? { cabals: 0, syndicates: 0 };
+    if (hudCabalsEl) hudCabalsEl.textContent = String(d.cabals);
+    if (hudSyndicatesEl) hudSyndicatesEl.textContent = String(d.syndicates);
+  }
+  // Phase 2 §3.3: rebuild the cabal-hull overlay from the stable-id
+  // partition. The overlay reads each cluster's status (cabal vs
+  // syndicate) and tints accordingly.
+  if (clusterLabels && clusterOverlay) {
+    clusterOverlay.update(clusterLabels.partition(), clusterLabels);
   }
 
   // Push each meter row's target value from the step payload, plus
@@ -1105,6 +1117,7 @@ async function restartRun() {
   firms?.reset();
   folds?.reset();
   clusters?.reset();
+  clusterLabels?.reset();
   clusterOverlay?.reset();
 
   counters.step = 0;
@@ -1128,7 +1141,7 @@ async function restartRun() {
     'hud-folds', 'hud-compute',
     'hud-rej-cost', 'hud-rej-market', 'hud-rej-align', 'hud-rej-law',
     'hud-rej-compute', 'hud-rej-perm', 'hud-rej-reg', 'hud-rej-sum',
-    'hud-regime-caption', 'hud-cabals',
+    'hud-regime-caption', 'hud-cabals', 'hud-syndicates',
   ]) {
     const el = document.getElementById(id);
     if (el) el.textContent = '--';
@@ -1222,6 +1235,10 @@ window.__sandbox = {
   clusters: () => clusters?.diagnostics?.(),
   clusterPartition: () => clusters?.partition?.() ?? new Map(),
   clusterCabalSizes: () => clusters?.cabalSizes?.() ?? new Map(),
+  clusterLabels: () => clusterLabels?.diagnostics?.(),
+  clusterTracks: () => clusterLabels?.allTracks?.() ?? [],
+  clusterStablePartition: () => clusterLabels?.partition?.() ?? new Map(),
+  clusterTrack: (id) => clusterLabels?.trackOf?.(id) ?? null,
   clusterOverlay: () => clusterOverlay?.diagnostics?.(),
   hideClusterOverlay: (h = true) => clusterOverlay?.setVisible?.(!h),
   leverState: () => ({ ..._leverState }),
