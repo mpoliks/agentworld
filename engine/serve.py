@@ -632,10 +632,17 @@ def create_app():
         "a2a_floor", "cap_slope", "productive_decay",
         "fold_real_efficiency",
         # Nested-config knobs reached via dotted keys (one level into
-        # cfg.topology). Engine reads these as `self.topology.cfg.pigouvian.*`
+        # cfg.topology). Engine reads these as `self.topology.cfg.<head>.<tail>`
         # per step so writes take effect on the next tick.
         "pigouvian.tax_rate",
         "pigouvian.recycling_progressivity",
+        "compute.budget_per_tick",
+        "compute.power_cost_per_trade",
+        # Top-level TopologyConfig knob — gate that admits cross-stack
+        # pairs before the Matryoshka cascade. cross_stack_compat
+        # (the matrix value) is already above; permeability is a
+        # separate axis on the same boundary.
+        "cross_stack_permeability",
     }
 
     @app.post("/runs/{run_id}/update")

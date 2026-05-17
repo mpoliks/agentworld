@@ -458,3 +458,62 @@ def test_update_endpoint_rejects_unwhitelisted_nested_key():
         assert u.status_code == 400
         assert "not live-tunable" in u.json()["detail"]
         client.post(f"/runs/{run_id}/cancel")
+
+
+# ---- additional live-tunable knobs ----------------------------------------
+
+
+def test_update_endpoint_accepts_cross_stack_permeability():
+    with TestClient(create_app()) as client:
+        r = client.post(
+            "/runs",
+            json={"scenario": "spatial_sandbox", "n_steps": 0, "scale": "small", "cast_size": 50, "pair_sample_k": 50},
+        )
+        assert r.status_code == 200
+        run_id = r.json()["run_id"]
+        u = client.post(
+            f"/runs/{run_id}/update",
+            json={"overrides": {"cross_stack_permeability": 0.7}},
+        )
+        assert u.status_code == 200, u.text
+        client.post(f"/runs/{run_id}/cancel")
+
+
+def test_update_endpoint_accepts_compute_budget_per_tick():
+    with TestClient(create_app()) as client:
+        r = client.post(
+            "/runs",
+            json={"scenario": "spatial_sandbox", "n_steps": 0, "scale": "small", "cast_size": 50, "pair_sample_k": 50},
+        )
+        assert r.status_code == 200
+        run_id = r.json()["run_id"]
+        u = client.post(
+            f"/runs/{run_id}/update",
+            json={"overrides": {"compute.budget_per_tick": 2.5}},
+        )
+        assert u.status_code == 200, u.text
+        client.post(f"/runs/{run_id}/cancel")
+
+
+def test_update_endpoint_accepts_compute_power_cost_per_trade():
+    with TestClient(create_app()) as client:
+        r = client.post(
+            "/runs",
+            json={"scenario": "spatial_sandbox", "n_steps": 0, "scale": "small", "cast_size": 50, "pair_sample_k": 50},
+        )
+        assert r.status_code == 200
+        run_id = r.json()["run_id"]
+        u = client.post(
+            f"/runs/{run_id}/update",
+            json={"overrides": {"compute.power_cost_per_trade": 0.0005}},
+        )
+        assert u.status_code == 200, u.text
+        client.post(f"/runs/{run_id}/cancel")
+
+
+def test_apply_overrides_compute_dotted_key():
+    cfg = WorldConfig()
+    _apply_overrides(cfg, {"compute.budget_per_tick": 2.5}, extend_bounds=True)
+    assert cfg.topology.compute.budget_per_tick == 2.5
+    _apply_overrides(cfg, {"compute.power_cost_per_trade": 0.0005}, extend_bounds=True)
+    assert cfg.topology.compute.power_cost_per_trade == 0.0005

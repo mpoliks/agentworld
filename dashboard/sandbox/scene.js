@@ -84,6 +84,12 @@ const leverPigTaxEl = document.getElementById('lever-pig-tax');
 const leverPigTaxValueEl = document.getElementById('lever-pig-tax-value');
 const leverPigProgEl = document.getElementById('lever-pig-prog');
 const leverPigProgValueEl = document.getElementById('lever-pig-prog-value');
+const leverCbEl = document.getElementById('lever-cb');
+const leverCbValueEl = document.getElementById('lever-cb-value');
+const leverPcEl = document.getElementById('lever-pc');
+const leverPcValueEl = document.getElementById('lever-pc-value');
+const leverCspEl = document.getElementById('lever-csp');
+const leverCspValueEl = document.getElementById('lever-csp-value');
 // Slider value 0..100 maps log-scale to agentsPerHuman 1..1000.
 // At slider=67, value ≈ 100 (real-population default of 1 human : 100 agents).
 function sliderToAgentsPerHuman(s) {
@@ -364,6 +370,30 @@ function initScene() {
       if (!Number.isFinite(v)) return;
       if (leverPigProgValueEl) leverPigProgValueEl.textContent = v.toFixed(1);
       scheduleLeverUpdate('pigouvian.recycling_progressivity', v);
+    });
+  }
+  if (leverCbEl) {
+    leverCbEl.addEventListener('input', () => {
+      const v = parseFloat(leverCbEl.value);
+      if (!Number.isFinite(v)) return;
+      if (leverCbValueEl) leverCbValueEl.textContent = v.toFixed(2);
+      scheduleLeverUpdate('compute.budget_per_tick', v);
+    });
+  }
+  if (leverPcEl) {
+    leverPcEl.addEventListener('input', () => {
+      const v = parseFloat(leverPcEl.value);
+      if (!Number.isFinite(v)) return;
+      if (leverPcValueEl) leverPcValueEl.textContent = v.toFixed(4);
+      scheduleLeverUpdate('compute.power_cost_per_trade', v);
+    });
+  }
+  if (leverCspEl) {
+    leverCspEl.addEventListener('input', () => {
+      const v = parseFloat(leverCspEl.value);
+      if (!Number.isFinite(v)) return;
+      if (leverCspValueEl) leverCspValueEl.textContent = (v * 100).toFixed(1) + '%';
+      scheduleLeverUpdate('cross_stack_permeability', v);
     });
   }
 }
@@ -659,6 +689,9 @@ async function restartRun() {
   if (leverMarketTaxEl) overrides.market_layer_tax = parseFloat(leverMarketTaxEl.value);
   if (leverPigTaxEl) overrides['pigouvian.tax_rate'] = parseFloat(leverPigTaxEl.value);
   if (leverPigProgEl) overrides['pigouvian.recycling_progressivity'] = parseFloat(leverPigProgEl.value);
+  if (leverCbEl) overrides['compute.budget_per_tick'] = parseFloat(leverCbEl.value);
+  if (leverPcEl) overrides['compute.power_cost_per_trade'] = parseFloat(leverPcEl.value);
+  if (leverCspEl) overrides.cross_stack_permeability = parseFloat(leverCspEl.value);
 
   if (stream) {
     try { await fetch(`/runs/${stream.runId}/cancel`, { method: 'POST' }); } catch (_) {}

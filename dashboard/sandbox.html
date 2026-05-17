@@ -260,6 +260,15 @@
     color: rgba(26, 20, 18, 0.55);
     margin-bottom: 5px;
   }
+  .lever-section-header {
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.45);
+    margin-top: 9px;
+    margin-bottom: 3px;
+  }
+  .lever-section-header:first-of-type { margin-top: 4px; }
   .lever-row {
     margin-top: 6px;
   }
@@ -417,6 +426,7 @@
 </div>
 <div id="levers-panel">
   <div id="levers-title">live levers</div>
+  <div class="lever-section-header">governance</div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-label">market layer tax</span><span class="lever-value" id="lever-market-tax-value">2.5%</span></div>
     <input type="range" id="lever-market-tax" min="0" max="0.25" step="0.005" value="0.025">
@@ -428,6 +438,20 @@
   <div class="lever-row">
     <div class="lever-header"><span class="lever-label">recycling progressivity</span><span class="lever-value" id="lever-pig-prog-value">1.0</span></div>
     <input type="range" id="lever-pig-prog" min="0" max="4" step="0.1" value="1.0">
+  </div>
+  <div class="lever-section-header">compute</div>
+  <div class="lever-row">
+    <div class="lever-header"><span class="lever-label">budget / tick</span><span class="lever-value" id="lever-cb-value">1.00</span></div>
+    <input type="range" id="lever-cb" min="0.1" max="5" step="0.05" value="1.0">
+  </div>
+  <div class="lever-row">
+    <div class="lever-header"><span class="lever-label">power cost / trade</span><span class="lever-value" id="lever-pc-value">0.0001</span></div>
+    <input type="range" id="lever-pc" min="0" max="0.001" step="0.00005" value="0.0001">
+  </div>
+  <div class="lever-section-header">topology</div>
+  <div class="lever-row">
+    <div class="lever-header"><span class="lever-label">cross-stack permeability</span><span class="lever-value" id="lever-csp-value">40.0%</span></div>
+    <input type="range" id="lever-csp" min="0" max="1" step="0.01" value="0.4">
   </div>
 </div>
 <div id="welfare-panel">
