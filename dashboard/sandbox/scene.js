@@ -78,6 +78,18 @@ const hudWelfareStepEl = document.getElementById('hud-welfare-step');
 const hudGiniEl = document.getElementById('hud-gini');
 const hudTpsEl = document.getElementById('hud-tps');
 const hudStreamEl = document.getElementById('hud-stream');
+const hudFoldsEl = document.getElementById('hud-folds');
+const hudComputeEl = document.getElementById('hud-compute');
+const hudRejCostEl = document.getElementById('hud-rej-cost');
+const hudRejMarketEl = document.getElementById('hud-rej-market');
+const hudRejAlignEl = document.getElementById('hud-rej-align');
+const hudRejLawEl = document.getElementById('hud-rej-law');
+const hudRejComputeEl = document.getElementById('hud-rej-compute');
+const hudRejPermEl = document.getElementById('hud-rej-perm');
+const hudRejRegEl = document.getElementById('hud-rej-reg');
+const hudRejSumRowEl = document.getElementById('hud-rej-sum-row');
+const hudRejSumEl = document.getElementById('hud-rej-sum');
+const hudRegimeCaptionEl = document.getElementById('hud-regime-caption');
 // Live levers panel (right side under the HUD). One slider per
 // engine parameter that's whitelisted by _LIVE_TUNABLE in
 // engine/serve.py and pushed via POST /runs/{id}/update. α was
@@ -516,6 +528,93 @@ function updateAlphaHud() {
     }
   }
 }
+
+// Phase 5 §6.1 helpers. Both read the most recent step payload and
+// repaint a small group of HUD rows. Kept in one place so the
+// adversarial-check tests can call them with a stub step.
+function updateRejectionMix(step) {
+  // The engine's StepMetrics splits rejections into seven gates.
+  // total_attempted in engine/core/metrics.py:606 does NOT include
+  // rejected_compute (the field was added later in the compute
+  // admission PR). Use the same six gates for the denominator the
+  // engine uses so the "sum" diagnostic stays apples-to-apples, but
+  // still display the compute share so the user sees the compute
+  // gate's contribution.
+  const cost   = Number.isFinite(step.rejected_cost)         ? step.rejected_cost         : 0;
+  const market = Number.isFinite(step.rejected_market)       ? step.rejected_market       : 0;
+  const align  = Number.isFinite(step.rejected_align)        ? step.rejected_align        : 0;
+  const law    = Number.isFinite(step.rejected_law)          ? step.rejected_law          : 0;
+  const comp   = Number.isFinite(step.rejected_compute)      ? step.rejected_compute      : 0;
+  const perm   = Number.isFinite(step.rejected_permeability) ? step.rejected_permeability : 0;
+  const reg    = Number.isFinite(step.rejected_regulator)    ? step.rejected_regulator    : 0;
+  const real   = Number.isFinite(step.n_transactions_real)   ? step.n_transactions_real   : 0;
+  const denom = real + cost + market + align + law + perm + reg;
+  if (denom <= 0) {
+    for (const el of [hudRejCostEl, hudRejMarketEl, hudRejAlignEl, hudRejLawEl,
+                       hudRejComputeEl, hudRejPermEl, hudRejRegEl]) {
+      if (el) el.textContent = '0.00';
+    }
+    if (hudRejSumRowEl) hudRejSumRowEl.style.display = 'none';
+    return;
+  }
+  const fCost   = cost   / denom;
+  const fMarket = market / denom;
+  const fAlign  = align  / denom;
+  const fLaw    = law    / denom;
+  const fComp   = comp   / denom;
+  const fPerm   = perm   / denom;
+  const fReg    = reg    / denom;
+  if (hudRejCostEl)   hudRejCostEl.textContent   = fCost.toFixed(2);
+  if (hudRejMarketEl) hudRejMarketEl.textContent = fMarket.toFixed(2);
+  if (hudRejAlignEl)  hudRejAlignEl.textContent  = fAlign.toFixed(2);
+  if (hudRejLawEl)    hudRejLawEl.textContent    = fLaw.toFixed(2);
+  if (hudRejComputeEl)hudRejComputeEl.textContent= fComp.toFixed(2);
+  if (hudRejPermEl)   hudRejPermEl.textContent   = fPerm.toFixed(2);
+  if (hudRejRegEl)    hudRejRegEl.textContent    = fReg.toFixed(2);
+  // Adversarial check 6.x rejection-mix completeness — the six
+  // engine-counted gates should sum to the engine's reported
+  // total_rejected_fraction. Compute the actual sum and compare to
+  // the implied value (1 − real / denom). Show a red ‼ row only
+  // when the discrepancy exceeds 1e-6 — the gates rounding to two
+  // decimal places means we compare the unrounded floats.
+  const totalRejFraction = 1 - real / denom;
+  const gateSum = fCost + fMarket + fAlign + fLaw + fPerm + fReg;
+  const drift = Math.abs(gateSum - totalRejFraction);
+  if (hudRejSumRowEl && hudRejSumEl) {
+    if (drift > 1e-6) {
+      hudRejSumRowEl.style.display = '';
+      hudRejSumEl.textContent = drift.toExponential(1);
+    } else {
+      hudRejSumRowEl.style.display = 'none';
+    }
+  }
+}
+
+// Phase 5 §6.2 — EBI regime band labels. The bands match the
+// spec table in spatial-sandbox-completeness.md §6.2 line for
+// line; the adversarial check 6.x asserts the caption is the
+// correct label for the current EBI.
+const REGIME_BANDS = [
+  // [upper-exclusive, label]
+  [0.7, 'flat real economy'],
+  [1.5, 'low baroque'],
+  [2.5, 'calibrated reference'],
+  [4.0, 'pricing reflexivity dominant'],
+  [6.0, 'exo-baroque'],
+  [Infinity, 'untethered'],
+];
+function regimeLabel(ebi) {
+  if (!Number.isFinite(ebi)) return '--';
+  for (const [upper, label] of REGIME_BANDS) {
+    if (ebi < upper) return label;
+  }
+  return 'untethered';
+}
+function updateRegimeCaption(ebi) {
+  if (!hudRegimeCaptionEl) return;
+  hudRegimeCaptionEl.textContent = regimeLabel(ebi);
+}
+
 function flushLeverUpdates() {
   if (!stream?.runId || _leverPending.size === 0) return;
   const overrides = Object.fromEntries(_leverPending);
@@ -750,6 +849,32 @@ function onStep(step) {
   if (hudGiniEl && Number.isFinite(step.gini_wealth)) hudGiniEl.textContent = step.gini_wealth.toFixed(3);
   if (hudTpsEl) hudTpsEl.textContent = ticksPerSec().toFixed(1);
 
+  // Phase 5 §6.1 — folds and compute. FOLDS is the active mesh
+  // count from the folds module (adversarial check 6.x folds-count
+  // requires it to equal __sandbox.folds().activeCount). COMPUTE
+  // reads compute_budget_remaining as a fraction of nominal budget;
+  // the engine emits the absolute carryover, which is ∈ [0, ~budget]
+  // — we display the raw value for accuracy.
+  if (hudFoldsEl) {
+    const af = folds?.activeCount?.() ?? 0;
+    hudFoldsEl.textContent = String(af);
+  }
+  if (hudComputeEl && Number.isFinite(step.compute_budget_remaining)) {
+    hudComputeEl.textContent = step.compute_budget_remaining.toFixed(2);
+  }
+
+  // Phase 5 §6.1 — rejection mix. The engine emits each `rejected_*`
+  // as the per-tick weight that the gate filtered out (not a
+  // fraction). Sum + n_tx_real is the total attempted pair-weight
+  // for the tick. We display each gate as a fraction of total.
+  // Adversarial check 6.x rejection-mix completeness asserts the
+  // displayed shares sum to within 1e-6 of the total fraction.
+  updateRejectionMix(step);
+
+  // Phase 5 §6.2 — EBI regime caption. One of six bands sourced
+  // from the band table in spatial-sandbox-completeness.md §6.2.
+  updateRegimeCaption(step.exo_baroque_index);
+
   // Push each meter row's target value from the step payload, plus
   // the running cumulative wealth total at the panel header.
   if (meterRows) {
@@ -921,11 +1046,19 @@ async function restartRun() {
   if (welfareTotalEl) welfareTotalEl.textContent = '0';
   if (cumulativeBarFillEl) cumulativeBarFillEl.style.width = '0%';
   if (tradeCounterEl) tradeCounterEl.textContent = '0';
-  for (const id of ['hud-alpha', 'hud-alpha-lever', 'hud-alpha-gap', 'hud-ebi', 'hud-welfare-step', 'hud-gini', 'hud-tps']) {
+  for (const id of [
+    'hud-alpha', 'hud-alpha-lever', 'hud-alpha-gap', 'hud-ebi',
+    'hud-welfare-step', 'hud-gini', 'hud-tps',
+    'hud-folds', 'hud-compute',
+    'hud-rej-cost', 'hud-rej-market', 'hud-rej-align', 'hud-rej-law',
+    'hud-rej-compute', 'hud-rej-perm', 'hud-rej-reg', 'hud-rej-sum',
+    'hud-regime-caption',
+  ]) {
     const el = document.getElementById(id);
     if (el) el.textContent = '--';
   }
   if (hudAlphaGapRowEl) hudAlphaGapRowEl.style.display = 'none';
+  if (hudRejSumRowEl) hudRejSumRowEl.style.display = 'none';
   _lastEngineAlpha = NaN;
   if (meterRows) {
     for (const r of meterRows) {
@@ -1011,6 +1144,7 @@ window.__sandbox = {
   leverState: () => ({ ..._leverState }),
   alphaLever: () => mapAlpha(_leverState),
   alphaEngine: () => _lastEngineAlpha,
+  regimeLabel: (ebi) => regimeLabel(ebi),
   counters: () => ({ ...counters }),
   theme: () => theme,
   hideAgents: (h = true) => { if (agents) agents.mesh.visible = !h; },

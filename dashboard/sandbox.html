@@ -234,13 +234,38 @@
     font-variant-numeric: tabular-nums;
     color: rgba(26, 20, 18, 0.95);
   }
+  .hud-section-header {
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.45);
+    margin-top: 6px;
+    margin-bottom: 2px;
+  }
+  .hud-row-sub {
+    padding-left: 10px;
+    font-size: 9px;
+  }
+  .hud-row-sub .hud-row-label { color: rgba(26, 20, 18, 0.45); }
+  .hud-row-sum .hud-row-label { color: rgba(180, 30, 30, 0.95); font-weight: 600; }
+  .hud-row-sum .hud-row-value { color: rgba(180, 30, 30, 0.95); font-weight: 600; }
+  .hud-regime-caption {
+    margin-top: 1px;
+    margin-bottom: 3px;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.55);
+    text-align: right;
+  }
 
   /* Live levers — right side, under the HUD. Each row is a slider
      for a parameter the engine accepts via POST /runs/{id}/update.
-     Starts with α (the master smooth/baroque axis). */
+     Anchored to the viewport bottom so the HUD can grow above it
+     without recalculating the top offset. */
   #levers-panel {
     position: fixed;
-    top: 215px;
+    bottom: 18px;
     right: 18px;
     z-index: 50;
     background: rgba(245, 240, 230, 0.94);
@@ -435,8 +460,20 @@
   <div class="hud-row"><span class="hud-row-label">α (engine)</span><span class="hud-row-value" id="hud-alpha">--</span></div>
   <div class="hud-row" id="hud-alpha-gap-row" style="display:none"><span class="hud-row-label">Δ</span><span class="hud-row-value" id="hud-alpha-gap">--</span></div>
   <div class="hud-row"><span class="hud-row-label">ebi</span><span class="hud-row-value" id="hud-ebi">--</span></div>
+  <div class="hud-regime-caption" id="hud-regime-caption">--</div>
   <div class="hud-row"><span class="hud-row-label">welfare Δ</span><span class="hud-row-value" id="hud-welfare-step">--</span></div>
   <div class="hud-row"><span class="hud-row-label">gini</span><span class="hud-row-value" id="hud-gini">--</span></div>
+  <div class="hud-row"><span class="hud-row-label">folds</span><span class="hud-row-value" id="hud-folds">--</span></div>
+  <div class="hud-row"><span class="hud-row-label">compute</span><span class="hud-row-value" id="hud-compute">--</span></div>
+  <div class="hud-section-header">rej mix</div>
+  <div class="hud-row hud-row-sub"><span class="hud-row-label">cost</span><span class="hud-row-value" id="hud-rej-cost">--</span></div>
+  <div class="hud-row hud-row-sub"><span class="hud-row-label">market</span><span class="hud-row-value" id="hud-rej-market">--</span></div>
+  <div class="hud-row hud-row-sub"><span class="hud-row-label">align</span><span class="hud-row-value" id="hud-rej-align">--</span></div>
+  <div class="hud-row hud-row-sub"><span class="hud-row-label">law</span><span class="hud-row-value" id="hud-rej-law">--</span></div>
+  <div class="hud-row hud-row-sub"><span class="hud-row-label">compute</span><span class="hud-row-value" id="hud-rej-compute">--</span></div>
+  <div class="hud-row hud-row-sub"><span class="hud-row-label">perm</span><span class="hud-row-value" id="hud-rej-perm">--</span></div>
+  <div class="hud-row hud-row-sub"><span class="hud-row-label">reg</span><span class="hud-row-value" id="hud-rej-reg">--</span></div>
+  <div class="hud-row hud-row-sub hud-row-sum" id="hud-rej-sum-row" style="display:none"><span class="hud-row-label">‼ sum</span><span class="hud-row-value" id="hud-rej-sum">--</span></div>
   <div class="hud-row"><span class="hud-row-label">ticks/s</span><span class="hud-row-value" id="hud-tps">--</span></div>
   <div class="hud-row"><span class="hud-row-label">stream</span><span class="hud-row-value" id="hud-stream">--</span></div>
 </div>
