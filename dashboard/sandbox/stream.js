@@ -1,9 +1,13 @@
 // Stream subscriber for the spatial sandbox.
 //
-// `startStream(levers, handlers)` POSTs `/runs` with the lever-derived
-// run config and subscribes to `/runs/{id}/stream` over SSE. Five event
-// kinds (defined by engine/serve.py PR #5) are dispatched to the
-// caller-supplied handlers:
+// Spawns a module Web Worker (stream-worker.js) that owns the
+// EventSource. The Worker thread is not subject to Chrome's
+// background-tab throttling, so SSE events keep arriving even
+// when the dashboard tab is hidden. The Worker postMessages each
+// event back to the main thread where the handler callbacks run.
+//
+// `startStream(levers, handlers)` POSTs `/runs` (via the worker)
+// and subscribes. Five event kinds are dispatched to the handlers:
 //
 //   onHello({run_id, scenario, scale, n_steps_target, history_len})
 //   onStep(stepMetrics)                       — full StepMetrics dict
@@ -12,9 +16,10 @@
 //   onFolds({step, per_depth, n_sub_markets_added, fold_max_depth})
 //   onTerminal(kind, payload)                 — kind ∈ {done, error, cancelled}
 //
-// Returns `{ close, runId }`. `close()` aborts the EventSource without
-// cancelling the engine run; pass the runId to `/runs/{id}/cancel` to
-// stop the engine.
+// Returns `{ close, cancel, runId }`. `close()` aborts the
+// EventSource without cancelling the engine run; `cancel()` also
+// POSTs /runs/{id}/cancel via the worker. `runId` is exposed as a
+// plain property after the start handshake completes.
 
 const noop = () => {};
 
@@ -29,49 +34,51 @@ export async function startStream(levers, handlers = {}) {
     onConnectError = noop,
   } = handlers;
 
-  const body = buildRunBody(levers);
+  const worker = new Worker(new URL('./stream-worker.js', import.meta.url), { type: 'module' });
 
-  const res = await fetch('/runs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`POST /runs failed: ${res.status} ${text}`);
-  }
-  const { run_id: runId } = await res.json();
-
-  const es = new EventSource(`/runs/${runId}/stream`);
-
-  es.addEventListener('hello', (e) => onHello(parseData(e)));
-  es.addEventListener('step', (e) => onStep(parseData(e)));
-  es.addEventListener('cast_snapshot_v2', (e) => onCastSnapshot(parseData(e)));
-  es.addEventListener('edges_v2', (e) => onEdges(parseData(e)));
-  es.addEventListener('folds_v2', (e) => onFolds(parseData(e)));
-
-  for (const kind of ['done', 'error', 'cancelled']) {
-    es.addEventListener(kind, (e) => {
-      const payload = parseData(e);
-      onTerminal(kind, payload);
-      es.close();
+  let runId = null;
+  const ready = new Promise((resolve, reject) => {
+    let settled = false;
+    worker.addEventListener('message', (e) => {
+      const msg = e.data || {};
+      switch (msg.type) {
+        case 'runId':
+          runId = msg.runId;
+          if (!settled) { settled = true; resolve(); }
+          break;
+        case 'hello': onHello(msg.data); break;
+        case 'step': onStep(msg.data); break;
+        case 'cast_snapshot_v2': onCastSnapshot(msg.data); break;
+        case 'edges_v2': onEdges(msg.data); break;
+        case 'folds_v2': onFolds(msg.data); break;
+        case 'terminal': onTerminal(msg.kind, msg.data); break;
+        case 'connect_error': onConnectError(); break;
+        case 'error':
+          if (!settled) {
+            settled = true;
+            reject(new Error(msg.detail || 'stream worker error'));
+          }
+          break;
+        default:
+          break;
+      }
     });
-  }
+    worker.addEventListener('error', (e) => {
+      if (!settled) {
+        settled = true;
+        reject(new Error(`worker error: ${e.message || 'unknown'}`));
+      }
+    });
+  });
 
-  es.onerror = () => {
-    if (es.readyState === EventSource.CLOSED) {
-      onConnectError();
-    }
-  };
+  worker.postMessage({ cmd: 'start', body: buildRunBody(levers) });
+  await ready;
 
   return {
-    runId,
-    close: () => es.close(),
+    get runId() { return runId; },
+    close: () => worker.postMessage({ cmd: 'close' }),
+    cancel: () => worker.postMessage({ cmd: 'cancel' }),
   };
-}
-
-function parseData(e) {
-  try { return JSON.parse(e.data); } catch (_) { return {}; }
 }
 
 // Map the dashboard's lever object to a RunRequest body. cast_size and

@@ -802,8 +802,7 @@ async function restartRun() {
   if (leverCspEl) overrides.cross_stack_permeability = parseFloat(leverCspEl.value);
 
   if (stream) {
-    try { await fetch(`/runs/${stream.runId}/cancel`, { method: 'POST' }); } catch (_) {}
-    stream.close();
+    stream.cancel();
     stream = null;
   }
 
@@ -892,10 +891,7 @@ async function main() {
 }
 
 window.addEventListener('beforeunload', () => {
-  if (stream) {
-    fetch(`/runs/${stream.runId}/cancel`, { method: 'POST' }).catch(() => {});
-    stream.close();
-  }
+  if (stream) stream.cancel();
 });
 
 window.__sandbox = {
