@@ -15,6 +15,7 @@ import { createAgents } from './agents.js';
 import { createEdges } from './edges.js';
 import { createFirms } from './firms.js';
 import { createFolds } from './folds.js';
+import { loadAlphaWeights, mapAlpha } from './alpha_map.js';
 import { startStream } from './stream.js';
 import { THEME } from './themes.js';
 
@@ -69,6 +70,9 @@ const ratioValueEl = document.getElementById('ratio-value');
 // that drive the visual — α, EBI, per-tick welfare delta, gini,
 // engine ticks/sec.
 const hudAlphaEl = document.getElementById('hud-alpha');
+const hudAlphaLeverEl = document.getElementById('hud-alpha-lever');
+const hudAlphaGapRowEl = document.getElementById('hud-alpha-gap-row');
+const hudAlphaGapEl = document.getElementById('hud-alpha-gap');
 const hudEbiEl = document.getElementById('hud-ebi');
 const hudWelfareStepEl = document.getElementById('hud-welfare-step');
 const hudGiniEl = document.getElementById('hud-gini');
@@ -447,14 +451,70 @@ function initScene() {
 const LEVER_DEBOUNCE_MS = 200;
 const _leverTimers = new Map();
 const _leverPending = new Map();
+// Live lever state — every scheduleLeverUpdate writes here so the
+// dashboard-side α mapper can read the current configuration even
+// when the engine update POST is debounced. Initial values are
+// seeded from the slider DOM at main() startup.
+const _leverState = {};
+let _lastEngineAlpha = NaN;
+
+// Read current slider values into _leverState. Called once in
+// main() so the lever-α mapping has the right baseline before the
+// user touches anything. Keys match the engine-side override paths
+// the scheduleLeverUpdate listeners use.
+function seedLeverStateFromDom() {
+  const pairs = [
+    ['market_layer_tax',                  leverMarketTaxEl],
+    ['pigouvian.tax_rate',                leverPigTaxEl],
+    ['pigouvian.recycling_progressivity', leverPigProgEl],
+    ['compute.budget_per_tick',           leverCbEl],
+    ['compute.power_cost_per_trade',      leverPcEl],
+    ['cross_stack_permeability',          leverCspEl],
+  ];
+  for (const [key, el] of pairs) {
+    if (!el) continue;
+    const v = parseFloat(el.value);
+    if (Number.isFinite(v)) _leverState[key] = v;
+  }
+}
 function scheduleLeverUpdate(key, value) {
   _leverPending.set(key, value);
+  _leverState[key] = value;
+  updateAlphaHud();
   const prev = _leverTimers.get(key);
   if (prev !== undefined) clearTimeout(prev);
   _leverTimers.set(key, setTimeout(() => {
     _leverTimers.delete(key);
     flushLeverUpdates();
   }, LEVER_DEBOUNCE_MS));
+}
+
+// Refresh the α (lever) / α (engine) / Δ rows. Called on every
+// lever change AND every onStep. Both inputs are independent: the
+// engine value updates per tick from `step.alpha`; the lever value
+// updates per drag.
+function updateAlphaHud() {
+  const lever = mapAlpha(_leverState);
+  const engine = _lastEngineAlpha;
+  if (hudAlphaLeverEl) {
+    hudAlphaLeverEl.textContent = Number.isFinite(lever) ? lever.toFixed(3) : '--';
+  }
+  if (hudAlphaEl) {
+    hudAlphaEl.textContent = Number.isFinite(engine) ? engine.toFixed(3) : '--';
+  }
+  if (hudAlphaGapRowEl && hudAlphaGapEl) {
+    if (Number.isFinite(lever) && Number.isFinite(engine)) {
+      const d = engine - lever;
+      const showGap = Math.abs(d) > 0.05;
+      hudAlphaGapRowEl.style.display = showGap ? '' : 'none';
+      if (showGap) {
+        const sign = d >= 0 ? '+' : '';
+        hudAlphaGapEl.textContent = `${sign}${d.toFixed(2)}`;
+      }
+    } else {
+      hudAlphaGapRowEl.style.display = 'none';
+    }
+  }
 }
 function flushLeverUpdates() {
   if (!stream?.runId || _leverPending.size === 0) return;
@@ -655,7 +715,10 @@ function onStep(step) {
   setStatus(`${theme.name} · tick ${step.step}`, 'live');
 
   pushStepArrival(performance.now() * 0.001);
-  if (hudAlphaEl && Number.isFinite(step.alpha)) hudAlphaEl.textContent = step.alpha.toFixed(3);
+  if (Number.isFinite(step.alpha)) {
+    _lastEngineAlpha = step.alpha;
+    updateAlphaHud();
+  }
   // Per-tick EBI = nominal_step / real_step. Reads the *current*
   // regime instead of the cumulative ratio, which can only ratchet
   // up. Falls through when real_step is unusable.
@@ -858,10 +921,12 @@ async function restartRun() {
   if (welfareTotalEl) welfareTotalEl.textContent = '0';
   if (cumulativeBarFillEl) cumulativeBarFillEl.style.width = '0%';
   if (tradeCounterEl) tradeCounterEl.textContent = '0';
-  for (const id of ['hud-alpha', 'hud-ebi', 'hud-welfare-step', 'hud-gini', 'hud-tps']) {
+  for (const id of ['hud-alpha', 'hud-alpha-lever', 'hud-alpha-gap', 'hud-ebi', 'hud-welfare-step', 'hud-gini', 'hud-tps']) {
     const el = document.getElementById(id);
     if (el) el.textContent = '--';
   }
+  if (hudAlphaGapRowEl) hudAlphaGapRowEl.style.display = 'none';
+  _lastEngineAlpha = NaN;
   if (meterRows) {
     for (const r of meterRows) {
       r.target = 0;
@@ -900,6 +965,13 @@ async function main() {
   await nextFrame();
   // Heavy: ~1-2 s for the 398k-face mesh + adjacency hash.
   initScene();
+  // Seed _leverState from current DOM slider positions, so the
+  // dashboard-side α mapping shows the right value before the first
+  // user interaction.
+  seedLeverStateFromDom();
+  // Fetch weights in parallel with topology build — the JSON is
+  // tiny and not on the render critical path.
+  loadAlphaWeights('./alpha_weights.json').then(() => updateAlphaHud());
   setProgress(0.62, 'topology ready');
   await nextFrame();
   animate();
@@ -936,6 +1008,9 @@ window.__sandbox = {
   firmMembers: () => firms?.membersByFirm?.() ?? {},
   folds: () => folds?.diagnostics?.(),
   foldDepthColors: () => folds?.depthColors?.() ?? {},
+  leverState: () => ({ ..._leverState }),
+  alphaLever: () => mapAlpha(_leverState),
+  alphaEngine: () => _lastEngineAlpha,
   counters: () => ({ ...counters }),
   theme: () => theme,
   hideAgents: (h = true) => { if (agents) agents.mesh.visible = !h; },
