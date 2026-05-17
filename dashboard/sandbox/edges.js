@@ -1,8 +1,19 @@
-// Trade edges (Pass 23). Each sampled pair spawns a great-circle
-// arc between the two agents' head faces. The arc PERSISTS for ~4
-// seconds and re-tracks each endpoint every frame to the agent's
-// current head face — so the line follows the two caterpillars as
-// they walk.
+// Trade edges (Pass 23, surplus-tiered in Pass 28). Each sampled
+// pair spawns a great-circle arc between the two agents' head
+// faces. The arc PERSISTS for ~4 seconds and re-tracks each
+// endpoint every frame to the agent's current head face — so the
+// line follows the two caterpillars as they walk.
+//
+// Three thickness tiers routed by per-arc real_surplus:
+//   thin   (linewidth 0.8)  small trades — the per-tick firehose
+//   mid    (linewidth 2.0)  moderate trades
+//   thick  (linewidth 5.0)  high-surplus standout trades
+//
+// Each tier is its own LineSegments2 mesh with its own LineMaterial
+// (LineMaterial.linewidth is a uniform per-material, so per-arc
+// thickness requires distinct materials). All three meshes live in
+// a single Group so scene-level transforms (the EBI shape morph in
+// scene.js) apply to all of them via group.scale.
 //
 // LineSegments2 + LineMaterial gives screen-space-thick lines
 // (LineBasicMaterial is capped at 1px on most WebGL drivers).
@@ -15,9 +26,25 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 const ARC_SEGMENTS = 60;         // arc samples per pair — higher = smoother
-const MAX_ACTIVE = 800;          // hard cap on simultaneously-drawn arcs
 const MAX_AGE_FRAMES = 240;      // 4 s at 60 fps
-const MAX_SEG_TOTAL = MAX_ACTIVE * ARC_SEGMENTS;
+
+// Tier configuration. Per-tier active-arc caps sum to ~800 (the
+// pre-tier global cap). Thin gets the largest budget because most
+// trades are small; thick gets the smallest because big trades are
+// rare and should be visually scarce when they appear.
+const TIER_WIDTHS = [0.6, 2.2, 6.0];
+const TIER_CAPS = [500, 200, 100];
+// Direct base_surplus thresholds, calibrated against the
+// distribution observed in spatial_sandbox at defaults
+// (p50 ≈ 0.12, p90 ≈ 0.27, max ≈ 0.45). Roughly 60/30/10 split
+// at baseline — bigger trades may flip the split as the user
+// drives the levers around.
+const TIER_THRESHOLDS = [0.10, 0.25];
+function surplusToTier(surplus) {
+  if (surplus < TIER_THRESHOLDS[0]) return 0;
+  if (surplus < TIER_THRESHOLDS[1]) return 1;
+  return 2;
+}
 
 // Lines fade toward the cream paper colour as they age.
 const FADE_R = 0.94;
@@ -34,42 +61,51 @@ export function createEdges(scene, surface, agents, opts = {}) {
   // a fraction of the endpoint radius. sin(πt) profile — clean
   // parabolic arch anchored to both endpoints.
   const archHeight = opts.archHeight ?? 0.28;
-  const lineWidth = opts.lineWidth ?? 2.0;
+  const tierWidths = opts.tierWidths ?? TIER_WIDTHS;
+  const tierCaps = opts.tierCaps ?? TIER_CAPS;
 
-  // Active edge list. Each entry: { a, b, isReject, age }.
-  const active = [];
-
-  const positionsArray = new Float32Array(MAX_SEG_TOTAL * 6);
-  const colorsArray = new Float32Array(MAX_SEG_TOTAL * 6);
-
-  const geometry = new LineSegmentsGeometry();
-  geometry.setPositions(positionsArray);
-  geometry.setColors(colorsArray);
-  geometry.instanceCount = 0;
-  // Cached refs to the underlying interleaved buffers so we can
-  // mark them needsUpdate without re-calling setPositions / setColors
-  // (which would allocate new buffers each frame).
-  const positionsBuffer = geometry.attributes.instanceStart.data;
-  const colorsBuffer = geometry.attributes.instanceColorStart.data;
-
-  const material = new LineMaterial({
-    vertexColors: true,
-    linewidth: lineWidth,
-    transparent: true,
-    opacity: 1.0,
-    depthTest: false,
-    depthWrite: false,
-    worldUnits: false,
+  // Per-tier rendering state. One LineSegments2 + LineMaterial +
+  // buffers per thickness bucket. The Group holds all three so
+  // scene.js's per-mesh transforms (shape morph scale.y) apply
+  // uniformly.
+  const group = new THREE.Group();
+  group.renderOrder = 10;
+  scene.add(group);
+  const tiers = tierWidths.map((width, i) => {
+    const cap = tierCaps[i];
+    const maxSegTotal = cap * ARC_SEGMENTS;
+    const positionsArray = new Float32Array(maxSegTotal * 6);
+    const colorsArray = new Float32Array(maxSegTotal * 6);
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(positionsArray);
+    geometry.setColors(colorsArray);
+    geometry.instanceCount = 0;
+    const positionsBuffer = geometry.attributes.instanceStart.data;
+    const colorsBuffer = geometry.attributes.instanceColorStart.data;
+    const material = new LineMaterial({
+      vertexColors: true,
+      linewidth: width,
+      transparent: true,
+      opacity: 1.0,
+      depthTest: false,
+      depthWrite: false,
+      worldUnits: false,
+    });
+    material.resolution.set(window.innerWidth, window.innerHeight);
+    const mesh = new LineSegments2(geometry, material);
+    mesh.renderOrder = 10;
+    mesh.frustumCulled = false;
+    group.add(mesh);
+    return {
+      positionsArray, colorsArray, geometry, material, mesh,
+      positionsBuffer, colorsBuffer,
+      cap, maxSegTotal,
+      active: [],
+    };
   });
-  material.resolution.set(window.innerWidth, window.innerHeight);
-
-  const mesh = new LineSegments2(geometry, material);
-  mesh.renderOrder = 10;
-  mesh.frustumCulled = false;
-  scene.add(mesh);
 
   function setResolution(w, h) {
-    material.resolution.set(w, h);
+    for (const t of tiers) t.material.resolution.set(w, h);
   }
 
   // Face's effective displaced centroid: faceCentroids[f] * (1 + altF * altScale).
@@ -91,9 +127,10 @@ export function createEdges(scene, surface, agents, opts = {}) {
   const _pa = [0, 0, 0];
   const _pb = [0, 0, 0];
 
-  // Write one arc into the buffers starting at segIdxStart. Returns
-  // the number of segments written (0 if either endpoint is missing).
-  function writeArc(edge, segIdxStart, altScale, globalAlt) {
+  // Write one arc into the given tier's buffers starting at
+  // segIdxStart. Returns the number of segments written (0 if
+  // either endpoint is missing).
+  function writeArc(tier, edge, segIdxStart, altScale, globalAlt) {
     const fa = agents.currentFaceForIdx(edge.a);
     const fb = agents.currentFaceForIdx(edge.b);
     if (fa < 0 || fb < 0 || fa === fb) return 0;
@@ -114,13 +151,12 @@ export function createEdges(scene, surface, agents, opts = {}) {
 
     const fade = edge.age / MAX_AGE_FRAMES;       // 0..1
     const base = edge.isReject ? rejectColor : successColor;
-    // Age-only fade — earlier surplus-weighted blend toward FADE_*
-    // erased the success/reject hue identity at low surplus (which
-    // is most arcs). Keep edge.surplus captured for a future
-    // non-color-eating visualisation (per-arc opacity or thickness).
     const cr = base[0] * (1 - fade) + FADE_R * fade;
     const cg = base[1] * (1 - fade) + FADE_G * fade;
     const cbl = base[2] * (1 - fade) + FADE_B * fade;
+
+    const positionsArray = tier.positionsArray;
+    const colorsArray = tier.colorsArray;
 
     let prevX = ax * ra * arcLift;
     let prevY = ay * ra * arcLift;
@@ -168,8 +204,8 @@ export function createEdges(scene, surface, agents, opts = {}) {
     return ARC_SEGMENTS;
   }
 
-  // Called per snapshot — append new edges to the active list. Both
-  // endpoints must be in the cast or the edge is discarded.
+  // Called per snapshot — route each new edge to its surplus tier.
+  // Both endpoints must be in the cast or the edge is discarded.
   function handleEdges(edges) {
     if (!edges) return;
     for (let i = 0; i < edges.length; i += 1) {
@@ -179,66 +215,79 @@ export function createEdges(scene, surface, agents, opts = {}) {
       const b = e.proto_b;
       if (typeof a !== 'number' || typeof b !== 'number') continue;
       if (agents.currentFaceForIdx(a) < 0 || agents.currentFaceForIdx(b) < 0) continue;
-      if (active.length >= MAX_ACTIVE) active.shift();
-      // surplus drives a per-arc visibility weight in writeArc so
-      // big-surplus trades stand out from the per-tick firehose
-      // (~1,500 sampled pairs every snapshot). Rejected pairs use
-      // their would-have-been surplus the same way.
-      const surplus = Number.isFinite(e.real_surplus)
-        ? Math.max(0, e.real_surplus)
-        : (Number.isFinite(e.base_surplus) ? Math.max(0, e.base_surplus) : 0);
-      active.push({
-        a, b,
-        isReject: !!e.reject_reason,
-        age: 0,
-        surplus,
-      });
+      // base_surplus (pre-friction "would-be" surplus) is used
+      // instead of real_surplus because real_surplus is 0 for
+      // rejected pairs by design — and a big rejected trade
+      // ("big trade hit the law gate") is exactly the kind of
+      // event we want rendered thick.
+      const surplus = Number.isFinite(e.base_surplus)
+        ? Math.max(0, e.base_surplus)
+        : (Number.isFinite(e.real_surplus) ? Math.max(0, e.real_surplus) : 0);
+      const ti = surplusToTier(surplus);
+      const tier = tiers[ti];
+      if (tier.active.length >= tier.cap) tier.active.shift();
+      tier.active.push({ a, b, isReject: !!e.reject_reason, age: 0, surplus });
     }
   }
 
   // Called every animation frame — age, prune, then rebuild the
-  // arc buffers from current agent positions.
+  // arc buffers from current agent positions, per tier.
   function tick() {
-    // Age + prune in-place (back-to-front for splice efficiency).
-    for (let i = active.length - 1; i >= 0; i -= 1) {
-      active[i].age += 1;
-      if (active[i].age >= MAX_AGE_FRAMES) active.splice(i, 1);
-    }
-    if (active.length === 0) {
-      geometry.instanceCount = 0;
-      return;
-    }
     const altScale = surface.mesh?.material?.uniforms?.uAltitudeScale?.value ?? 1.0;
     const globalAlt = surface.mesh?.material?.uniforms?.uGlobalAltitude?.value ?? 0.0;
 
-    let segCount = 0;
-    for (let i = 0; i < active.length; i += 1) {
-      if (segCount + ARC_SEGMENTS > MAX_SEG_TOTAL) break;
-      const wrote = writeArc(active[i], segCount, altScale, globalAlt);
-      segCount += wrote;
+    for (const tier of tiers) {
+      const active = tier.active;
+      for (let i = active.length - 1; i >= 0; i -= 1) {
+        active[i].age += 1;
+        if (active[i].age >= MAX_AGE_FRAMES) active.splice(i, 1);
+      }
+      if (active.length === 0) {
+        tier.geometry.instanceCount = 0;
+        continue;
+      }
+      let segCount = 0;
+      for (let i = 0; i < active.length; i += 1) {
+        if (segCount + ARC_SEGMENTS > tier.maxSegTotal) break;
+        const wrote = writeArc(tier, active[i], segCount, altScale, globalAlt);
+        segCount += wrote;
+      }
+      tier.geometry.instanceCount = segCount;
+      tier.positionsBuffer.needsUpdate = true;
+      tier.colorsBuffer.needsUpdate = true;
     }
-    geometry.instanceCount = segCount;
-    positionsBuffer.needsUpdate = true;
-    colorsBuffer.needsUpdate = true;
   }
 
-  function setVisible(b) { mesh.visible = !!b; }
+  function setVisible(b) { group.visible = !!b; }
   function dispose() {
-    scene.remove(mesh);
-    geometry.dispose();
-    material.dispose();
+    scene.remove(group);
+    for (const tier of tiers) {
+      tier.geometry.dispose();
+      tier.material.dispose();
+    }
   }
   function diagnostics() {
-    return { active: active.length, segments: geometry.instanceCount };
+    let active = 0;
+    let segments = 0;
+    for (const tier of tiers) {
+      active += tier.active.length;
+      segments += tier.geometry.instanceCount;
+    }
+    return { active, segments, tierActive: tiers.map((t) => t.active.length) };
   }
   // Restart hook — drop in-flight arcs immediately so the new run
   // doesn't render trade lines anchored to the prior cast's slots.
   function reset() {
-    active.length = 0;
-    geometry.instanceCount = 0;
+    for (const tier of tiers) {
+      tier.active.length = 0;
+      tier.geometry.instanceCount = 0;
+    }
   }
 
+  // `mesh` exposed for backwards-compat with scene.js's transform
+  // hooks (applyShape sets edges.mesh.scale.y). The group wraps the
+  // per-tier meshes so the scale applies to all three at once.
   return {
-    mesh, handleEdges, tick, setResolution, setVisible, dispose, diagnostics, reset,
+    mesh: group, handleEdges, tick, setResolution, setVisible, dispose, diagnostics, reset,
   };
 }
