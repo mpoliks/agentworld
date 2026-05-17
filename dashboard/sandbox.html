@@ -333,6 +333,19 @@
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.02em;
   }
+  #cumulative-bar {
+    height: 3px;
+    background: rgba(26, 20, 18, 0.07);
+    margin-top: 6px;
+    border-radius: 1px;
+    overflow: hidden;
+  }
+  #cumulative-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: rgba(217, 166, 77, 0.85);
+    transition: width 0.4s ease-out;
+  }
   .meter-section-header {
     font-size: 9px;
     letter-spacing: 0.16em;
@@ -460,6 +473,7 @@
     <span id="welfare-total-label">cumulative</span>
     <span id="welfare-total-value">0</span>
   </div>
+  <div id="cumulative-bar"><div id="cumulative-bar-fill"></div></div>
   <div class="meter-section-header">stock</div>
   <div id="welfare-stock"></div>
   <div class="meter-section-header">per-tick flow</div>

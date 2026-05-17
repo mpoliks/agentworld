@@ -97,6 +97,7 @@ function sliderToAgentsPerHuman(s) {
 }
 const tradeCounterEl = document.getElementById('trade-counter-value');
 const welfareTotalEl = document.getElementById('welfare-total-value');
+const cumulativeBarFillEl = document.getElementById('cumulative-bar-fill');
 const welfareStockEl = document.getElementById('welfare-stock');
 const welfareFlowEl = document.getElementById('welfare-flow');
 let sectorsEnabled = toggleSectorsEl?.checked ?? true;
@@ -109,6 +110,16 @@ const btnPauseEl = document.getElementById('btn-pause');
 const btnRestartEl = document.getElementById('btn-restart');
 let cumulativeTrades = 0;       // monotonic — increments per snapshot
 let cumulativeWealth = 0;       // real_welfare_cumulative from engine
+// EMA of per-tick EBI, used to drive the substrate hue shift.
+// α=0.06 per step at ~5 Hz tick rate → ~3 s half-life, fast enough
+// to feel responsive to lever changes, slow enough to filter the
+// per-snapshot sampling noise.
+let _ebiSmoothed = 1.0;
+const EBI_TINT_FLOOR = 1.0;     // EBI <= this → no tint
+const EBI_TINT_CEIL = 4.0;      // EBI >= this → full tint
+const CUM_WEALTH_BAR_CAP = 1e8;  // 100M real welfare → full bar. Linear scale,
+                                 // saturates past the cap. The number text below
+                                 // keeps climbing past the bar's ceiling.
 
 // Build the meter rows. Stock and flow sections are separate DOM
 // containers so the percentages don't pretend to compose into one
@@ -552,7 +563,12 @@ function onStep(step) {
     const nstep = step.nominal_gdp_step;
     const rstep = step.real_welfare_step;
     if (Number.isFinite(nstep) && Number.isFinite(rstep) && rstep > 0) {
-      hudEbiEl.textContent = (nstep / rstep).toFixed(3);
+      const ebi = nstep / rstep;
+      hudEbiEl.textContent = ebi.toFixed(3);
+      _ebiSmoothed = _ebiSmoothed * 0.94 + ebi * 0.06;
+      const tint = Math.max(0, Math.min(1,
+        (_ebiSmoothed - EBI_TINT_FLOOR) / (EBI_TINT_CEIL - EBI_TINT_FLOOR)));
+      surface?.setBaroqueTint(tint);
     }
   }
   if (hudWelfareStepEl && Number.isFinite(step.real_welfare_step)) {
@@ -575,6 +591,11 @@ function onStep(step) {
   if (typeof step.real_welfare_cumulative === 'number') {
     cumulativeWealth = step.real_welfare_cumulative;
     if (welfareTotalEl) welfareTotalEl.textContent = Math.round(cumulativeWealth).toLocaleString();
+    if (cumulativeBarFillEl) {
+      const frac = Math.max(0, Math.min(1,
+        Math.max(0, cumulativeWealth) / CUM_WEALTH_BAR_CAP));
+      cumulativeBarFillEl.style.width = (frac * 100).toFixed(2) + '%';
+    }
   }
   // Pass 19b: per-step modulation re-enabled with much smaller
   // coefficients than Pass 19. The setters also clamp on the surface
@@ -709,8 +730,11 @@ async function restartRun() {
   cumulativeTrades = 0;
   _stepArrivalCount = 0;
   _stepArrivalI = 0;
+  _ebiSmoothed = 1.0;
   if (welfareTotalEl) welfareTotalEl.textContent = '0';
+  if (cumulativeBarFillEl) cumulativeBarFillEl.style.width = '0%';
   if (tradeCounterEl) tradeCounterEl.textContent = '0';
+  surface?.setBaroqueTint(0);
   for (const id of ['hud-alpha', 'hud-ebi', 'hud-welfare-step', 'hud-gini', 'hud-tps']) {
     const el = document.getElementById(id);
     if (el) el.textContent = '--';

@@ -114,9 +114,17 @@ export function createEdges(scene, surface, agents, opts = {}) {
 
     const fade = edge.age / MAX_AGE_FRAMES;       // 0..1
     const base = edge.isReject ? rejectColor : successColor;
-    const cr = base[0] * (1 - fade) + FADE_R * fade;
-    const cg = base[1] * (1 - fade) + FADE_G * fade;
-    const cbl = base[2] * (1 - fade) + FADE_B * fade;
+    // Surplus weight: low-surplus trades fade toward the background
+    // cream so the big trades pop out of the 1,500-arc-per-tick
+    // firehose. sqrt curve so the long-tail of tiny surpluses
+    // doesn't all crowd at 0. Floor at 0.15 so micro-trades are
+    // still faintly visible — they tell the user a trade happened
+    // even if it wasn't meaningful.
+    const surplusFrac = Math.min(1, Math.sqrt(edge.surplus) / 6);
+    const w = 0.15 + 0.85 * surplusFrac;
+    const cr = (base[0] * (1 - fade) + FADE_R * fade) * w + FADE_R * (1 - w);
+    const cg = (base[1] * (1 - fade) + FADE_G * fade) * w + FADE_G * (1 - w);
+    const cbl = (base[2] * (1 - fade) + FADE_B * fade) * w + FADE_B * (1 - w);
 
     let prevX = ax * ra * arcLift;
     let prevY = ay * ra * arcLift;
@@ -176,10 +184,18 @@ export function createEdges(scene, surface, agents, opts = {}) {
       if (typeof a !== 'number' || typeof b !== 'number') continue;
       if (agents.currentFaceForIdx(a) < 0 || agents.currentFaceForIdx(b) < 0) continue;
       if (active.length >= MAX_ACTIVE) active.shift();
+      // surplus drives a per-arc visibility weight in writeArc so
+      // big-surplus trades stand out from the per-tick firehose
+      // (~1,500 sampled pairs every snapshot). Rejected pairs use
+      // their would-have-been surplus the same way.
+      const surplus = Number.isFinite(e.real_surplus)
+        ? Math.max(0, e.real_surplus)
+        : (Number.isFinite(e.base_surplus) ? Math.max(0, e.base_surplus) : 0);
       active.push({
         a, b,
         isReject: !!e.reject_reason,
         age: 0,
+        surplus,
       });
     }
   }
