@@ -16,6 +16,7 @@ import { createEdges } from './edges.js';
 import { createFirms } from './firms.js';
 import { createFolds } from './folds.js';
 import { createClusters } from './clusters.js';
+import { createClusterOverlay } from './cluster_overlay.js';
 import { loadAlphaWeights, mapAlpha } from './alpha_map.js';
 import { startStream } from './stream.js';
 import { THEME } from './themes.js';
@@ -308,6 +309,7 @@ let edges = null;
 let firms = null;
 let folds = null;
 let clusters = null;
+let clusterOverlay = null;
 // Wealth-flow meter state. Each entry: { key, target, smoothed, valueEl, fillEl }.
 let meterRows = null;
 let summaryTimer = null;
@@ -387,6 +389,9 @@ function initScene() {
   });
 
   clusters = createClusters();
+  clusterOverlay = createClusterOverlay(scene, surface, agents, {
+    sphereRadius: theme.radius ?? 700,
+  });
 
   initWelfareMeter();
 
@@ -801,6 +806,7 @@ function applyShape() {
   if (edges) edges.mesh.scale.y = sy;
   if (firms) firms.mesh.scale.y = sy;
   if (folds) folds.mesh.scale.y = sy;
+  if (clusterOverlay) clusterOverlay.group.scale.y = sy;
 }
 
 // Stream-age refresher. setInterval is also background-throttled,
@@ -904,6 +910,14 @@ function onStep(step) {
   if (hudCabalsEl) {
     const d = clusters?.diagnostics?.();
     hudCabalsEl.textContent = d ? String(d.cabals) : '--';
+  }
+  // Phase 2 §3.3: rebuild the cabal-hull overlay from the fresh
+  // partition. The overlay reads the agents module to map each
+  // member idx → face and the shader uniforms to displace by
+  // altitude, so the patches stay seated on the substrate as the
+  // shape morph deforms.
+  if (clusters && clusterOverlay) {
+    clusterOverlay.update(clusters.partition());
   }
 
   // Push each meter row's target value from the step payload, plus
@@ -1091,6 +1105,7 @@ async function restartRun() {
   firms?.reset();
   folds?.reset();
   clusters?.reset();
+  clusterOverlay?.reset();
 
   counters.step = 0;
   counters.cast = 0;
@@ -1207,6 +1222,8 @@ window.__sandbox = {
   clusters: () => clusters?.diagnostics?.(),
   clusterPartition: () => clusters?.partition?.() ?? new Map(),
   clusterCabalSizes: () => clusters?.cabalSizes?.() ?? new Map(),
+  clusterOverlay: () => clusterOverlay?.diagnostics?.(),
+  hideClusterOverlay: (h = true) => clusterOverlay?.setVisible?.(!h),
   leverState: () => ({ ..._leverState }),
   alphaLever: () => mapAlpha(_leverState),
   alphaEngine: () => _lastEngineAlpha,
