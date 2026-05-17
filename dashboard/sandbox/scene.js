@@ -13,6 +13,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createSurface } from './surface.js';
 import { createAgents } from './agents.js';
 import { createEdges } from './edges.js';
+import { createFirms } from './firms.js';
+import { createFolds } from './folds.js';
 import { startStream } from './stream.js';
 import { THEME } from './themes.js';
 
@@ -268,6 +270,8 @@ let renderer, scene, camera, controls;
 let surface = null;
 let agents = null;
 let edges = null;
+let firms = null;
+let folds = null;
 // Wealth-flow meter state. Each entry: { key, target, smoothed, valueEl, fillEl }.
 let meterRows = null;
 let summaryTimer = null;
@@ -335,6 +339,14 @@ function initScene() {
   });
 
   edges = createEdges(scene, surface, agents, {
+    sphereRadius: theme.radius ?? 700,
+  });
+
+  firms = createFirms(scene, surface, agents, {
+    sphereRadius: theme.radius ?? 700,
+  });
+
+  folds = createFolds(scene, surface, agents, {
     sphereRadius: theme.radius ?? 700,
   });
 
@@ -542,6 +554,12 @@ function animate() {
   surface?.tick();
   agents?.tick();
   edges?.tick();
+  // Firms render after agents tick — spokes read each member's
+  // current face from agents.currentFaceForIdx() so they must follow.
+  firms?.tick();
+  // Folds re-anchor to their agent's current face each frame, so
+  // icospheres follow the caterpillar over their 150-frame life.
+  folds?.tick();
   // Wealth-flow meter bars jitter every frame so the readout has
   // life even when the underlying shares are stable.
   updateWelfareMeter();
@@ -569,10 +587,14 @@ function logSummary() {
   const sd = surface?.diagnostics?.() ?? {};
   const ad = agents?.diagnostics?.() ?? {};
   const ed = edges?.diagnostics?.() ?? {};
+  const fd = firms?.diagnostics?.() ?? {};
+  const fold = folds?.diagnostics?.() ?? {};
   console.log(
     `[stream] tick=${counters.step}  cast=${counters.cast}  fps=${fps.toFixed(1)}  ` +
     `faces=${sd.faceCount}  ` +
     `agents=${ad.castCount}  segments=${ad.segments}  firms=${ad.firmCount}  ` +
+    `firmsCast=${fd.n_firms}/${fd.n_members}m/${fd.n_cross_sector}cs  ` +
+    `folds=${fold.activeCount}  ` +
     `arcs=${ed.lineCount}`,
   );
 }
@@ -596,6 +618,8 @@ function applyShape() {
     if (agents.tetherMesh) agents.tetherMesh.scale.y = sy;
   }
   if (edges) edges.mesh.scale.y = sy;
+  if (firms) firms.mesh.scale.y = sy;
+  if (folds) folds.mesh.scale.y = sy;
 }
 
 // Stream-age refresher. setInterval is also background-throttled,
@@ -713,7 +737,14 @@ function onCastSnapshot(ev) {
   if (paused) return;
   counters.cast += 1;
   agents?.handleCastSnapshot(ev.snapshot);
+  firms?.handleCastSnapshot(ev.snapshot);
+  folds?.handleCastSnapshot(ev.snapshot);
   if (counters.cast === 1) setProgress(1.0, 'live');
+}
+
+function onFolds(ev) {
+  if (paused) return;
+  folds?.handleFolds(ev);
 }
 
 // Trade-driven altitude bumps. Successful pairs push both partners'
@@ -809,6 +840,8 @@ async function restartRun() {
   agents?.reset();
   surface?.resetHeightmap();
   edges?.reset();
+  firms?.reset();
+  folds?.reset();
 
   counters.step = 0;
   counters.cast = 0;
@@ -848,7 +881,7 @@ async function restartRun() {
   try {
     stream = await startStream({ ...LEVERS, overrides }, {
       onHello, onStep, onCastSnapshot, onEdges,
-      onFolds: () => {},
+      onFolds,
       onTerminal, onConnectError,
     });
   } catch (err) {
@@ -878,7 +911,7 @@ async function main() {
       onStep,
       onCastSnapshot,
       onEdges,
-      onFolds: () => {},
+      onFolds,
       onTerminal,
       onConnectError,
     });
@@ -899,11 +932,17 @@ window.__sandbox = {
   surface: () => surface?.diagnostics?.(),
   agents: () => agents?.diagnostics?.(),
   edges: () => edges?.diagnostics?.(),
+  firms: () => firms?.diagnostics?.(),
+  firmMembers: () => firms?.membersByFirm?.() ?? {},
+  folds: () => folds?.diagnostics?.(),
+  foldDepthColors: () => folds?.depthColors?.() ?? {},
   counters: () => ({ ...counters }),
   theme: () => theme,
   hideAgents: (h = true) => { if (agents) agents.mesh.visible = !h; },
   hideSurface: (h = true) => { if (surface) surface.mesh.visible = !h; },
   hideEdges: (h = true) => { if (edges) edges.mesh.visible = !h; },
+  hideFirms: (h = true) => { if (firms) firms.mesh.visible = !h; },
+  hideFolds: (h = true) => { if (folds) folds.mesh.visible = !h; },
   disableTopology: () => { surface?.setAltitudeScale(0); surface?.setGlobalAltitude(0); },
 };
 

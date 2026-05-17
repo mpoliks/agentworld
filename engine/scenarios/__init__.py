@@ -1466,6 +1466,17 @@ def spatial_sandbox() -> WorldConfig:
             institutions=InstitutionConfig(
                 enabled=True,
                 cross_sector_firms=True,
+                # Calibrated against the sandbox's per-tick surplus
+                # distribution (max ~5e-6, p99 ~1.4e-6 at the canonical
+                # 88k-prototype scale). Engine default 0.02 is ~10,000×
+                # the realised surplus so no firm ever forms; this
+                # scenario-scoped override puts the gate near p90 so
+                # ~5-10 new firms appear per formation cycle and
+                # ~180 are active by tick 200, median lifetime ~115.
+                # Engine default unchanged so Sobol N=2048 reproduces
+                # bit-identically. Phase 1.2 of
+                # docs/plans/spatial-sandbox-completeness.md.
+                formation_surplus_threshold=1e-6,
             ),
             pop_dynamics=PopulationDynamicsConfig(enabled=True),
             mission=MissionConfig(enabled=True),
