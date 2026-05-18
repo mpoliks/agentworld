@@ -38,10 +38,6 @@ const LEVERS = {
 // honest — stock fractions (humans + ai) sum to 100% by
 // construction, per-tick flow rates (matryoshka / legal / recycling)
 // are independent rates on their own scale.
-const STOCK_SEGMENTS = [
-  { key: 'humans', label: 'humans', color: 'rgb(217, 166, 77)',  source: (s) => s.human_wealth_share ?? 0 },
-  { key: 'ai',     label: 'ai',     color: 'rgb(110, 130, 155)', source: (s) => Math.max(0, 1 - (s.human_wealth_share ?? 0)) },
-];
 // matryoshka: parasitic nominal value-add per tick as a fraction of
 // nominal GDP. Sourced from (nominal_step − real_step) / nominal_step
 // — not from governance_overhead_fraction, which the engine defines
@@ -143,8 +139,12 @@ function sliderToAgentsPerHuman(s) {
 const tradeCounterEl = document.getElementById('trade-counter-value');
 const welfareTotalEl = document.getElementById('welfare-total-value');
 const cumulativeBarFillEl = document.getElementById('cumulative-bar-fill');
-const welfareStockEl = document.getElementById('welfare-stock');
 const welfareFlowEl = document.getElementById('welfare-flow');
+// Phase 6 §7.3 — split stock bar.
+const wealthStockHumansEl = document.getElementById('wealth-stock-humans');
+const wealthStockAiEl = document.getElementById('wealth-stock-ai');
+const wealthStockHumansPctEl = document.getElementById('wealth-stock-humans-pct');
+const wealthStockAiPctEl = document.getElementById('wealth-stock-ai-pct');
 let sectorsEnabled = toggleSectorsEl?.checked ?? true;
 // Dashboard-side pause. The engine keeps running; we skip processing
 // new step / cast / edge events so the visual freezes. Toggling off
@@ -185,45 +185,6 @@ const CUM_WEALTH_BAR_CAP = 1e8; // 100M real welfare → full bar. Linear scale,
                                 // saturates past the cap. The number text below
                                 // keeps climbing past the bar's ceiling.
 
-// Build the meter rows. Stock and flow sections are separate DOM
-// containers so the percentages don't pretend to compose into one
-// pie. meterRows stays a flat list — updateWelfareMeter() doesn't
-// care which section a row belongs to.
-function buildMeterRow(seg, container) {
-  const row = document.createElement('div');
-  row.className = 'meter-row';
-  const header = document.createElement('div');
-  header.className = 'meter-row-header';
-  const labelWrap = document.createElement('span');
-  labelWrap.className = 'meter-row-label';
-  const dot = document.createElement('span');
-  dot.className = 'meter-dot';
-  dot.style.background = seg.color;
-  labelWrap.appendChild(dot);
-  labelWrap.appendChild(document.createTextNode(seg.label));
-  const valueEl = document.createElement('span');
-  valueEl.className = 'meter-row-value';
-  valueEl.textContent = '--';
-  header.appendChild(labelWrap);
-  header.appendChild(valueEl);
-  const bar = document.createElement('div');
-  bar.className = 'meter-bar';
-  const fillEl = document.createElement('div');
-  fillEl.className = 'meter-fill';
-  fillEl.style.background = seg.color;
-  bar.appendChild(fillEl);
-  row.appendChild(header);
-  row.appendChild(bar);
-  container.appendChild(row);
-  return {
-    key: seg.key,
-    source: seg.source,
-    target: 0,
-    valueEl,
-    fillEl,
-    smoothed: NaN,
-  };
-}
 // Phase 3 §4.2 — sector compass. Twelve swatches rendered from the
 // theme's sectorPalette; clicking a swatch isolates that sector
 // (other agents fade to 0.18 RGB for 5 s) and the visual answer to
@@ -337,13 +298,127 @@ function updateEbiLegend(ebi) {
   }
 }
 
+// Phase 6 §7.3 — the welfare meter redesigns around two new shapes:
+// a single split bar for stock (humans + AI compose to 1.0), and
+// three 60-tick sparklines for the per-tick flow channels. The
+// per-frame EMA smoothing the old meter used is dropped — it was
+// hiding real signal changes and producing stale targets in
+// backgrounded tabs.
+const SPARKLINE_LEN = 60;
+let sparklineRows = null;
+
+function buildSparklineRow(seg, container) {
+  const row = document.createElement('div');
+  row.className = 'sparkline-row';
+  const header = document.createElement('div');
+  header.className = 'sparkline-row-header';
+  const labelWrap = document.createElement('span');
+  labelWrap.className = 'sparkline-row-label';
+  const dot = document.createElement('span');
+  dot.className = 'meter-dot';
+  dot.style.background = seg.color;
+  labelWrap.appendChild(dot);
+  labelWrap.appendChild(document.createTextNode(seg.label));
+  const valueEl = document.createElement('span');
+  valueEl.className = 'sparkline-row-value';
+  valueEl.textContent = '--';
+  header.appendChild(labelWrap);
+  header.appendChild(valueEl);
+  const canvas = document.createElement('canvas');
+  canvas.className = 'sparkline-canvas';
+  // Width is finalised at first draw using clientWidth so the
+  // canvas hits its CSS-laid-out size 1:1. Height is fixed by CSS.
+  canvas.width = 1;
+  canvas.height = 1;
+  row.appendChild(header);
+  row.appendChild(canvas);
+  container.appendChild(row);
+  return {
+    key: seg.key,
+    source: seg.source,
+    color: seg.color,
+    valueEl,
+    canvas,
+    // Ring buffer of (step, value) pairs. step is the integer
+    // engine step index so the x-axis reads as real time.
+    history: [],
+    lastDrawnStep: -1,
+  };
+}
+
 function initWelfareMeter() {
-  meterRows = [];
-  if (welfareStockEl) {
-    for (const seg of STOCK_SEGMENTS) meterRows.push(buildMeterRow(seg, welfareStockEl));
-  }
+  // Stock side has no per-frame bar anymore; the split bar updates
+  // directly off the latest snapshot. Sparklines own the flow side.
+  sparklineRows = [];
   if (welfareFlowEl) {
-    for (const seg of FLOW_SEGMENTS) meterRows.push(buildMeterRow(seg, welfareFlowEl));
+    welfareFlowEl.innerHTML = '';
+    for (const seg of FLOW_SEGMENTS) {
+      sparklineRows.push(buildSparklineRow(seg, welfareFlowEl));
+    }
+  }
+}
+
+// Phase 6 §7.3 — paint the stock split bar from the latest stock
+// shares. Called from onStep.
+function updateWealthStock(step) {
+  const hShare = Number.isFinite(step.human_wealth_share)
+    ? Math.max(0, Math.min(1, step.human_wealth_share))
+    : null;
+  if (hShare === null) return;
+  const aShare = 1 - hShare;
+  if (wealthStockHumansEl) wealthStockHumansEl.style.width = (hShare * 100).toFixed(2) + '%';
+  if (wealthStockAiEl) wealthStockAiEl.style.width = (aShare * 100).toFixed(2) + '%';
+  if (wealthStockHumansPctEl) wealthStockHumansPctEl.textContent = (hShare * 100).toFixed(1) + '%';
+  if (wealthStockAiPctEl) wealthStockAiPctEl.textContent = (aShare * 100).toFixed(1) + '%';
+}
+
+// Phase 6 §7.3 — push the per-step value into each sparkline's ring
+// buffer and re-draw. Called from onStep so the canvas is at most
+// one engine tick behind the rendered state.
+function pushSparklineSamples(step) {
+  if (!sparklineRows) return;
+  const stepIdx = Number.isFinite(step.step) ? step.step : 0;
+  for (let i = 0; i < sparklineRows.length; i += 1) {
+    const r = sparklineRows[i];
+    const v = r.source(step);
+    const sample = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
+    r.history.push({ s: stepIdx, v: sample });
+    if (r.history.length > SPARKLINE_LEN) r.history.shift();
+    r.valueEl.textContent = (sample * 100).toFixed(1) + '%';
+  }
+}
+
+function drawSparklines() {
+  if (!sparklineRows) return;
+  for (let i = 0; i < sparklineRows.length; i += 1) {
+    const r = sparklineRows[i];
+    const canvas = r.canvas;
+    if (canvas.clientWidth === 0 || canvas.clientHeight === 0) continue;
+    // Match canvas backing to displayed size (devicePixelRatio
+    // factor so the line stays sharp on hi-dpi).
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const targetW = Math.floor(canvas.clientWidth * dpr);
+    const targetH = Math.floor(canvas.clientHeight * dpr);
+    if (canvas.width !== targetW) canvas.width = targetW;
+    if (canvas.height !== targetH) canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) continue;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (r.history.length < 2) continue;
+    const w = canvas.width;
+    const h = canvas.height;
+    const n = r.history.length;
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.strokeStyle = r.color;
+    ctx.beginPath();
+    for (let k = 0; k < n; k += 1) {
+      const x = (k / (SPARKLINE_LEN - 1)) * w;
+      const sample = r.history[k].v;
+      const y = h - sample * h;
+      if (k === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
   }
 }
 
@@ -372,23 +447,14 @@ function ticksPerSec() {
   return (_stepArrivalCount - 1) / span;
 }
 
-// EMA smoothing on each meter row so per-snapshot sampling noise
-// doesn't drown out alpha-driven trends. α=0.08 per frame → ~0.4s
-// half-life, fast enough to feel responsive, slow enough to smooth
-// the engine's 5 Hz tick-to-tick variance. Earlier cosmetic sine
-// jitter was making real signal changes look random — removed.
-const METER_EMA_ALPHA = 0.08;
+// Phase 6 §7.3 drops the per-frame EMA — the sparkline already
+// gives the user a continuous read on the underlying signal and
+// the EMA's only purpose was masking sampling noise at frame rate.
+// In backgrounded tabs the EMA never converged because rAF was
+// throttled; the new path updates strictly per onStep so it's
+// immune to background throttling.
 function updateWelfareMeter() {
-  if (!meterRows) return;
-  for (let i = 0; i < meterRows.length; i += 1) {
-    const r = meterRows[i];
-    if (!Number.isFinite(r.smoothed)) r.smoothed = r.target;
-    r.smoothed = r.smoothed * (1 - METER_EMA_ALPHA) + r.target * METER_EMA_ALPHA;
-    let v = r.smoothed;
-    if (v < 0) v = 0; else if (v > 1) v = 1;
-    r.fillEl.style.width = (v * 100).toFixed(2) + '%';
-    r.valueEl.textContent = (v * 100).toFixed(1) + '%';
-  }
+  drawSparklines();
 }
 const counters = { step: 0, cast: 0 };
 
@@ -430,8 +496,6 @@ let folds = null;
 let clusters = null;
 let clusterLabels = null;
 let clusterOverlay = null;
-// Wealth-flow meter state. Each entry: { key, target, smoothed, valueEl, fillEl }.
-let meterRows = null;
 let summaryTimer = null;
 let stream = null;
 let frameCount = 0;
@@ -1077,15 +1141,11 @@ function onStep(step) {
     clusterOverlay.update(clusterLabels.partition(), clusterLabels);
   }
 
-  // Push each meter row's target value from the step payload, plus
-  // the running cumulative wealth total at the panel header.
-  if (meterRows) {
-    for (let i = 0; i < meterRows.length; i += 1) {
-      const r = meterRows[i];
-      const v = r.source(step);
-      r.target = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
-    }
-  }
+  // Phase 6 §7.3 — split stock bar + 60-tick flow sparklines fed
+  // strictly per onStep. Independent of the per-frame render loop
+  // so background-throttled tabs still see correct state on resume.
+  updateWealthStock(step);
+  pushSparklineSamples(step);
   if (typeof step.real_welfare_cumulative === 'number') {
     cumulativeWealth = step.real_welfare_cumulative;
     if (welfareTotalEl) welfareTotalEl.textContent = Math.round(cumulativeWealth).toLocaleString();
@@ -1294,14 +1354,21 @@ async function restartRun() {
   if (hudAlphaGapRowEl) hudAlphaGapRowEl.style.display = 'none';
   if (hudRejSumRowEl) hudRejSumRowEl.style.display = 'none';
   _lastEngineAlpha = NaN;
-  if (meterRows) {
-    for (const r of meterRows) {
-      r.target = 0;
-      r.smoothed = NaN;
+  // Phase 6 §7.3 — restart resets sparkline history and the
+  // stock-bar widths so the new run reads from zero.
+  if (sparklineRows) {
+    for (const r of sparklineRows) {
+      r.history.length = 0;
+      r.lastDrawnStep = -1;
       r.valueEl.textContent = '--';
-      r.fillEl.style.width = '0%';
+      const ctx = r.canvas.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, r.canvas.width, r.canvas.height);
     }
   }
+  if (wealthStockHumansEl) wealthStockHumansEl.style.width = '0%';
+  if (wealthStockAiEl) wealthStockAiEl.style.width = '0%';
+  if (wealthStockHumansPctEl) wealthStockHumansPctEl.textContent = '--%';
+  if (wealthStockAiPctEl) wealthStockAiPctEl.textContent = '--%';
   if (paused) {
     paused = false;
     if (btnPauseEl) {

@@ -541,6 +541,69 @@
     height: 100%;
     width: 0%;
   }
+  /* Phase 6 §7.3 — split stock bar. Humans amber on the left, AI
+     blue-grey on the right, no gap; the two compose to 1.0 by
+     construction. Markers on top of each segment carry the share
+     percentage so the user reads the split numerically as well. */
+  #wealth-stock-bar {
+    position: relative;
+    height: 9px;
+    margin-top: 2px;
+    background: rgba(26, 20, 18, 0.07);
+    border-radius: 1px;
+    overflow: hidden;
+    display: flex;
+  }
+  .wealth-stock-segment {
+    height: 100%;
+    transition: width 0.18s ease-out;
+  }
+  .wealth-stock-segment.humans { background: rgb(217, 166, 77); }
+  .wealth-stock-segment.ai     { background: rgb(110, 130, 155); }
+  #wealth-stock-readout {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2px;
+    font-size: 9px;
+    letter-spacing: 0.10em;
+    color: rgba(26, 20, 18, 0.65);
+    font-variant-numeric: tabular-nums;
+  }
+  #wealth-stock-readout .humans { color: rgb(178, 130, 50); }
+  #wealth-stock-readout .ai     { color: rgb(82, 100, 125); }
+  /* Sparkline rows for the per-tick flow channels (matryoshka,
+     legal capture, recycling). Each is a 60-tick canvas + a
+     numeric readout on the right showing the most recent value. */
+  .sparkline-row {
+    margin-top: 6px;
+  }
+  .sparkline-row:first-of-type { margin-top: 0; }
+  .sparkline-row-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 10px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.75);
+    margin-bottom: 1px;
+  }
+  .sparkline-row-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sparkline-row-value {
+    font-variant-numeric: tabular-nums;
+    color: rgba(26, 20, 18, 0.85);
+  }
+  .sparkline-canvas {
+    display: block;
+    width: 100%;
+    height: 18px;
+    background: rgba(26, 20, 18, 0.04);
+    border-radius: 1px;
+  }
 
   /* Sector hover label. Follows the cursor when the pointer is
      over a sector region. */
@@ -723,8 +786,18 @@
   </div>
   <div id="cumulative-bar"><div id="cumulative-bar-fill"></div></div>
   <div class="meter-section-header">stock</div>
-  <div id="welfare-stock"></div>
+  <!-- Phase 6 §7.3 — single split bar (humans amber / AI blue-grey),
+       no gap. Compose to 1.0 by construction. -->
+  <div id="wealth-stock-bar">
+    <div class="wealth-stock-segment humans" id="wealth-stock-humans"></div>
+    <div class="wealth-stock-segment ai" id="wealth-stock-ai"></div>
+  </div>
+  <div id="wealth-stock-readout">
+    <span class="humans" id="wealth-stock-humans-pct">--%</span>
+    <span class="ai" id="wealth-stock-ai-pct">--%</span>
+  </div>
   <div class="meter-section-header">per-tick flow</div>
+  <!-- Phase 6 §7.3 — three 60-tick sparklines instead of bars. -->
   <div id="welfare-flow"></div>
 </div>
 <div id="sector-label"></div>
