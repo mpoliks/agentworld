@@ -605,6 +605,65 @@
     border-radius: 1px;
   }
 
+  /* Phase 6 §7.1 — click-to-inspect agent card. */
+  #inspector-card {
+    position: fixed;
+    top: 54px;
+    left: 18px;
+    z-index: 60;
+    width: 220px;
+    background: rgba(245, 240, 230, 0.96);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 7px 11px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: rgba(26, 20, 18, 0.85);
+    box-shadow: 0 2px 4px rgba(26, 20, 18, 0.08);
+  }
+  #inspector-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 5px;
+  }
+  #inspector-card-title {
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.55);
+  }
+  #inspector-card-close {
+    font-size: 14px;
+    padding: 0 6px;
+    line-height: 1;
+    background: transparent;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    color: rgba(26, 20, 18, 0.75);
+  }
+  .inspector-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    line-height: 1.5;
+  }
+  .inspector-row-label {
+    color: rgba(26, 20, 18, 0.55);
+    text-transform: uppercase;
+    font-size: 9px;
+  }
+  .inspector-row-value {
+    font-variant-numeric: tabular-nums;
+    color: rgba(26, 20, 18, 0.95);
+    text-align: right;
+  }
+  .inspector-radar {
+    display: block;
+    margin: 6px auto 0;
+  }
   /* Sector hover label. Follows the cursor when the pointer is
      over a sector region. */
   #sector-label {
@@ -799,6 +858,17 @@
   <div class="meter-section-header">per-tick flow</div>
   <!-- Phase 6 §7.3 — three 60-tick sparklines instead of bars. -->
   <div id="welfare-flow"></div>
+</div>
+<!-- Phase 6 §7.1 — click-to-inspect agent card. Pinned to the
+     left side of the screen so it doesn't overlap the HUD / lever
+     panel on the right. Esc closes it; clicking another agent
+     swaps to that one's view. -->
+<div id="inspector-card">
+  <div id="inspector-card-header">
+    <span id="inspector-card-title">agent</span>
+    <button id="inspector-card-close" class="control-btn" type="button">×</button>
+  </div>
+  <div id="inspector-card-body"></div>
 </div>
 <div id="sector-label"></div>
 <div id="toggles">

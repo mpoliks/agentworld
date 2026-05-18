@@ -18,6 +18,7 @@ import { createFolds } from './folds.js';
 import { createClusters } from './clusters.js';
 import { createClusterLabels } from './cluster_labels.js';
 import { createClusterOverlay } from './cluster_overlay.js';
+import { createInspectorAgent } from './inspector_agent.js';
 import { OUTCOME_PALETTE } from './edges.js';
 import { loadAlphaWeights, mapAlpha } from './alpha_map.js';
 import { startStream } from './stream.js';
@@ -496,6 +497,12 @@ let folds = null;
 let clusters = null;
 let clusterLabels = null;
 let clusterOverlay = null;
+let inspector = null;
+// Phase 6 §7.1 — the inspector reads from the most-recent cast
+// snapshot to populate the agent card. scene.js owns the canonical
+// snapshot map so multiple subsystems (firms, folds, inspector)
+// can look up by idx without each maintaining its own copy.
+const _castByIdx = new Map();
 let summaryTimer = null;
 let stream = null;
 let frameCount = 0;
@@ -579,6 +586,27 @@ function initScene() {
   clusterOverlay = createClusterOverlay(scene, surface, agents, {
     sphereRadius: theme.radius ?? 700,
   });
+
+  inspector = createInspectorAgent({
+    canvas,
+    camera,
+    agents,
+    surface,
+    sectorNames: SECTOR_NAMES,
+    sectorPalette: theme.sectorPalette,
+    getCastEntry: _castByIdx,
+    getClusterId: (idx) => {
+      const part = clusterLabels?.partition();
+      if (!part) return -1;
+      return part.get(idx) ?? -1;
+    },
+    getClusterStatus: (cid) => clusterLabels?.statusOf?.(cid) ?? 'cabal',
+    getClusterTrack: (cid) => clusterLabels?.trackOf?.(cid) ?? null,
+    cardEl: document.getElementById('inspector-card'),
+    cardCloseEl: document.getElementById('inspector-card-close'),
+    cardBodyEl: document.getElementById('inspector-card-body'),
+  });
+  inspector.attach();
 
   initWelfareMeter();
   initSectorCompass();
@@ -1190,6 +1218,16 @@ function onCastSnapshot(ev) {
   firms?.handleCastSnapshot(ev.snapshot);
   folds?.handleCastSnapshot(ev.snapshot);
   clusters?.ingestSnapshot(ev.snapshot);
+  // Phase 6 §7.1 — keep a flat idx → entry index so the inspector
+  // and other consumers can read agent state without re-walking
+  // the snapshot array.
+  if (Array.isArray(ev.snapshot)) {
+    _castByIdx.clear();
+    for (const e of ev.snapshot) {
+      if (e && Number.isInteger(e.idx)) _castByIdx.set(e.idx, e);
+    }
+  }
+  inspector?.refresh();
   if (counters.cast === 1) setProgress(1.0, 'live');
 }
 
@@ -1369,6 +1407,10 @@ async function restartRun() {
   if (wealthStockAiEl) wealthStockAiEl.style.width = '0%';
   if (wealthStockHumansPctEl) wealthStockHumansPctEl.textContent = '--%';
   if (wealthStockAiPctEl) wealthStockAiPctEl.textContent = '--%';
+  // Phase 6 §7.1 — inspector clears: card hides on next refresh
+  // because _castByIdx is empty.
+  _castByIdx.clear();
+  inspector?.refresh();
   if (paused) {
     paused = false;
     if (btnPauseEl) {
@@ -1457,6 +1499,8 @@ window.__sandbox = {
   isolatedSector: () => agents?.isolatedSectorOf?.() ?? -1,
   sectorPalette: () => theme.sectorPalette,
   sectorNames: () => SECTOR_NAMES.slice(),
+  inspectorOpenIdx: () => inspector?.openIdxOf?.() ?? -1,
+  castEntry: (idx) => _castByIdx.get(idx) ?? null,
   leverState: () => ({ ..._leverState }),
   alphaLever: () => mapAlpha(_leverState),
   alphaEngine: () => _lastEngineAlpha,
