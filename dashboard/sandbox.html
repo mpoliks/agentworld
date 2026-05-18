@@ -143,6 +143,63 @@
   .sector-compass-swatch.isolated {
     box-shadow: 0 0 0 2px rgba(26, 20, 18, 0.85);
   }
+  /* Phase 6 §7.4 — trade-arc + EBI shape legends. Same monochrome
+     legibility as the rest of the toggles panel. */
+  #arc-legend-label, #ebi-legend-label {
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    color: rgba(26, 20, 18, 0.50);
+    margin-top: 5px;
+  }
+  #arc-legend {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 1px 6px;
+    margin-top: 2px;
+    font-size: 9px;
+    letter-spacing: 0.10em;
+  }
+  .arc-legend-row {
+    display: contents;
+  }
+  .arc-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-top: 2px;
+    border: 1px solid rgba(26, 20, 18, 0.10);
+  }
+  .arc-legend-name {
+    color: rgba(26, 20, 18, 0.75);
+    text-transform: uppercase;
+  }
+  #ebi-legend {
+    display: flex;
+    gap: 6px;
+    margin-top: 3px;
+  }
+  .ebi-glyph {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 1px solid rgba(26, 20, 18, 0.30);
+    opacity: 0.35;
+    transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+  }
+  .ebi-glyph.active {
+    opacity: 1.0;
+    transform: scale(1.10);
+    border-color: rgba(26, 20, 18, 0.85);
+  }
+  .ebi-glyph[data-band="disc"]   { border-radius: 50%; height: 5px; margin-top: 6px; }
+  .ebi-glyph[data-band="sphere"] { border-radius: 50%; }
+  .ebi-glyph[data-band="lobes"]  {
+    border-radius: 50% 20% 50% 20%;
+    transform: rotate(20deg);
+  }
+  .ebi-glyph[data-band="lobes"].active {
+    transform: rotate(20deg) scale(1.10);
+  }
   #toggles .ratio-control {
     display: flex;
     flex-direction: column;
@@ -675,12 +732,26 @@
   <label><input type="checkbox" id="toggle-trades" checked> show trades</label>
   <label><input type="checkbox" id="toggle-sectors" checked> show sectors</label>
   <label><input type="checkbox" id="toggle-humans-only"> show humans only</label>
+  <!-- Phase 6 §7.4 — trade-arc legend. 8 dots labelled by outcome
+       name so the user reads "magenta" as "alignment-reject" at a
+       glance. Palette source-of-truth lives in edges.js. -->
+  <div id="arc-legend-label">arc outcomes</div>
+  <div id="arc-legend"></div>
   <!-- Phase 3 §4.2 sector compass — 12 swatches keyed to the agent
        palette. Clicking a swatch isolates that sector (others fade
        to 0.2 alpha for 5 s) so the user can answer "where do the
        manufacturing agents end up under this configuration?" -->
   <div id="sector-compass-label">sector compass</div>
   <div id="sector-compass"></div>
+  <!-- Phase 6 §7.4 — EBI shape-morph legend. Three glyphs marking
+       the regime band currently driving the substrate's morph
+       (disc → sphere → lobes). Active glyph highlights. -->
+  <div id="ebi-legend-label">ebi shape</div>
+  <div id="ebi-legend">
+    <span class="ebi-glyph" data-band="disc" title="flat real economy / low baroque"></span>
+    <span class="ebi-glyph" data-band="sphere" title="calibrated reference"></span>
+    <span class="ebi-glyph" data-band="lobes" title="pricing reflexivity / exo-baroque / untethered"></span>
+  </div>
   <div class="ratio-control">
     <div class="ratio-readout"><span>humans : agents</span><span>1 : <span id="ratio-value">100</span></span></div>
     <input type="range" id="ratio-slider" min="0" max="100" value="67" step="1">

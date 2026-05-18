@@ -32,7 +32,9 @@ const MAX_AGE_FRAMES = 240;      // 4 s at 60 fps
 // pre-tier global cap). Thin gets the largest budget because most
 // trades are small; thick gets the smallest because big trades are
 // rare and should be visually scarce when they appear.
-const TIER_WIDTHS = [0.6, 2.2, 6.0];
+// Phase 6 §7.2 — widened gap between thin/mid/thick so
+// surplus-tier distinctions read at a glance.
+const TIER_WIDTHS = [0.5, 3.0, 9.0];
 const TIER_CAPS = [500, 200, 100];
 // Direct base_surplus thresholds, calibrated against the
 // distribution observed in spatial_sandbox at defaults
@@ -50,6 +52,46 @@ function surplusToTier(surplus) {
 const FADE_R = 0.94;
 const FADE_G = 0.93;
 const FADE_B = 0.90;
+
+// Phase 6 §7.2 — per-reject-reason palette. Each engine
+// reject-reason string maps to a hue; executed pairs stay blue.
+// Match the HUD rej-mix palette so "the screen is mostly magenta"
+// reads as "alignment rejects dominate" at a glance.
+//
+// regulator deliberately shares the human-yellow `amber` hue
+// because the regulator and the humans are both governance
+// levers; the plan calls this an intentional palette choice.
+const OUTCOME_COLORS = {
+  executed:        [0.102, 0.349, 0.949],     // blue rgb(26, 89, 242)
+  reject_cost:     [0.502, 0.502, 0.502],     // grey rgb(128, 128, 128)
+  reject_market:   [0.722, 0.529, 0.349],     // tan rgb(184, 135, 89)
+  reject_align:    [0.729, 0.298, 0.698],     // magenta rgb(186, 76, 178)
+  reject_law:      [0.851, 0.349, 0.349],     // red rgb(217, 89, 89)
+  reject_compute:  [0.349, 0.698, 0.769],     // cyan rgb(89, 178, 196)
+  reject_perm:     [0.349, 0.698, 0.451],     // green rgb(89, 178, 115)
+  reject_reg:      [0.851, 0.651, 0.302],     // amber rgb(217, 166, 77)
+};
+// Mapping from engine reject_reason strings → palette key. The
+// engine emits "permeability" / "regulator"; the dashboard
+// shortens to "perm" / "reg" so the HUD rows stay narrow.
+const REASON_TO_PALETTE = {
+  '':              'executed',
+  'cost':          'reject_cost',
+  'market':        'reject_market',
+  'align':         'reject_align',
+  'law':           'reject_law',
+  'compute':       'reject_compute',
+  'permeability':  'reject_perm',
+  'regulator':     'reject_reg',
+};
+export function outcomeColor(reason) {
+  // Exported so the trade-arc legend in scene.js builds against
+  // the same source-of-truth palette; the contract test in
+  // engine/tests/test_outcome_palette_contract.py pins it.
+  const key = REASON_TO_PALETTE[reason ?? ''] ?? 'executed';
+  return OUTCOME_COLORS[key];
+}
+export const OUTCOME_PALETTE = OUTCOME_COLORS;
 
 export function createEdges(scene, surface, agents, opts = {}) {
   const { faceCentroids, vertAltitudes, vertIds, radius } = surface;
@@ -150,7 +192,10 @@ export function createEdges(scene, surface, agents, opts = {}) {
     const sinA = Math.sin(angle);
 
     const fade = edge.age / MAX_AGE_FRAMES;       // 0..1
-    const base = edge.isReject ? rejectColor : successColor;
+    // Phase 6 §7.2: color by reject reason (or executed). The
+    // edge carries `reason` — '' for executed, otherwise the
+    // engine reject_reason string.
+    const base = outcomeColor(edge.reason);
     const cr = base[0] * (1 - fade) + FADE_R * fade;
     const cg = base[1] * (1 - fade) + FADE_G * fade;
     const cbl = base[2] * (1 - fade) + FADE_B * fade;
@@ -226,7 +271,18 @@ export function createEdges(scene, surface, agents, opts = {}) {
       const ti = surplusToTier(surplus);
       const tier = tiers[ti];
       if (tier.active.length >= tier.cap) tier.active.shift();
-      tier.active.push({ a, b, isReject: !!e.reject_reason, age: 0, surplus });
+      // Phase 6 §7.2: stash the full engine reject_reason (empty
+      // string for executed) so writeArc can route through the
+      // per-outcome palette. `isReject` retained for back-compat
+      // with any caller reading it.
+      const reason = (typeof e.reject_reason === 'string') ? e.reject_reason : '';
+      tier.active.push({
+        a, b,
+        isReject: !!e.reject_reason,
+        reason,
+        age: 0,
+        surplus,
+      });
     }
   }
 

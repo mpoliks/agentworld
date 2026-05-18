@@ -18,6 +18,7 @@ import { createFolds } from './folds.js';
 import { createClusters } from './clusters.js';
 import { createClusterLabels } from './cluster_labels.js';
 import { createClusterOverlay } from './cluster_overlay.js';
+import { OUTCOME_PALETTE } from './edges.js';
 import { loadAlphaWeights, mapAlpha } from './alpha_map.js';
 import { startStream } from './stream.js';
 import { THEME } from './themes.js';
@@ -97,6 +98,8 @@ const hudCabalsEl = document.getElementById('hud-cabals');
 const hudSyndicatesEl = document.getElementById('hud-syndicates');
 const leversPendingRowEl = document.getElementById('levers-pending-row');
 const sectorCompassEl = document.getElementById('sector-compass');
+const arcLegendEl = document.getElementById('arc-legend');
+const ebiLegendEl = document.getElementById('ebi-legend');
 // Lever panel — Phase 4 of spatial-sandbox-completeness.md §5.
 // Levers carry data-key (engine override key) and data-kind
 // ("live" → POST /update on every change; "structural" → queued
@@ -272,6 +275,66 @@ function onSectorCompassClick(sector, swatchEl) {
     }
     _isolateTimer = null;
   }, 5000);
+}
+
+// Phase 6 §7.4 — trade-arc outcome legend. Builds 8 rows
+// (executed + 7 reject reasons) from OUTCOME_PALETTE in edges.js
+// so the legend RGB matches the rendered arc RGB pixel-exact.
+const ARC_LEGEND_ROWS = [
+  ['executed',        'executed'],
+  ['reject_cost',     'cost reject'],
+  ['reject_market',   'market reject'],
+  ['reject_align',    'align reject'],
+  ['reject_law',      'law reject'],
+  ['reject_compute',  'compute reject'],
+  ['reject_perm',     'perm reject'],
+  ['reject_reg',      'reg reject'],
+];
+function initArcLegend() {
+  if (!arcLegendEl) return;
+  arcLegendEl.innerHTML = '';
+  for (const [key, label] of ARC_LEGEND_ROWS) {
+    const c = OUTCOME_PALETTE[key];
+    if (!c) continue;
+    const row = document.createElement('div');
+    row.className = 'arc-legend-row';
+    const dot = document.createElement('div');
+    dot.className = 'arc-legend-dot';
+    dot.style.background = `rgb(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)})`;
+    const name = document.createElement('div');
+    name.className = 'arc-legend-name';
+    name.textContent = label;
+    row.appendChild(dot);
+    row.appendChild(name);
+    arcLegendEl.appendChild(row);
+  }
+}
+
+// Phase 6 §7.4 — EBI shape-morph legend. Three glyphs that mirror
+// the substrate shape morph: disc / sphere / lobes. The active
+// glyph highlights based on the current EBI band (driven by
+// updateEbiLegend on each onStep).
+function initEbiLegend() {
+  if (!ebiLegendEl) return;
+  // The glyphs are pre-rendered in the HTML; this hook is here so
+  // a future "click to pin band" interaction has a place to land.
+  for (const el of ebiLegendEl.querySelectorAll('.ebi-glyph')) {
+    el.classList.remove('active');
+  }
+}
+function updateEbiLegend(ebi) {
+  if (!ebiLegendEl || !Number.isFinite(ebi)) return;
+  // Map the six regime bands onto the three glyphs:
+  //   ebi < 1.5  → disc       (flat real economy + low baroque)
+  //   1.5 ≤ ebi < 2.5 → sphere (calibrated reference)
+  //   ebi ≥ 2.5  → lobes      (reflexivity / exo-baroque / untethered)
+  let band;
+  if (ebi < 1.5) band = 'disc';
+  else if (ebi < 2.5) band = 'sphere';
+  else band = 'lobes';
+  for (const el of ebiLegendEl.querySelectorAll('.ebi-glyph')) {
+    el.classList.toggle('active', el.dataset.band === band);
+  }
 }
 
 function initWelfareMeter() {
@@ -455,6 +518,8 @@ function initScene() {
 
   initWelfareMeter();
   initSectorCompass();
+  initArcLegend();
+  initEbiLegend();
 
   window.addEventListener('resize', onResize);
   renderer.domElement.addEventListener('mousemove', onPointerMove);
@@ -875,20 +940,41 @@ function applyShape() {
 // the HUD readout often enough to tell live vs throttled at a
 // glance. Started in onHello, cleared in onTerminal/onConnectError.
 let streamAgeTimer = null;
+const STREAM_STALL_MS = 5000;
 function updateStreamAge() {
   if (!hudStreamEl) return;
   const hidden = typeof document !== 'undefined' && document.hidden;
   if (_lastEdgeT === 0) {
     hudStreamEl.textContent = hidden ? 'bg · --' : '--';
+    hudStreamEl.title = hidden
+      ? 'tab is backgrounded — render rate reduced; engine and stream are unaffected.'
+      : 'awaiting first edge event from the engine.';
     return;
   }
   const ageMs = performance.now() - _lastEdgeT;
-  const prefix = hidden ? 'bg · ' : '';
-  if (ageMs < STREAM_STALE_MS) {
-    hudStreamEl.textContent = prefix + 'live';
+  // Phase 6 §7.5: distinguish three states.
+  //   live       — fresh edges arriving
+  //   bg · live  — same, but the browser is throttling rAF
+  //   STALL      — no edges for ≥ 5 s; engine may have stopped
+  let text;
+  let title;
+  if (ageMs >= STREAM_STALL_MS) {
+    text = 'STALL';
+    title = 'no edge events for 5+ seconds — engine may have stopped.';
+  } else if (hidden) {
+    text = ageMs < STREAM_STALE_MS
+      ? 'bg · live'
+      : 'bg · ' + (ageMs / 1000).toFixed(1) + 's';
+    title = 'tab is backgrounded — render rate reduced; engine and stream are unaffected.';
+  } else if (ageMs < STREAM_STALE_MS) {
+    text = 'live';
+    title = 'edges arriving from the live engine.';
   } else {
-    hudStreamEl.textContent = prefix + (ageMs / 1000).toFixed(1) + 's';
+    text = (ageMs / 1000).toFixed(1) + 's';
+    title = `${(ageMs / 1000).toFixed(1)} s since the last edge event — connection may be slow.`;
   }
+  hudStreamEl.textContent = text;
+  hudStreamEl.title = title;
 }
 
 function onHello(meta) {
@@ -963,6 +1049,8 @@ function onStep(step) {
   // Phase 5 §6.2 — EBI regime caption. One of six bands sourced
   // from the band table in spatial-sandbox-completeness.md §6.2.
   updateRegimeCaption(step.exo_baroque_index);
+  // Phase 6 §7.4 — EBI shape-morph legend glyph.
+  updateEbiLegend(step.exo_baroque_index);
 
   // Phase 2 §3.1: run Louvain over the rolling edge buffer. Decays
   // are applied inside tick() so call once per engine step (not per
