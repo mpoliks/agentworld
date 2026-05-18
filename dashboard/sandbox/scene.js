@@ -20,6 +20,10 @@ import { createClusterLabels } from './cluster_labels.js';
 import { createClusterOverlay } from './cluster_overlay.js';
 import { createInspectorAgent } from './inspector_agent.js';
 import { OUTCOME_PALETTE } from './edges.js';
+// Plan §8.3 — dev/checks runs in-browser invariants when the URL
+// carries `?dev=1`. Imported lazily so production loads don't pay
+// the parse cost.
+let _devChecks = null;
 import { loadAlphaWeights, mapAlpha } from './alpha_map.js';
 import { startStream } from './stream.js';
 import { THEME } from './themes.js';
@@ -1140,6 +1144,11 @@ function onHello(meta) {
 function onStep(step) {
   if (paused) return;
   counters.step += 1;
+  // Plan §8.3 — forward to dev/checks if it's running. The hook
+  // is a global function published by enableDevChecks.
+  if (typeof window !== 'undefined' && window.__devChecksOnStep) {
+    window.__devChecksOnStep(step);
+  }
   setStatus(`${theme.name} · tick ${step.step}`, 'live');
 
   pushStepArrival(performance.now() * 0.001);
@@ -1522,6 +1531,16 @@ async function main() {
   // Fetch weights in parallel with topology build — the JSON is
   // tiny and not on the render critical path.
   loadAlphaWeights('./alpha_weights.json').then(() => updateAlphaHud());
+  // Plan §8.3 — opt in to runtime invariants via ?dev=1 URL.
+  if (typeof location !== 'undefined'
+      && new URLSearchParams(location.search).has('dev')) {
+    import('./dev/checks.js').then((m) => {
+      _devChecks = m;
+      m.enableDevChecks();
+    }).catch((err) => {
+      console.warn('[dev/checks] failed to load:', err);
+    });
+  }
   setProgress(0.62, 'topology ready');
   await nextFrame();
   animate();
