@@ -602,9 +602,11 @@ function initScene() {
     },
     getClusterStatus: (cid) => clusterLabels?.statusOf?.(cid) ?? 'cabal',
     getClusterTrack: (cid) => clusterLabels?.trackOf?.(cid) ?? null,
-    cardEl: document.getElementById('inspector-card'),
-    cardCloseEl: document.getElementById('inspector-card-close'),
-    cardBodyEl: document.getElementById('inspector-card-body'),
+    getClusterMembers: (cid) => {
+      const t = clusterLabels?.trackOf?.(cid);
+      return t ? t.members : [];
+    },
+    stackEl: document.getElementById('inspector-stack'),
   });
   inspector.attach();
 
@@ -1407,10 +1409,10 @@ async function restartRun() {
   if (wealthStockAiEl) wealthStockAiEl.style.width = '0%';
   if (wealthStockHumansPctEl) wealthStockHumansPctEl.textContent = '--%';
   if (wealthStockAiPctEl) wealthStockAiPctEl.textContent = '--%';
-  // Phase 6 §7.1 — inspector clears: card hides on next refresh
-  // because _castByIdx is empty.
+  // Phase 6 §7.1 — inspector clears: card stack drops every card
+  // because the cast snapshot is gone.
   _castByIdx.clear();
-  inspector?.refresh();
+  inspector?.reset();
   if (paused) {
     paused = false;
     if (btnPauseEl) {
@@ -1499,7 +1501,9 @@ window.__sandbox = {
   isolatedSector: () => agents?.isolatedSectorOf?.() ?? -1,
   sectorPalette: () => theme.sectorPalette,
   sectorNames: () => SECTOR_NAMES.slice(),
-  inspectorOpenIdx: () => inspector?.openIdxOf?.() ?? -1,
+  inspector: () => inspector?.diagnostics?.() ?? { cards: [] },
+  inspectorOpen: (kind, id, shift = false) => inspector?.openCard?.(kind, id, shift),
+  inspectorReset: () => inspector?.reset?.(),
   castEntry: (idx) => _castByIdx.get(idx) ?? null,
   leverState: () => ({ ..._leverState }),
   alphaLever: () => mapAlpha(_leverState),

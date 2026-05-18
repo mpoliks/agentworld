@@ -1,50 +1,70 @@
-// Click-to-inspect agent card (Phase 6 §7.1 of
-// spatial-sandbox-completeness.md). Clicking on or near a
-// caterpillar opens a card on the right side of the screen
-// listing the agent's identity, state, norm vector, recent
-// partners, and cluster membership.
+// Click-to-inspect (Phase 6 §7.1 of spatial-sandbox-completeness.md).
 //
-// Hit-testing: the plan's "Math.floor(triangleIndex / MAX_TRAIL)"
-// slot lookup assumes each agent occupies a fixed stride in the
-// position buffer. agents.js packs the buffer dynamically (each
-// agent contributes only its visible segment count, which varies
-// with wealth bucket and humansOnly state), so that math doesn't
-// work for this build. We do an analytic ray-sphere intersection
-// (same approach as the sector hover) and then pick the nearest
-// cast agent by current-face centroid. Within a small angular
-// threshold the user reads it as "I clicked that agent."
+// A stack of inspector cards on the left of the screen. Two card
+// kinds:
 //
-// The card reads from:
-//   - a Map<idx, castEntry> snapshot the scene.js keeps current;
-//   - the cluster_labels accessor for cabal / syndicate id;
-//   - the agents module for the agent's current face (drives the
-//     pull marker on the sphere when the card is open).
+//   agent   — opened when a click lands within HIT_ANGLE_AGENT of
+//             a cast agent's current face centroid. Carries
+//             identity, state, recent partners, and a K-axis norm
+//             radar.
+//
+//   cluster — opened when a click lands beyond HIT_ANGLE_AGENT but
+//             within HIT_ANGLE_CLUSTER of a clustered agent. Carries
+//             the cabal / syndicate identity, member count, status,
+//             sector composition pie, and the Jaccard sparkline.
+//
+// Interactions:
+//
+//   plain click  replaces every unpinned card with the new pick.
+//   shift-click  adds a new card to the stack (max 4 cards).
+//   Pin          toggles a per-card flag — pinned cards survive
+//                subsequent plain clicks and Esc.
+//   Watch        cluster-only — flashes the card red when the
+//                cluster's churnEMA crosses a threshold.
+//   Esc          closes the top card on the stack (most recent
+//                first), skipping pinned cards.
+//   ×            close button on each card.
+//
+// Hit-testing uses analytic ray-sphere intersection followed by an
+// angular-nearest search over the cast. The plan §7.1 spec'd a
+// full BufferGeometry raycaster with `Math.floor(triangleIndex /
+// MAX_TRAIL)` slot lookup; agents.js packs the buffer dynamically
+// (visible-segment count varies per agent), so that math doesn't
+// produce the right slot. The nearest-face approach reads
+// correctly under the same dynamic layout.
 
 import * as THREE from 'three';
 
 const DRAG_PX_THRESHOLD = 4;
-const HIT_ANGLE_THRESHOLD = 0.06;     // radians; ~3.4° → ~5% of R
-                                       // on a sphere — picks up the
-                                       // visible caterpillar even
-                                       // when the click lands a
-                                       // segment-width off.
+const HIT_ANGLE_AGENT = 0.06;       // ~3.4° → ~5% of R
+const HIT_ANGLE_CLUSTER = 0.14;     // ~8° → ~14% of R; widens the
+                                    // hit window when nothing's
+                                    // directly under the cursor
+const MAX_CARDS = 4;
+const WATCH_CHURN_THRESHOLD = 0.30;
 
 export function createInspectorAgent(opts) {
   const {
     canvas, camera, agents, surface,
     sectorNames, sectorPalette,
-    getCastEntry, getClusterId, getClusterStatus, getClusterTrack,
-    cardEl, cardCloseEl, cardBodyEl,
+    getCastEntry,
+    getClusterId, getClusterStatus, getClusterTrack,
+    getClusterMembers,                          // (cabalId) → [idx, ...] | null
+    stackEl,                                     // <div id="inspector-stack">
   } = opts;
 
-  let openIdx = -1;
-  let mouseDownX = 0, mouseDownY = 0, mouseDownT = 0;
+  // Stack of open cards. Each:
+  //   { kind: 'agent' | 'cluster', id, pinned, watching, alert,
+  //     el, bodyEl, pinBtn, watchBtn, closeBtn }
+  // `id` is the agent idx (agent kind) or cluster stableId
+  // (cluster kind).
+  const cards = [];
+  let mouseDownX = 0, mouseDownY = 0;
 
   function onMouseDown(ev) {
     if (ev.button !== 0) return;
     mouseDownX = ev.clientX;
     mouseDownY = ev.clientY;
-    mouseDownT = performance.now();
   }
 
   function onMouseUp(ev) {
@@ -52,63 +72,57 @@ export function createInspectorAgent(opts) {
     const dx = ev.clientX - mouseDownX;
     const dy = ev.clientY - mouseDownY;
     if (Math.sqrt(dx * dx + dy * dy) > DRAG_PX_THRESHOLD) return;
-    const idx = pickAgentAt(ev.clientX, ev.clientY);
-    if (idx < 0) {
-      // Clicking off any agent doesn't close the card — Esc does.
-      return;
+    const pick = pickAt(ev.clientX, ev.clientY);
+    if (!pick) return;
+    if (ev.shiftKey) {
+      // Add without disturbing existing cards (subject to MAX_CARDS).
+      addCard(pick);
+    } else {
+      // Replace all unpinned cards with the new pick.
+      replaceUnpinned(pick);
     }
-    openIdx = idx;
-    renderCard();
   }
 
   function onKeyDown(ev) {
-    if (ev.key === 'Escape' && openIdx >= 0) {
-      openIdx = -1;
-      hideCard();
+    if (ev.key === 'Escape') {
+      // Close the most recent unpinned card.
+      for (let i = cards.length - 1; i >= 0; i -= 1) {
+        if (!cards[i].pinned) { closeAt(i); return; }
+      }
     }
   }
 
-  // Analytic ray-sphere intersection + nearest cast agent on the
-  // sphere by angular distance to the hit point. Returns -1 if
-  // no agent is within HIT_ANGLE_THRESHOLD radians of the hit.
+  // Analytic ray-sphere intersection + nearest cast agent.
+  // Returns { kind: 'agent', id: idx } or { kind: 'cluster', id }
+  // or null if nothing's close enough.
   const _raycaster = new THREE.Raycaster();
   const _ndc = new THREE.Vector2();
-  function pickAgentAt(clientX, clientY) {
+  function pickAt(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     _ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     _ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     _raycaster.setFromCamera(_ndc, camera);
-    // Sphere center is at origin; ray-sphere intersection picks
-    // the near hit at the substrate's nominal radius. The substrate
-    // may be morphed by EBI (group.scale.y), but face centroids the
-    // pickAgent step reads are the unmorphed positions — agents
-    // pulls live face indices from agents.currentFaceForIdx().
     const r = surface.radius ?? 700;
     const o = _raycaster.ray.origin;
     const d = _raycaster.ray.direction;
-    // |o + t·d|² = r² → solve quadratic in t.
     const b = 2 * (o.x * d.x + o.y * d.y + o.z * d.z);
     const c = o.x * o.x + o.y * o.y + o.z * o.z - r * r;
     const disc = b * b - 4 * c;
-    if (disc < 0) return -1;
+    if (disc < 0) return null;
     const sqrtD = Math.sqrt(disc);
     const t0 = (-b - sqrtD) / 2;
     const t1 = (-b + sqrtD) / 2;
     const t = (t0 > 1e-3) ? t0 : (t1 > 1e-3 ? t1 : -1);
-    if (t < 0) return -1;
-    // Hit point on the *uniform* sphere — agents face centroids
-    // live there too. Normalise to a direction.
+    if (t < 0) return null;
     const hx = (o.x + d.x * t) / r;
     const hy = (o.y + d.y * t) / r;
     const hz = (o.z + d.z * t) / r;
 
-    // Walk the most recent cast snapshot, find the agent whose
-    // current face centroid is closest to the hit direction.
     const fc = surface.faceCentroids;
-    let bestIdx = -1;
-    let bestDot = Math.cos(HIT_ANGLE_THRESHOLD);
-    // getCastEntry exposes the snapshot map; iteration is small
-    // (cast = 5000 at full scale; ~5 ms).
+    let bestAgent = -1;
+    let bestAgentDot = Math.cos(HIT_ANGLE_AGENT);
+    let bestNearAgent = -1;
+    let bestNearAgentDot = Math.cos(HIT_ANGLE_CLUSTER);
     for (const [idx, ] of getCastEntry.entries()) {
       const f = agents.currentFaceForIdx(idx);
       if (f < 0) continue;
@@ -117,36 +131,133 @@ export function createInspectorAgent(opts) {
       const cz = fc[f * 3 + 2];
       const cn = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
       const dot = (cx * hx + cy * hy + cz * hz) / cn;
-      if (dot > bestDot) {
-        bestDot = dot;
-        bestIdx = idx;
+      if (dot > bestAgentDot) {
+        bestAgentDot = dot;
+        bestAgent = idx;
+      }
+      if (dot > bestNearAgentDot) {
+        bestNearAgentDot = dot;
+        bestNearAgent = idx;
       }
     }
-    return bestIdx;
+    if (bestAgent >= 0) return { kind: 'agent', id: bestAgent };
+    if (bestNearAgent >= 0) {
+      const cid = getClusterId ? getClusterId(bestNearAgent) : -1;
+      if (cid >= 0) return { kind: 'cluster', id: cid };
+    }
+    return null;
   }
 
-  function hideCard() {
-    if (cardEl) cardEl.style.display = 'none';
+  function addCard(pick) {
+    // Don't duplicate an already-open card.
+    for (const c of cards) {
+      if (c.kind === pick.kind && c.id === pick.id) return;
+    }
+    if (cards.length >= MAX_CARDS) {
+      // Push out the oldest unpinned card. If every card is
+      // pinned, refuse the new one.
+      let dropIdx = -1;
+      for (let i = 0; i < cards.length; i += 1) {
+        if (!cards[i].pinned) { dropIdx = i; break; }
+      }
+      if (dropIdx < 0) return;
+      closeAt(dropIdx);
+    }
+    const card = buildCard(pick.kind, pick.id);
+    cards.push(card);
+    renderCard(card);
   }
 
-  function renderCard() {
-    if (openIdx < 0) { hideCard(); return; }
-    const e = getCastEntry.get(openIdx);
-    if (!e) { hideCard(); return; }
-    if (!cardEl || !cardBodyEl) return;
-    cardEl.style.display = '';
-    // Each row is a small key/value pair; the radar canvas sits
-    // at the bottom.
+  function replaceUnpinned(pick) {
+    // Close every unpinned card, then add the pick.
+    for (let i = cards.length - 1; i >= 0; i -= 1) {
+      if (!cards[i].pinned) closeAt(i);
+    }
+    addCard(pick);
+  }
+
+  function buildCard(kind, id) {
+    const el = document.createElement('div');
+    el.className = 'inspector-card';
+    const header = document.createElement('div');
+    header.className = 'inspector-card-header';
+    const title = document.createElement('span');
+    title.className = 'inspector-card-title';
+    title.textContent = kind;
+    header.appendChild(title);
+    const pinBtn = document.createElement('button');
+    pinBtn.className = 'inspector-card-btn';
+    pinBtn.type = 'button';
+    pinBtn.textContent = 'pin';
+    header.appendChild(pinBtn);
+    let watchBtn = null;
+    if (kind === 'cluster') {
+      watchBtn = document.createElement('button');
+      watchBtn.className = 'inspector-card-btn';
+      watchBtn.type = 'button';
+      watchBtn.textContent = 'watch';
+      header.appendChild(watchBtn);
+    }
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'inspector-card-close';
+    closeBtn.type = 'button';
+    closeBtn.textContent = '×';
+    header.appendChild(closeBtn);
+    el.appendChild(header);
+    const bodyEl = document.createElement('div');
+    el.appendChild(bodyEl);
+    stackEl.appendChild(el);
+
+    const card = {
+      kind, id, pinned: false, watching: false, alert: false,
+      el, bodyEl, pinBtn, watchBtn, closeBtn,
+    };
+
+    pinBtn.addEventListener('click', () => {
+      card.pinned = !card.pinned;
+      el.classList.toggle('pinned', card.pinned);
+      pinBtn.classList.toggle('active', card.pinned);
+    });
+    if (watchBtn) {
+      watchBtn.addEventListener('click', () => {
+        card.watching = !card.watching;
+        el.classList.toggle('watching', card.watching);
+        watchBtn.classList.toggle('active', card.watching);
+        if (!card.watching) { el.classList.remove('alert'); card.alert = false; }
+      });
+    }
+    closeBtn.addEventListener('click', () => {
+      const idx = cards.indexOf(card);
+      if (idx >= 0) closeAt(idx);
+    });
+    return card;
+  }
+
+  function closeAt(i) {
+    const card = cards[i];
+    if (!card) return;
+    if (card.el && card.el.parentNode) card.el.parentNode.removeChild(card.el);
+    cards.splice(i, 1);
+  }
+
+  function renderCard(card) {
+    if (card.kind === 'agent') renderAgentCard(card);
+    else renderClusterCard(card);
+  }
+
+  function renderAgentCard(card) {
+    const e = getCastEntry.get(card.id);
+    if (!e) { closeAt(cards.indexOf(card)); return; }
     const sectorName = sectorNames?.[e.sector] ?? `sector ${e.sector}`;
     const isHuman = e.is_human ? 'human' : 'agent';
     const firmSectors = Array.isArray(e.firm_sectors) ? e.firm_sectors : [];
-    const cabalId = getClusterId ? getClusterId(openIdx) : -1;
+    const cabalId = getClusterId ? getClusterId(card.id) : -1;
     const cabalStatus = getClusterStatus ? getClusterStatus(cabalId) : null;
     const track = (cabalStatus === 'syndicate' && getClusterTrack)
       ? getClusterTrack(cabalId) : null;
 
     const rows = [
-      ['idx',        String(openIdx)],
+      ['idx',        String(card.id)],
       ['kind',       isHuman],
       ['sector',     sectorName],
       ['stack',      String(e.stack ?? '?')],
@@ -174,15 +285,99 @@ export function createInspectorAgent(opts) {
     for (const [k, v] of rows) {
       html += `<div class="inspector-row"><span class="inspector-row-label">${k}</span><span class="inspector-row-value">${v}</span></div>`;
     }
-    cardBodyEl.innerHTML = html;
-    // Norm radar canvas — rebuild fresh.
+    card.bodyEl.innerHTML = html;
     const nv = Array.isArray(e.norm_vector) ? e.norm_vector : [];
     if (nv.length >= 2) {
       const canvas = document.createElement('canvas');
       canvas.className = 'inspector-radar';
       canvas.width = 160; canvas.height = 160;
-      cardBodyEl.appendChild(canvas);
+      card.bodyEl.appendChild(canvas);
       drawNormRadar(canvas, nv);
+    }
+  }
+
+  function renderClusterCard(card) {
+    const track = getClusterTrack ? getClusterTrack(card.id) : null;
+    if (!track) { closeAt(cards.indexOf(card)); return; }
+    const status = track.status;
+    const members = getClusterMembers ? (getClusterMembers(card.id) ?? []) : [];
+
+    // Sector composition: count members by sector_id pulled from
+    // the cast snapshot.
+    const sectorCounts = new Map();
+    let memberWealth = [];
+    for (const idx of members) {
+      const e = getCastEntry.get(idx);
+      if (!e) continue;
+      if (typeof e.sector === 'number') {
+        sectorCounts.set(e.sector, (sectorCounts.get(e.sector) ?? 0) + 1);
+      }
+      if (Number.isFinite(e.wealth)) memberWealth.push(e.wealth);
+    }
+    memberWealth.sort((a, b) => a - b);
+    const median = memberWealth.length === 0 ? null
+      : memberWealth[Math.floor(memberWealth.length / 2)];
+
+    const rows = [
+      ['id',     `${card.id}`],
+      ['status', status],
+      ['size',   String(track.memberCount)],
+      ['age',    `${track.age} ticks`],
+      ['churn',  fmtFloat(track.churnEMA)],
+      ['median wealth', median !== null ? fmtNumber(median) : '—'],
+    ];
+    if (status === 'syndicate' && Number.isInteger(track.promotedAt)) {
+      rows.push(['promoted', `tick ${track.promotedAt}`]);
+    }
+    let html = '';
+    for (const [k, v] of rows) {
+      html += `<div class="inspector-row"><span class="inspector-row-label">${k}</span><span class="inspector-row-value">${v}</span></div>`;
+    }
+    card.bodyEl.innerHTML = html;
+
+    // Sector pie.
+    if (sectorPalette && sectorCounts.size > 0) {
+      const pie = document.createElement('canvas');
+      pie.className = 'inspector-sector-pie';
+      pie.width = 80; pie.height = 80;
+      card.bodyEl.appendChild(pie);
+      drawSectorPie(pie, sectorCounts);
+      // Compact legend for the pie.
+      const sorted = Array.from(sectorCounts.entries())
+        .sort((a, b) => b[1] - a[1]).slice(0, 5);
+      for (const [sec, count] of sorted) {
+        const row = document.createElement('div');
+        row.className = 'inspector-sector-row';
+        const sw = document.createElement('span');
+        sw.className = 'swatch';
+        const c = sectorPalette[sec] ?? [0.5, 0.5, 0.5];
+        sw.style.background = `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
+        row.appendChild(sw);
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = `${sectorNames?.[sec] ?? `sector ${sec}`} (${count})`;
+        row.appendChild(nameSpan);
+        card.bodyEl.appendChild(row);
+      }
+    }
+
+    // Jaccard sparkline.
+    const jhist = Array.isArray(track.jaccardHistory) ? track.jaccardHistory : [];
+    if (jhist.length >= 2) {
+      const spark = document.createElement('canvas');
+      spark.className = 'inspector-jaccard-spark';
+      spark.width = 198; spark.height = 28;
+      card.bodyEl.appendChild(spark);
+      drawJaccardSpark(spark, jhist);
+    }
+
+    // Watch alert.
+    if (card.watching) {
+      const churn = track.churnEMA;
+      const alert = Number.isFinite(churn) && churn > WATCH_CHURN_THRESHOLD;
+      if (alert !== card.alert) {
+        card.alert = alert;
+        card.el.classList.toggle('alert', alert);
+      }
     }
   }
 
@@ -196,11 +391,6 @@ export function createInspectorAgent(opts) {
     return v.toFixed(2);
   }
 
-  // 8-axis (or K-axis) norm radar. Axes spaced equally around the
-  // circle; each axis carries one component of the norm vector,
-  // clipped to [0, 1]. The polygon's vertex on axis k sits at
-  // radius `v_k * R`. Background grid at 0.25/0.5/0.75 so the user
-  // can read magnitudes.
   function drawNormRadar(canvas, nv) {
     const ctx = canvas.getContext('2d');
     const w = canvas.width;
@@ -209,8 +399,6 @@ export function createInspectorAgent(opts) {
     const R = Math.min(w, h) * 0.40;
     ctx.clearRect(0, 0, w, h);
     const K = nv.length;
-
-    // Grid rings.
     ctx.strokeStyle = 'rgba(26, 20, 18, 0.18)';
     ctx.lineWidth = 1;
     for (const f of [0.25, 0.5, 0.75, 1.0]) {
@@ -225,8 +413,6 @@ export function createInspectorAgent(opts) {
       ctx.closePath();
       ctx.stroke();
     }
-
-    // Axes.
     ctx.strokeStyle = 'rgba(26, 20, 18, 0.10)';
     for (let k = 0; k < K; k += 1) {
       const a = (k / K) * Math.PI * 2 - Math.PI / 2;
@@ -235,8 +421,6 @@ export function createInspectorAgent(opts) {
       ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
       ctx.stroke();
     }
-
-    // Norm vector polygon.
     ctx.fillStyle = 'rgba(102, 140, 200, 0.20)';
     ctx.strokeStyle = 'rgba(102, 140, 200, 0.85)';
     ctx.lineWidth = 1.5;
@@ -256,30 +440,105 @@ export function createInspectorAgent(opts) {
     ctx.stroke();
   }
 
+  function drawSectorPie(canvas, sectorCounts) {
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    const cx = w / 2, cy = h / 2;
+    const R = Math.min(w, h) * 0.46;
+    ctx.clearRect(0, 0, w, h);
+    let total = 0;
+    for (const v of sectorCounts.values()) total += v;
+    if (total === 0) return;
+    let a0 = -Math.PI / 2;
+    for (const [sec, count] of sectorCounts) {
+      const a1 = a0 + (count / total) * Math.PI * 2;
+      const c = sectorPalette?.[sec] ?? [0.5, 0.5, 0.5];
+      ctx.fillStyle = `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, R, a0, a1);
+      ctx.closePath();
+      ctx.fill();
+      a0 = a1;
+    }
+  }
+
+  function drawJaccardSpark(canvas, hist) {
+    const ctx = canvas.getContext('2d');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const targetW = Math.floor(canvas.clientWidth * dpr);
+    const targetH = Math.floor(canvas.clientHeight * dpr);
+    if (targetW > 0 && canvas.width !== targetW) canvas.width = targetW;
+    if (targetH > 0 && canvas.height !== targetH) canvas.height = targetH;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    // Promote threshold reference line at 0.9.
+    ctx.strokeStyle = 'rgba(80, 168, 96, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2 * dpr, 2 * dpr]);
+    ctx.beginPath();
+    const y90 = h - 0.9 * h;
+    ctx.moveTo(0, y90); ctx.lineTo(w, y90); ctx.stroke();
+    ctx.setLineDash([]);
+    // History polyline.
+    ctx.strokeStyle = 'rgba(140, 102, 191, 0.95)';
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath();
+    const n = hist.length;
+    for (let i = 0; i < n; i += 1) {
+      const x = (i / Math.max(1, n - 1)) * w;
+      let v = hist[i];
+      if (!Number.isFinite(v)) v = 0;
+      if (v < 0) v = 0; if (v > 1) v = 1;
+      const y = h - v * h;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
   // Public surface.
   function attach() {
     canvas.addEventListener('mousedown', onMouseDown);
     canvas.addEventListener('mouseup', onMouseUp);
     window.addEventListener('keydown', onKeyDown);
-    if (cardCloseEl) {
-      cardCloseEl.addEventListener('click', () => {
-        openIdx = -1;
-        hideCard();
-      });
-    }
-    hideCard();
   }
   function detach() {
     canvas.removeEventListener('mousedown', onMouseDown);
     canvas.removeEventListener('mouseup', onMouseUp);
     window.removeEventListener('keydown', onKeyDown);
   }
-  // Called whenever a new cast snapshot lands so the card refreshes.
   function refresh() {
-    if (openIdx >= 0) renderCard();
+    // Re-render every open card. Closed cards from disappeared
+    // tracks naturally collapse during renderClusterCard.
+    for (let i = cards.length - 1; i >= 0; i -= 1) {
+      renderCard(cards[i]);
+    }
   }
-  function openIdxOf() { return openIdx; }
-  function pickFromEvent(ev) { return pickAgentAt(ev.clientX, ev.clientY); }
+  function reset() {
+    while (cards.length > 0) closeAt(cards.length - 1);
+  }
+  function diagnostics() {
+    return {
+      cards: cards.map((c) => ({
+        kind: c.kind, id: c.id, pinned: c.pinned,
+        watching: c.watching, alert: c.alert,
+      })),
+    };
+  }
+  // Test hook — synthesize a pick result by passing a canvas event.
+  function pickFromEvent(ev) { return pickAt(ev.clientX, ev.clientY); }
+  // Test hook — programmatically open a card without a click.
+  function openCard(kind, id, shift = false) {
+    const pick = { kind, id };
+    if (shift) addCard(pick);
+    else replaceUnpinned(pick);
+  }
 
-  return { attach, detach, refresh, openIdxOf, pickFromEvent };
+  return {
+    attach, detach, refresh, reset,
+    diagnostics, pickFromEvent, openCard,
+  };
 }

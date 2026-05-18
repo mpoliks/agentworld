@@ -605,12 +605,19 @@
     border-radius: 1px;
   }
 
-  /* Phase 6 §7.1 — click-to-inspect agent card. */
-  #inspector-card {
+  /* Phase 6 §7.1 — inspector card stack. */
+  #inspector-stack {
     position: fixed;
     top: 54px;
     left: 18px;
     z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: calc(100vh - 72px);
+    overflow-y: auto;
+  }
+  .inspector-card {
     width: 220px;
     background: rgba(245, 240, 230, 0.96);
     border: 1px solid var(--border);
@@ -622,22 +629,52 @@
     color: rgba(26, 20, 18, 0.85);
     box-shadow: 0 2px 4px rgba(26, 20, 18, 0.08);
   }
-  #inspector-card-header {
+  .inspector-card.pinned {
+    border-color: rgba(80, 168, 96, 0.85);
+    box-shadow: 0 2px 6px rgba(80, 168, 96, 0.20);
+  }
+  .inspector-card.watching.alert {
+    border-color: rgba(217, 89, 89, 0.85);
+    box-shadow: 0 0 0 1px rgba(217, 89, 89, 0.40);
+  }
+  .inspector-card-header {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     margin-bottom: 5px;
+    gap: 5px;
   }
-  #inspector-card-title {
+  .inspector-card-title {
     font-size: 9px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: rgba(26, 20, 18, 0.55);
+    flex: 1;
   }
-  #inspector-card-close {
-    font-size: 14px;
-    padding: 0 6px;
-    line-height: 1;
+  .inspector-card-btn {
+    font-size: 9px;
+    padding: 1px 5px;
+    line-height: 1.4;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 1px;
+    cursor: pointer;
+    color: rgba(26, 20, 18, 0.55);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+  }
+  .inspector-card-btn.active {
+    background: rgba(80, 168, 96, 0.18);
+    border-color: rgba(80, 168, 96, 0.55);
+    color: rgba(50, 110, 65, 0.95);
+  }
+  .inspector-card-btn:hover {
+    color: rgba(26, 20, 18, 0.85);
+  }
+  .inspector-card-close {
+    font-size: 13px;
+    padding: 0 5px;
+    line-height: 1.1;
     background: transparent;
     border: 1px solid var(--border);
     cursor: pointer;
@@ -663,6 +700,24 @@
   .inspector-radar {
     display: block;
     margin: 6px auto 0;
+  }
+  .inspector-jaccard-spark, .inspector-sector-pie {
+    display: block;
+    margin: 4px auto 0;
+  }
+  .inspector-sector-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    color: rgba(26, 20, 18, 0.65);
+    margin-top: 1px;
+  }
+  .inspector-sector-row .swatch {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border: 1px solid rgba(26, 20, 18, 0.12);
   }
   /* Sector hover label. Follows the cursor when the pointer is
      over a sector region. */
@@ -859,17 +914,12 @@
   <!-- Phase 6 §7.3 — three 60-tick sparklines instead of bars. -->
   <div id="welfare-flow"></div>
 </div>
-<!-- Phase 6 §7.1 — click-to-inspect agent card. Pinned to the
-     left side of the screen so it doesn't overlap the HUD / lever
-     panel on the right. Esc closes it; clicking another agent
-     swaps to that one's view. -->
-<div id="inspector-card">
-  <div id="inspector-card-header">
-    <span id="inspector-card-title">agent</span>
-    <button id="inspector-card-close" class="control-btn" type="button">×</button>
-  </div>
-  <div id="inspector-card-body"></div>
-</div>
+<!-- Phase 6 §7.1 — click-to-inspect. Stack of cards on the left.
+     Plain click replaces unpinned cards; shift-click adds a new
+     one (max 4). Pin toggle keeps a card across subsequent
+     clicks. Cluster card opens when the click lands near a
+     clustered agent but not on the agent itself. -->
+<div id="inspector-stack"></div>
 <div id="sector-label"></div>
 <div id="toggles">
   <label><input type="checkbox" id="toggle-trades" checked> show trades</label>

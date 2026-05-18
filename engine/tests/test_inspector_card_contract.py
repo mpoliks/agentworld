@@ -27,11 +27,37 @@ WORLD_PY = REPO_ROOT / "engine" / "core" / "world.py"
 
 
 def test_card_markup_present():
+    """Phase 6 §7.1 follow-on: cards are now built dynamically into
+    an #inspector-stack container so the dashboard can show
+    multiple at once (shift-click). The static card-id check from
+    the initial commit is gone with the static container."""
     text = SANDBOX_HTML.read_text()
-    assert 'id="inspector-card"' in text
-    assert 'id="inspector-card-header"' in text
-    assert 'id="inspector-card-close"' in text
-    assert 'id="inspector-card-body"' in text
+    assert 'id="inspector-stack"' in text
+
+
+def test_inspector_supports_multi_card_stack():
+    """Inspector module exposes the stack API and respects MAX_CARDS."""
+    js = INSPECTOR_JS.read_text()
+    assert "MAX_CARDS" in js, "MAX_CARDS constant missing"
+    m = re.search(r"MAX_CARDS\s*=\s*(\d+)", js)
+    assert m and 2 <= int(m.group(1)) <= 8, "MAX_CARDS outside sensible range"
+    # The card stack lives in `cards`, replaceUnpinned, addCard.
+    assert "function addCard" in js
+    assert "function replaceUnpinned" in js
+
+
+def test_pin_and_watch_buttons_present():
+    js = INSPECTOR_JS.read_text()
+    assert "pinBtn" in js, "Pin button wiring missing"
+    assert "watchBtn" in js, "Watch button wiring missing"
+    assert "WATCH_CHURN_THRESHOLD" in js, "Watch threshold constant missing"
+
+
+def test_cluster_card_kind_supported():
+    js = INSPECTOR_JS.read_text()
+    assert "renderClusterCard" in js
+    assert "drawSectorPie" in js
+    assert "drawJaccardSpark" in js
 
 
 def test_card_field_reads_match_cast_snapshot_keys():
