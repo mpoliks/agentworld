@@ -44,7 +44,10 @@ export function createAgents(scene, surface, opts = {}) {
   const {
     faceCentroids, faceAdjacency, faceCount, facePositions,
     faceAltitudes, vertAltitudes, vertIds, radius,
-    faceSector, facesBySector,
+    // Phase 3 §4.1 of spatial-sandbox-completeness.md dropped the
+    // same-sector walk filter, so faceSector / facesBySector are
+    // no longer destructured here. The substrate still exposes
+    // them for sector-hover (handled by scene.js / surface.js).
   } = surface;
   const sphereRadius = opts.sphereRadius ?? radius ?? 700;
   // Per-step inward altitude pull, scaled by the agent's Matryoshka
@@ -78,19 +81,61 @@ export function createAgents(scene, surface, opts = {}) {
   const humanIndicatorHeadroom = opts.humanIndicatorHeadroom ?? 0.05;
   let agentsPerHuman = opts.agentsPerHuman ?? DEFAULT_AGENTS_PER_HUMAN;
 
-  // Single mesh, single big position buffer. Per frame we rewrite the
-  // live vertex range; setDrawRange() caps the GPU at the live count.
+  // Single mesh, single big position buffer. Per frame we rewrite
+  // the live vertex range; setDrawRange() caps the GPU at the live
+  // count. Phase 3 §4.1 adds a parallel per-vertex color buffer
+  // tinted by each agent's sector_id; segments share their agent's
+  // color so a caterpillar reads as a single coherent hue.
   const positionArr = new Float32Array(MAX_VERTS * 3);
+  const colorArr = new Float32Array(MAX_VERTS * 3);
   const geometry = new THREE.BufferGeometry();
   const posAttr = new THREE.BufferAttribute(positionArr, 3);
   posAttr.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute('position', posAttr);
+  const colAttr = new THREE.BufferAttribute(colorArr, 3);
+  colAttr.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('color', colAttr);
   geometry.setDrawRange(0, 0);
 
+  // Per-agent base color, derived from the engine's sector_id
+  // through the 12-step palette in themes.js. The plan §4.1 mix
+  // is sectorPalette[sector_id] × sectorTintWeight blended with
+  // the dark segmentColor base so the tint reads as identity
+  // without saturating the caterpillar away from greyscale.
+  const sectorPalette = opts.sectorPalette || null;
+  const sectorTintWeight = opts.sectorTintWeight ?? 0.85;
+  let agentColor = null;          // Float32Array[castCount * 3]
+  const _baseR = segmentColor[0];
+  const _baseG = segmentColor[1];
+  const _baseB = segmentColor[2];
+  function computeAgentColor(sector, out, ofs) {
+    if (!sectorPalette || sector < 0 || sector >= sectorPalette.length) {
+      out[ofs + 0] = _baseR;
+      out[ofs + 1] = _baseG;
+      out[ofs + 2] = _baseB;
+      return;
+    }
+    const p = sectorPalette[sector];
+    const w = sectorTintWeight;
+    out[ofs + 0] = _baseR * (1 - w) + p[0] * w;
+    out[ofs + 1] = _baseG * (1 - w) + p[1] * w;
+    out[ofs + 2] = _baseB * (1 - w) + p[2] * w;
+  }
+
+  // Isolate-sector mode (Phase 3 §4.2). When isolatedSector ≥ 0,
+  // segments belonging to a non-matching agent are dimmed by
+  // multiplying their RGB by isolateDim. The material has to be
+  // transparent so per-vertex alpha (or just darker RGB) reads
+  // distinctly, but for the simple "fade to 0.2" the plan calls
+  // for, dimming RGB is enough — substrate stays visible behind.
+  let isolatedSector = -1;
+  const ISOLATE_DIM = 0.18;
+
   const material = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(segmentColor[0], segmentColor[1], segmentColor[2]),
+    vertexColors: true,
     side: THREE.DoubleSide,
-    transparent: false,
+    transparent: true,
+    opacity: 1.0,
     // Segments and substrate vertices are at the same radius now
     // that the stack lift is gone — without an offset they
     // z-fight at coplanar pixels and the substrate's grid render
@@ -181,19 +226,18 @@ export function createAgents(scene, surface, opts = {}) {
     lastWealth = new Float32Array(castCount);
     lastWealth.fill(NaN);
     agentSector = new Int8Array(castCount);
+    agentColor = new Float32Array(castCount * 3);
 
     for (let i = 0; i < castCount; i += 1) {
       const e = snapshot[i];
       slotByIdx.set(e.idx, i);
-      // Sector-bound spawn: pick a random face from this agent's
-      // sector region. Falls back to global random if the sector
-      // list is empty (shouldn't happen with the K=12 partition).
+      // Phase 3 §4.1: sectors are emergent, not geometric. Spawn
+      // each agent at a random face anywhere on the sphere — the
+      // walked trajectory (tinted by sector_id) will tell the user
+      // where each sector ends up under the current configuration.
       const sec = (typeof e.sector === 'number' && e.sector >= 0) ? e.sector : 0;
       agentSector[i] = sec;
-      const list = facesBySector ? facesBySector[sec] : null;
-      const f = (list && list.length > 0)
-        ? list[Math.floor(Math.random() * list.length)]
-        : Math.floor(Math.random() * faceCount);
+      const f = Math.floor(Math.random() * faceCount);
       // Seed trail with spawn face so the agent is visible from the
       // first frame (1 segment showing at the spawn cell).
       for (let t = 0; t < MAX_TRAIL; t += 1) trail[i * MAX_TRAIL + t] = f;
@@ -202,6 +246,7 @@ export function createAgents(scene, surface, opts = {}) {
       stepCooldown[i] = Math.random() * 20;
       recentPartners[i] = [];
       bucket[i] = 1;
+      computeAgentColor(sec, agentColor, i * 3);
     }
     initialized = true;
   }
@@ -223,6 +268,12 @@ export function createAgents(scene, surface, opts = {}) {
       stack[slot] = typeof e.stack === 'number' ? e.stack : 0;
       firmId[slot] = typeof e.firm_id === 'number' ? e.firm_id : -1;
       if (typeof e.sector === 'number' && e.sector >= 0) agentSector[slot] = e.sector;
+      // Recompute the per-agent base color from the current sector
+      // every snapshot. Sectors are static per agent in the engine
+      // today, but doing this each snapshot means a future
+      // sector-reshuffle subsystem would re-tint without any other
+      // change.
+      if (agentColor) computeAgentColor(agentSector[slot], agentColor, slot * 3);
 
       const w = Math.max(0, e.wealth ?? 0);
       let b = Math.floor((Math.log2(w + 1) + 2) * WEALTH_LENGTH_SCALE);
@@ -289,32 +340,19 @@ export function createAgents(scene, surface, opts = {}) {
     const n1 = faceAdjacency[cur * 3 + 1];
     const n2 = faceAdjacency[cur * 3 + 2];
 
-    // Sector-bound walk: prefer neighbours in the agent's own sector
-    // so each economic sector occupies a coherent region of the
-    // sphere. If no same-sector neighbour exists (true only at the
-    // edge of a Voronoi region for that one face's geometry), fall
-    // back progressively: any non-prev neighbour, then any neighbour
-    // at all.
-    const sec = agentSector ? agentSector[slot] : -1;
-    const sameSector = sec >= 0 && faceSector !== undefined;
+    // Phase 3 §4.1 of spatial-sandbox-completeness.md: the
+    // prior same-sector filter is gone. Agents walk wherever the
+    // firm / partner pull (below) steers them. Sectoral structure
+    // becomes a property of the *walked trajectories* (which the
+    // per-segment tint surfaces visually), not a Voronoi cell
+    // forced by geometry. Under high cross_stack_permeability the
+    // tint should disperse; under low permeability it should
+    // cluster. That's the emergence the plan calls for.
     const cands = [];
-    if (sameSector) {
-      if (n0 >= 0 && n0 !== prev && faceSector[n0] === sec) cands.push(n0);
-      if (n1 >= 0 && n1 !== prev && faceSector[n1] === sec) cands.push(n1);
-      if (n2 >= 0 && n2 !== prev && faceSector[n2] === sec) cands.push(n2);
-    } else {
-      if (n0 >= 0 && n0 !== prev) cands.push(n0);
-      if (n1 >= 0 && n1 !== prev) cands.push(n1);
-      if (n2 >= 0 && n2 !== prev) cands.push(n2);
-    }
-    if (cands.length === 0 && sameSector) {
-      // Same-sector but prev-blocked — allow stepping back.
-      if (n0 >= 0 && faceSector[n0] === sec) cands.push(n0);
-      if (n1 >= 0 && faceSector[n1] === sec) cands.push(n1);
-      if (n2 >= 0 && faceSector[n2] === sec) cands.push(n2);
-    }
+    if (n0 >= 0 && n0 !== prev) cands.push(n0);
+    if (n1 >= 0 && n1 !== prev) cands.push(n1);
+    if (n2 >= 0 && n2 !== prev) cands.push(n2);
     if (cands.length === 0) {
-      // Surrounded by other sectors — take any neighbour to escape.
       if (n0 >= 0) cands.push(n0);
       if (n1 >= 0) cands.push(n1);
       if (n2 >= 0) cands.push(n2);
@@ -433,6 +471,14 @@ export function createAgents(scene, surface, opts = {}) {
       const globalAlt = surface.mesh?.material?.uniforms?.uGlobalAltitude?.value ?? 0.0;
       const head = trailHead[i];
       const tBase = i * MAX_TRAIL;
+      const cIdx = i * 3;
+      let cR = agentColor ? agentColor[cIdx + 0] : _baseR;
+      let cG = agentColor ? agentColor[cIdx + 1] : _baseG;
+      let cB = agentColor ? agentColor[cIdx + 2] : _baseB;
+      if (isolatedSector >= 0 && agentSector
+          && agentSector[i] !== isolatedSector) {
+        cR *= ISOLATE_DIM; cG *= ISOLATE_DIM; cB *= ISOLATE_DIM;
+      }
 
       for (let s = 0; s < visible; s += 1) {
         const ti = (head - s + MAX_TRAIL) % MAX_TRAIL;
@@ -486,11 +532,18 @@ export function createAgents(scene, surface, opts = {}) {
         positionArr[w + 6] = dcx + (dv2x - dcx) * segmentScale;
         positionArr[w + 7] = dcy + (dv2y - dcy) * segmentScale;
         positionArr[w + 8] = dcz + (dv2z - dcz) * segmentScale;
+        // All three verts of this segment share the agent's sector
+        // tint. The color buffer is parallel to position; same
+        // stride.
+        colorArr[w + 0] = cR; colorArr[w + 1] = cG; colorArr[w + 2] = cB;
+        colorArr[w + 3] = cR; colorArr[w + 4] = cG; colorArr[w + 5] = cB;
+        colorArr[w + 6] = cR; colorArr[w + 7] = cG; colorArr[w + 8] = cB;
         vert += 3;
       }
     }
     geometry.setDrawRange(0, vert);
     posAttr.needsUpdate = true;
+    colAttr.needsUpdate = true;
 
     // 3) Human indicator dots + tether lines. Uses the same stride
     //    as loop 2 above, so the marked humans exactly match the
@@ -542,6 +595,10 @@ export function createAgents(scene, surface, opts = {}) {
     tetherMesh.visible = !!v;
   }
   function setHumansOnly(v) { humansOnly = !!v; }
+  function setIsolatedSector(idx) {
+    isolatedSector = (Number.isInteger(idx) && idx >= 0) ? idx : -1;
+  }
+  function isolatedSectorOf() { return isolatedSector; }
   // Restart hook — clear slot mapping + draw ranges so the next
   // cast snapshot triggers a fresh initialLayout(). Typed arrays
   // are re-allocated on the next snapshot since cast size may differ.
@@ -591,5 +648,6 @@ export function createAgents(scene, surface, opts = {}) {
     mesh, indicatorMesh, tetherMesh, handleCastSnapshot, tick, setVisible,
     setIndicatorVisible, setHumansOnly, setAgentsPerHuman, reset,
     dispose, diagnostics, currentFaceForIdx,
+    setIsolatedSector, isolatedSectorOf,
   };
 }

@@ -96,6 +96,7 @@ const hudRegimeCaptionEl = document.getElementById('hud-regime-caption');
 const hudCabalsEl = document.getElementById('hud-cabals');
 const hudSyndicatesEl = document.getElementById('hud-syndicates');
 const leversPendingRowEl = document.getElementById('levers-pending-row');
+const sectorCompassEl = document.getElementById('sector-compass');
 // Lever panel — Phase 4 of spatial-sandbox-completeness.md §5.
 // Levers carry data-key (engine override key) and data-kind
 // ("live" → POST /update on every change; "structural" → queued
@@ -220,6 +221,59 @@ function buildMeterRow(seg, container) {
     smoothed: NaN,
   };
 }
+// Phase 3 §4.2 — sector compass. Twelve swatches rendered from the
+// theme's sectorPalette; clicking a swatch isolates that sector
+// (other agents fade to 0.18 RGB for 5 s) and the visual answer to
+// "where do the manufacturing agents end up under this configuration"
+// is one click away. Hovering a swatch shows the sector name.
+let _isolateTimer = null;
+function initSectorCompass() {
+  if (!sectorCompassEl) return;
+  const palette = theme.sectorPalette;
+  if (!Array.isArray(palette)) return;
+  // Idempotent: rebuild on every init in case the panel was wiped
+  // (e.g. restartRun resets DOM-level state).
+  sectorCompassEl.innerHTML = '';
+  for (let i = 0; i < palette.length; i += 1) {
+    const swatch = document.createElement('div');
+    swatch.className = 'sector-compass-swatch';
+    swatch.dataset.sector = String(i);
+    const c = palette[i];
+    swatch.style.background = `rgb(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)})`;
+    swatch.title = SECTOR_NAMES[i] ?? `sector ${i}`;
+    swatch.addEventListener('click', () => onSectorCompassClick(i, swatch));
+    sectorCompassEl.appendChild(swatch);
+  }
+}
+function onSectorCompassClick(sector, swatchEl) {
+  if (!agents) return;
+  const current = agents.isolatedSectorOf?.() ?? -1;
+  if (_isolateTimer !== null) {
+    clearTimeout(_isolateTimer);
+    _isolateTimer = null;
+  }
+  if (current === sector) {
+    // Click on the active swatch clears isolation.
+    agents.setIsolatedSector(-1);
+    for (const el of sectorCompassEl.querySelectorAll('.sector-compass-swatch')) {
+      el.classList.remove('isolated');
+    }
+    return;
+  }
+  agents.setIsolatedSector(sector);
+  for (const el of sectorCompassEl.querySelectorAll('.sector-compass-swatch')) {
+    el.classList.toggle('isolated', el === swatchEl);
+  }
+  // Plan §4.2: isolate for 5 s, then revert.
+  _isolateTimer = setTimeout(() => {
+    agents.setIsolatedSector(-1);
+    for (const el of sectorCompassEl.querySelectorAll('.sector-compass-swatch')) {
+      el.classList.remove('isolated');
+    }
+    _isolateTimer = null;
+  }, 5000);
+}
+
 function initWelfareMeter() {
   meterRows = [];
   if (welfareStockEl) {
@@ -377,6 +431,8 @@ function initScene() {
     segmentScale: theme.segmentScale,
     humanLengthFactor: theme.humanLengthFactor,
     segmentColor: theme.segmentColor,
+    sectorPalette: theme.sectorPalette,
+    sectorTintWeight: 0.85,
   });
 
   edges = createEdges(scene, surface, agents, {
@@ -398,6 +454,7 @@ function initScene() {
   });
 
   initWelfareMeter();
+  initSectorCompass();
 
   window.addEventListener('resize', onResize);
   renderer.domElement.addEventListener('mousemove', onPointerMove);
@@ -1241,6 +1298,10 @@ window.__sandbox = {
   clusterTrack: (id) => clusterLabels?.trackOf?.(id) ?? null,
   clusterOverlay: () => clusterOverlay?.diagnostics?.(),
   hideClusterOverlay: (h = true) => clusterOverlay?.setVisible?.(!h),
+  isolateSector: (idx) => agents?.setIsolatedSector?.(idx),
+  isolatedSector: () => agents?.isolatedSectorOf?.() ?? -1,
+  sectorPalette: () => theme.sectorPalette,
+  sectorNames: () => SECTOR_NAMES.slice(),
   leverState: () => ({ ..._leverState }),
   alphaLever: () => mapAlpha(_leverState),
   alphaEngine: () => _lastEngineAlpha,

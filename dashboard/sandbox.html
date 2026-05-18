@@ -117,6 +117,32 @@
     cursor: pointer;
     accent-color: rgba(102, 140, 200, 0.8);
   }
+  #sector-compass-label {
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    color: rgba(26, 20, 18, 0.50);
+    margin-top: 5px;
+  }
+  #sector-compass {
+    display: grid;
+    grid-template-columns: repeat(6, 12px);
+    gap: 3px;
+    margin-top: 2px;
+  }
+  .sector-compass-swatch {
+    width: 12px;
+    height: 12px;
+    border: 1px solid rgba(26, 20, 18, 0.18);
+    cursor: pointer;
+    transition: transform 0.08s ease-out, box-shadow 0.08s ease-out;
+  }
+  .sector-compass-swatch:hover {
+    transform: scale(1.18);
+    box-shadow: 0 0 0 1px rgba(26, 20, 18, 0.40);
+  }
+  .sector-compass-swatch.isolated {
+    box-shadow: 0 0 0 2px rgba(26, 20, 18, 0.85);
+  }
   #toggles .ratio-control {
     display: flex;
     flex-direction: column;
@@ -649,6 +675,12 @@
   <label><input type="checkbox" id="toggle-trades" checked> show trades</label>
   <label><input type="checkbox" id="toggle-sectors" checked> show sectors</label>
   <label><input type="checkbox" id="toggle-humans-only"> show humans only</label>
+  <!-- Phase 3 §4.2 sector compass — 12 swatches keyed to the agent
+       palette. Clicking a swatch isolates that sector (others fade
+       to 0.2 alpha for 5 s) so the user can answer "where do the
+       manufacturing agents end up under this configuration?" -->
+  <div id="sector-compass-label">sector compass</div>
+  <div id="sector-compass"></div>
   <div class="ratio-control">
     <div class="ratio-readout"><span>humans : agents</span><span>1 : <span id="ratio-value">100</span></span></div>
     <input type="range" id="ratio-slider" min="0" max="100" value="67" step="1">
