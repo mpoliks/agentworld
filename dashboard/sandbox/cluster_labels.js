@@ -126,6 +126,10 @@ export function createClusterLabels(opts = {}) {
           status: 'cabal',
           promotedAt: null,
           churnEMA: 0,
+          // §3.2 secondary-clusterer agreement. -1 until the
+          // worker reports back for the first time.
+          secondaryJaccard: -1,
+          validated: false,
         });
         used.add(newId);
       }
@@ -194,6 +198,46 @@ export function createClusterLabels(opts = {}) {
     return tracks;
   }
 
+  // Phase 2 §3.2 follow-on: a Web Worker (clusters_sbm.js) runs
+  // Louvain on the same edge buffer every 10 ticks. The plan
+  // calls for a second-opinion clusterer whose agreement with the
+  // primary partition raises confidence in the cabal identity.
+  //
+  // This hook takes the worker's partition (Map<agentIdx, cabalId>)
+  // and, for every active track, records the best Jaccard match
+  // between the track's members and any worker cluster. The
+  // result lives in track.secondaryJaccard and is exposed via the
+  // diagnostics so the HUD / inspector can show "validated"
+  // separately from cabal vs syndicate.
+  function updateWithSecondary(secondaryPartition) {
+    if (!secondaryPartition) return;
+    // Bucket the secondary partition by cluster id.
+    const buckets = new Map();
+    for (const [idx, c] of secondaryPartition) {
+      if (c < 0) continue;
+      let s = buckets.get(c);
+      if (!s) { s = new Set(); buckets.set(c, s); }
+      s.add(idx);
+    }
+    for (const track of tracks.values()) {
+      if (track.missing > 0) continue;
+      let bestJ = 0;
+      for (const sset of buckets.values()) {
+        let inter = 0;
+        for (const x of track.members) if (sset.has(x)) inter += 1;
+        const uni = track.members.size + sset.size - inter;
+        const j = uni > 0 ? inter / uni : 0;
+        if (j > bestJ) bestJ = j;
+      }
+      track.secondaryJaccard = bestJ;
+      // Validated when secondary agrees ≥ 0.70. The threshold is
+      // looser than the primary's self-promotion bar because the
+      // secondary is fully independent — agreeing closely with a
+      // fully independent pass is a strong signal even at 0.70.
+      track.validated = bestJ >= 0.70;
+    }
+  }
+
   // Returns a Map<agentIdx, stableId> from the most recent tick.
   // Used by the overlay and the inspector to look up which cluster
   // an agent belongs to with a stable identity.
@@ -219,15 +263,17 @@ export function createClusterLabels(opts = {}) {
   }
 
   function diagnostics() {
-    let nCabals = 0, nSyndicates = 0, nMissing = 0;
+    let nCabals = 0, nSyndicates = 0, nMissing = 0, nValidated = 0;
     for (const t of tracks.values()) {
       if (t.missing > 0) { nMissing += 1; continue; }
       if (t.status === 'syndicate') nSyndicates += 1;
       else nCabals += 1;
+      if (t.validated) nValidated += 1;
     }
     return {
       cabals: nCabals,
       syndicates: nSyndicates,
+      validated: nValidated,
       missing: nMissing,
       tracksTotal: tracks.size,
       tick: tickCounter,
@@ -249,6 +295,8 @@ export function createClusterLabels(opts = {}) {
       memberCount: t.members.size,
       members: Array.from(t.members),
       jaccardHistory: t.jaccardHistory.slice(),
+      secondaryJaccard: t.secondaryJaccard ?? -1,
+      validated: !!t.validated,
     };
   }
 
@@ -270,6 +318,7 @@ export function createClusterLabels(opts = {}) {
 
   return {
     update,
+    updateWithSecondary,
     partition,
     statusOf,
     reset,

@@ -497,6 +497,12 @@ let folds = null;
 let clusters = null;
 let clusterLabels = null;
 let clusterOverlay = null;
+let clusterWorker = null;
+let _workerJobId = 0;
+let _workerInflight = false;
+let _workerLastMs = 0;
+let _workerTicksUntilNext = 0;
+const CLUSTER_WORKER_PERIOD = 10;     // worker pass cadence (ticks)
 let inspector = null;
 // Phase 6 §7.1 — the inspector reads from the most-recent cast
 // snapshot to populate the agent card. scene.js owns the canonical
@@ -583,6 +589,25 @@ function initScene() {
 
   clusters = createClusters();
   clusterLabels = createClusterLabels();
+  // Phase 2 §3.2 follow-on: secondary clusterer in a Web Worker.
+  // The worker runs Louvain on the buffer snapshot every 10
+  // ticks; the reply feeds cluster_labels.updateWithSecondary
+  // for stability cross-validation. Worker module is loaded via
+  // import URL relative to the dashboard root.
+  try {
+    clusterWorker = new Worker(
+      new URL('./clusters_sbm.js', import.meta.url),
+      { type: 'module' },
+    );
+    clusterWorker.addEventListener('message', onClusterWorkerMessage);
+    clusterWorker.addEventListener('error', (e) => {
+      console.warn('[cluster-worker] error:', e.message);
+      clusterWorker = null;
+    });
+  } catch (err) {
+    console.warn('[cluster-worker] init failed:', err);
+    clusterWorker = null;
+  }
   clusterOverlay = createClusterOverlay(scene, surface, agents, {
     sphereRadius: theme.radius ?? 700,
   });
@@ -654,6 +679,41 @@ function initScene() {
   // the engine immediately (debounced); "structural" queues for the
   // next Restart and surfaces the pending banner.
   initLeverControls();
+}
+
+// Phase 2 §3.2 follow-on — worker dispatch. Posts a buffer
+// snapshot every CLUSTER_WORKER_PERIOD ticks if the previous job
+// has returned. _workerInflight gates the post so a slow worker
+// can't queue multiple jobs.
+function dispatchClusterWorker() {
+  if (!clusterWorker || !clusters) return;
+  if (_workerInflight) return;
+  _workerTicksUntilNext -= 1;
+  if (_workerTicksUntilNext > 0) return;
+  _workerTicksUntilNext = CLUSTER_WORKER_PERIOD;
+  const edges = clusters.bufferSnapshot();
+  if (edges.length === 0) return;
+  _workerInflight = true;
+  _workerJobId += 1;
+  clusterWorker.postMessage({
+    type: 'run',
+    jobId: _workerJobId,
+    edges,
+  });
+}
+
+function onClusterWorkerMessage(ev) {
+  const { type, jobId, partition, ms } = ev.data ?? {};
+  if (type !== 'partition') return;
+  _workerInflight = false;
+  _workerLastMs = ms ?? 0;
+  // Ignore replies for jobs the dashboard restart already
+  // invalidated.
+  if (jobId !== _workerJobId) return;
+  if (!Array.isArray(partition)) return;
+  const map = new Map();
+  for (const [idx, c] of partition) map.set(idx, c);
+  clusterLabels?.updateWithSecondary(map);
 }
 
 function initLeverControls() {
@@ -1150,6 +1210,11 @@ function onStep(step) {
   // are applied inside tick() so call once per engine step (not per
   // animation frame).
   clusters?.tick();
+  // Phase 2 §3.2 follow-on: dispatch a worker-side Louvain every
+  // CLUSTER_WORKER_PERIOD ticks, but only when the prior job has
+  // returned. _workerInflight gates the post so we don't queue
+  // multiple jobs if the worker is slow.
+  dispatchClusterWorker();
   // Phase 2 §3.2: feed the fresh partition through the cross-tick
   // identity tracker. cluster_labels.js matches each raw cabal to
   // its best Jaccard predecessor, assigns stable ids, and runs the
@@ -1364,6 +1429,11 @@ async function restartRun() {
   clusters?.reset();
   clusterLabels?.reset();
   clusterOverlay?.reset();
+  // Invalidate in-flight worker jobs so a stale reply doesn't
+  // bleed secondary Jaccard from the prior run into the new one.
+  _workerInflight = false;
+  _workerJobId += 1;
+  _workerTicksUntilNext = 0;
 
   counters.step = 0;
   counters.cast = 0;

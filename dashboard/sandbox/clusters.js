@@ -415,6 +415,30 @@ export function createClusters(opts = {}) {
     return out;
   }
 
+  // Phase 2 §3.2 follow-on: serialise the buffer for the worker.
+  // Returns an array of [a, b, weight] triples for every edge
+  // currently in the active-cast-and-degree-≥-2-filtered view —
+  // identical to what the in-process Louvain pass sees. The worker
+  // running clusters_sbm.js on this should land on a partition
+  // that agrees with the primary up to Louvain's randomised
+  // local-moving noise.
+  function bufferSnapshot() {
+    // Re-derive the rawDegree filter so we don't pay double — but
+    // we ship the unfiltered (active-cast-only) edge list and let
+    // the worker apply the degree filter on its end. The two
+    // passes have to agree on which edges go in.
+    const out = [];
+    for (const [k, w] of buffer) {
+      const sep = k.indexOf("|");
+      const a = parseInt(k.slice(0, sep), 10);
+      const b = parseInt(k.slice(sep + 1), 10);
+      if (activeAgents.size > 0
+          && (!activeAgents.has(a) || !activeAgents.has(b))) continue;
+      out.push([a, b, w]);
+    }
+    return out;
+  }
+
   return {
     ingestEdges,
     ingestSnapshot,
@@ -423,6 +447,7 @@ export function createClusters(opts = {}) {
     diagnostics,
     partition,
     cabalSizes,
+    bufferSnapshot,
     // Internal accessors exposed for adversarial testing only.
     _runLouvainOn: (edges, opts2 = {}) => {
       // Test harness: bypass the buffer and run Louvain directly
