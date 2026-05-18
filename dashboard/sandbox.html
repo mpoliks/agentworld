@@ -795,8 +795,8 @@
     <input type="range" id="lever-trm" data-key="agent_trade_rate_multiplier" data-kind="structural" min="0.5" max="5" step="0.1" value="2.0">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">network: p-local</span><span class="lever-value" id="lever-pnl-value">0.60</span></div>
-    <input type="range" id="lever-pnl" data-key="network_p_local" data-kind="structural" min="0" max="1" step="0.01" value="0.60">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">network: p-local</span><span class="lever-value" id="lever-pnl-value">0.60</span></div>
+    <input type="range" id="lever-pnl" data-key="network_p_local" data-kind="live" min="0" max="1" step="0.01" value="0.60">
   </div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">certified (fraction)</span><span class="lever-value" id="lever-cf-value">0.50</span></div>
@@ -807,12 +807,14 @@
     <input type="range" id="lever-nur" data-key="norms.update_rate" data-kind="live" min="0" max="0.5" step="0.005" value="0.05">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">network model</span><span class="lever-value" id="lever-nm-value">sbm</span></div>
-    <select id="lever-nm" data-key="network_model" data-kind="structural">
+    <!-- Plan §5.1 stretch — live mid-run rewire of the network
+         adjacency. `hyperbolic` is engine-deferred so it's not
+         offered here; the engine rejects it at validation. -->
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">network model</span><span class="lever-value" id="lever-nm-value">sbm</span></div>
+    <select id="lever-nm" data-key="network_model" data-kind="live">
       <option value="well_mixed">well_mixed</option>
       <option value="scale_free">scale_free</option>
       <option value="sbm" selected>sbm</option>
-      <option value="hyperbolic">hyperbolic</option>
     </select>
   </div>
 

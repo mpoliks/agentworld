@@ -13,7 +13,7 @@
 
     "agent_capability_mean":          {"sign": -1, "weight": 0.0,  "min": 0.1,  "max": 0.9,   "default": 0.55,   "implemented": false, "category": "agentic",       "live": false},
     "norms.certified_fraction":       {"sign": -1, "weight": 0.0,  "min": 0,    "max": 1,     "default": 0.5,    "implemented": false, "category": "agentic",       "live": true},
-    "network_p_local":                {"sign":  1, "weight": 0.0,  "min": 0,    "max": 1,     "default": 0.6,    "implemented": false, "category": "agentic",       "live": false},
+    "network_p_local":                {"sign":  1, "weight": 0.0,  "min": 0,    "max": 1,     "default": 0.6,    "implemented": false, "category": "agentic",       "live": true},
     "agent_autonomy_mean":            {"sign":  1, "weight": 0.0,  "min": 0.1,  "max": 1.0,   "default": 0.7,    "implemented": false, "category": "agentic",       "live": true},
     "norms.update_rate":              {"sign": -1, "weight": 0.0,  "min": 0,    "max": 0.5,   "default": 0.05,   "implemented": false, "category": "agentic",       "live": true},
     "agent_trade_rate_multiplier":    {"sign":  1, "weight": 0.0,  "min": 0.5,  "max": 5,     "default": 2.0,    "implemented": false, "category": "agentic",       "live": true},

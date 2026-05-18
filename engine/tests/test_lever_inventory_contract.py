@@ -47,10 +47,15 @@ EXPECTED_LEVERS: tuple[tuple[str, str], ...] = (
     ("agent_capability_mean",             "structural"),
     ("agent_autonomy_mean",               "structural"),
     ("agent_trade_rate_multiplier",       "structural"),
-    ("network_p_local",                   "structural"),
+    # Plan §5.1 stretch landed: network_model + network_p_local
+    # are now live. network_model triggers a rewire between ticks
+    # (~50-200 ms at the sandbox's 88k-prototype scale);
+    # network_p_local is read per-tick by the sampler with no
+    # rebuild required.
+    ("network_p_local",                   "live"),
     ("norms.certified_fraction",          "structural"),
     ("norms.update_rate",                 "live"),
-    ("network_model",                     "structural"),
+    ("network_model",                     "live"),
     # Legal
     ("market_layer_tax",                  "live"),
     ("pigouvian.tax_rate",                "live"),

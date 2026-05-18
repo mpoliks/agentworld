@@ -230,6 +230,20 @@ def _run_worker(sess: RunSession) -> None:
                         # don't crash the run — the user's next nudge
                         # may be valid.
                         sess.publish_event("update_error", {"detail": "bad override"})
+                    # Plan §5.1 stretch — `network_model` is now live
+                    # and triggers an adjacency rebuild between ticks.
+                    # `network_p_local` is read per-tick by the
+                    # sampler and needs no rebuild.
+                    if "network_model" in pending:
+                        try:
+                            world.rewire_network()
+                            sess.publish_event("topology_rewired", {
+                                "network_model": str(world.cfg.population.network_model),
+                            })
+                        except Exception as exc:  # pragma: no cover
+                            sess.publish_event("update_error", {
+                                "detail": f"rewire failed: {exc}",
+                            })
             sess.publish_step(_step_metrics_to_dict(m))
 
         try:
@@ -653,6 +667,14 @@ def create_app():
         # (the matrix value) is already above; permeability is a
         # separate axis on the same boundary.
         "cross_stack_permeability",
+        # Plan §5.1 stretch — population-network knobs. Both are
+        # PopulationConfig fields. `network_p_local` is read per-tick
+        # by the partner sampler (transactions.py:363), so writes
+        # take effect on the next step with no rebuild. `network_model`
+        # triggers a one-off `world.rewire_network()` between ticks
+        # (rebuilds `population.adjacency` + `degree_centrality`).
+        "network_p_local",
+        "network_model",
     }
 
     @app.post("/runs/{run_id}/update")

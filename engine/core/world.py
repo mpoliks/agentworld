@@ -348,6 +348,28 @@ class World:
         top_wealth = float((wealth_sorted * included_weight).sum())
         return float(np.clip(top_wealth / total_wealth, 0.0, 1.0))
 
+    def rewire_network(self) -> None:
+        """Rebuild the population's network adjacency from current config.
+
+        Plan §5.1 stretch: ``network_model`` and ``network_p_local`` were
+        structural levers because mid-run changes had no effect — the
+        adjacency matrix was built at population synthesize and never
+        rebuilt. Calling this method after writing ``population.config
+        .network_model`` rebuilds ``population.adjacency`` and the
+        ``degree_centrality`` array; the next tick's sampler picks up
+        the new structure.
+
+        Cost: at the canonical 88k-prototype sandbox scale, ~50-200 ms
+        for ``scale_free`` or ``sbm``; instant for ``well_mixed``
+        (the rebuild just nulls the adjacency).
+
+        Uses the population RNG so the rebuild is deterministic given
+        the same RNG state. Subsequent rewires on the same RNG draw
+        different graphs — calibration runs should pin the seed via
+        ``WorldConfig.seed`` and avoid mid-run rewires.
+        """
+        self.population._build_network(self.rngs["population"])
+
     def _advance_law_state(self) -> None:
         """Update dynamic law state for the next step.
 
