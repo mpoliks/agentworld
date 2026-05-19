@@ -25,6 +25,7 @@ import { OUTCOME_PALETTE } from './edges.js';
 // the parse cost.
 let _devChecks = null;
 import { loadAlphaWeights, mapAlpha } from './alpha_map.js';
+import { predictEbi, CURVE_DOMAIN } from './alpha_ebi_curve.js';
 import { startStream } from './stream.js';
 import { THEME } from './themes.js';
 
@@ -32,8 +33,11 @@ const LEVERS = {
   scenario: 'spatial_sandbox',
   scale: 'small',
   seed: 24601,
-  cast_size: 5000,
-  pair_sample_k: 1500,
+  // 4× scale-up: dashboard requests 20K cast members. Bumped from
+  // 5000; corresponding RunRequest pydantic cap also raised in
+  // engine/serve.py.
+  cast_size: 20000,
+  pair_sample_k: 3000,
   // Run indefinitely — the counter should keep climbing while the
   // dashboard is open.
   continuous: true,
@@ -66,7 +70,8 @@ const loaderEl = document.getElementById('loader');
 const loaderFillEl = document.getElementById('loader-fill');
 const loaderLabelEl = document.getElementById('loader-label');
 const sectorLabelEl = document.getElementById('sector-label');
-const toggleTradesEl = document.getElementById('toggle-trades');
+const toggleTradesEl = document.getElementById('toggle-trades');  // legacy ref; element removed
+const toggleCabalsEl = document.getElementById('toggle-cabals');
 const toggleSectorsEl = document.getElementById('toggle-sectors');
 const toggleHumansOnlyEl = document.getElementById('toggle-humans-only');
 const ratioSliderEl = document.getElementById('ratio-slider');
@@ -97,7 +102,22 @@ const hudRejSumEl = document.getElementById('hud-rej-sum');
 const hudRegimeCaptionEl = document.getElementById('hud-regime-caption');
 const hudCabalsEl = document.getElementById('hud-cabals');
 const hudSyndicatesEl = document.getElementById('hud-syndicates');
+// Top-left density readout. cast count + caterpillars-per-1K-faces;
+// face count itself removed from the UI per user feedback. Cheap
+// reads from diagnostics, no per-frame allocation.
+const densityCastEl = document.getElementById('density-cast');
+const densityPer1kEl = document.getElementById('density-per-1k');
+// Plan §C.1 — Louvain pipeline diagnostic readouts.
+const hudEdgesInEl = document.getElementById('hud-edges-in');
+const hudCandidatesEl = document.getElementById('hud-candidates');
+const hudRenderFloorEl = document.getElementById('hud-render-floor');
 const leversPendingRowEl = document.getElementById('levers-pending-row');
+// Plan §G.1 — restart-preview block. Visible only when at least one
+// structural lever has a pending edit; projected α and EBI numbers
+// summarise what the engine will land at after Restart.
+const leversPreviewRowEl = document.getElementById('levers-preview-row');
+const leversPreviewAlphaEl = document.getElementById('levers-preview-alpha');
+const leversPreviewEbiEl = document.getElementById('levers-preview-ebi');
 const sectorCompassEl = document.getElementById('sector-compass');
 const arcLegendEl = document.getElementById('arc-legend');
 const ebiLegendEl = document.getElementById('ebi-legend');
@@ -157,6 +177,14 @@ let sectorsEnabled = toggleSectorsEl?.checked ?? true;
 // what arrived during the pause).
 let paused = false;
 const btnPauseEl = document.getElementById('btn-pause');
+// Two recycle buttons:
+//   btn-reset   — re-runs the engine in-place with current lever
+//                 values. JS state stays alive; only the engine run
+//                 and the substrate get torn down + rebuilt.
+//   btn-restart — full page reload via location.reload(). Use when
+//                 the dashboard JS itself looks wedged or you want
+//                 to pick up new code.
+const btnResetEl = document.getElementById('btn-reset');
 const btnRestartEl = document.getElementById('btn-restart');
 let cumulativeTrades = 0;       // monotonic — increments per snapshot
 let cumulativeWealth = 0;       // real_welfare_cumulative from engine
@@ -179,9 +207,24 @@ const STREAM_STALE_MS = 2000;
 //   EBI <= 2.0  →  flatten toward disc       (smooth/clean economy)
 //   EBI ~= 2.0  →  clean sphere, just pockmarks from trade bumps
 //   EBI  > 2.0  →  chaos warp (lumpy hyperspherical lobes)
+// Target values updated from EBI on each engine tick. The
+// RENDERED values smoothly approach the targets every animation
+// frame, decoupling the visible morph from the engine cadence
+// (which would otherwise show up as a "tick — jump — sit"
+// rhythm). A small breathing oscillation is folded in on top of
+// the rendered flatten so the shape never sits at a perfectly
+// fixed value between events.
+let _shapeFlattenTarget = 0;
+let _shapeChaosTarget = 0;
 let _shapeFlatten = 0;
 let _shapeChaos = 0;
-const SHAPE_FLATTEN_MAX = 0.85;        // 85% squash at EBI≈0.5 (extreme smooth)
+const SHAPE_SMOOTH_RATE = 0.04;        // per-frame ease-toward-target
+const SHAPE_BREATH_AMP_FLATTEN = 0.018; // ±1.8% on flatten
+const SHAPE_BREATH_AMP_CHAOS = 0.025;   // ±2.5% on chaos amplitude
+const SHAPE_FLATTEN_MAX = 0.0;         // Disc morph disabled — the squash
+                                       // read poorly and broke the sphere
+                                       // identity. Hyperspherical chaos
+                                       // on the high-EBI side stays.
 const SHAPE_FLATTEN_EBI_HIGH = 2.0;    // above this → no flatten
 const SHAPE_FLATTEN_EBI_LOW = 0.5;     // at or below this → full flatten
 const SHAPE_CHAOS_EBI_LOW = 2.0;       // at or below this → no chaos
@@ -243,18 +286,15 @@ function onSectorCompassClick(sector, swatchEl) {
   }, 5000);
 }
 
-// Phase 6 §7.4 — trade-arc outcome legend. Builds 8 rows
-// (executed + 7 reject reasons) from OUTCOME_PALETTE in edges.js
-// so the legend RGB matches the rendered arc RGB pixel-exact.
+// Trade-arc legend. The on-substrate palette is binary
+// (executed-blue vs rejected-red); per-reason breakdown lives in
+// the HUD rej-mix rows instead of competing for hue space here.
+// `reject_cost` is the representative palette key for the
+// rejected colour — every reject_* key in OUTCOME_COLORS now
+// points at the same RGB.
 const ARC_LEGEND_ROWS = [
-  ['executed',        'executed'],
-  ['reject_cost',     'cost reject'],
-  ['reject_market',   'market reject'],
-  ['reject_align',    'align reject'],
-  ['reject_law',      'law reject'],
-  ['reject_compute',  'compute reject'],
-  ['reject_perm',     'perm reject'],
-  ['reject_reg',      'reg reject'],
+  ['executed',    'executed'],
+  ['reject_cost', 'rejected'],
 ];
 function initArcLegend() {
   if (!arcLegendEl) return;
@@ -290,14 +330,11 @@ function initEbiLegend() {
 }
 function updateEbiLegend(ebi) {
   if (!ebiLegendEl || !Number.isFinite(ebi)) return;
-  // Map the six regime bands onto the three glyphs:
-  //   ebi < 1.5  → disc       (flat real economy + low baroque)
-  //   1.5 ≤ ebi < 2.5 → sphere (calibrated reference)
-  //   ebi ≥ 2.5  → lobes      (reflexivity / exo-baroque / untethered)
-  let band;
-  if (ebi < 1.5) band = 'disc';
-  else if (ebi < 2.5) band = 'sphere';
-  else band = 'lobes';
+  // Two reachable shape bands now that the disc flatten is
+  // disabled (SHAPE_FLATTEN_MAX = 0):
+  //   ebi < 2.5  → sphere (calibrated reference + low baroque)
+  //   ebi ≥ 2.5  → lobes  (reflexivity / exo-baroque / untethered)
+  const band = ebi >= 2.5 ? 'lobes' : 'sphere';
   for (const el of ebiLegendEl.querySelectorAll('.ebi-glyph')) {
     el.classList.toggle('active', el.dataset.band === band);
   }
@@ -389,7 +426,13 @@ function pushSparklineSamples(step) {
     const sample = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
     r.history.push({ s: stepIdx, v: sample });
     if (r.history.length > SPARKLINE_LEN) r.history.shift();
-    r.valueEl.textContent = (sample * 100).toFixed(1) + '%';
+    // Smoothing target for the rightmost line vertex. drawSparklines
+    // eases r.rendered toward this each frame so the right edge of
+    // the sparkline glides continuously instead of jumping at
+    // engine-tick boundaries (the previous behaviour produced the
+    // ~0.75 Hz visible pulse).
+    r.target = sample;
+    if (r.rendered === undefined) r.rendered = sample;
   }
 }
 
@@ -410,6 +453,12 @@ function drawSparklines() {
     if (!ctx) continue;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (r.history.length < 2) continue;
+    // Ease the rendered head value toward the per-tick target so
+    // the rightmost vertex moves smoothly across frames.
+    if (r.target !== undefined) {
+      r.rendered += (r.target - r.rendered) * 0.10;
+    }
+    if (r.valueEl) r.valueEl.textContent = (r.rendered * 100).toFixed(1) + '%';
     const w = canvas.width;
     const h = canvas.height;
     const n = r.history.length;
@@ -418,7 +467,12 @@ function drawSparklines() {
     ctx.beginPath();
     for (let k = 0; k < n; k += 1) {
       const x = (k / (SPARKLINE_LEN - 1)) * w;
-      const sample = r.history[k].v;
+      // Replace the rightmost sample with the per-frame eased
+      // value; the rest of the history stays at the discrete tick
+      // values it landed at.
+      const sample = (k === n - 1 && r.rendered !== undefined)
+        ? r.rendered
+        : r.history[k].v;
       const y = h - sample * h;
       if (k === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
@@ -549,7 +603,10 @@ function initScene() {
     1,
     8000,
   );
-  camera.position.set(0, 0, 1700);
+  camera.position.set(0, 0, 2400);   // start zoomed out a bit so
+                                     // the sphere fits with margin
+                                     // for substrate altitude peaks
+                                     // and arc bows.
 
   controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
@@ -563,6 +620,16 @@ function initScene() {
     baseColor: theme.baseColor,
     edgeColor: theme.edgeColor,
     edgeThreshold: theme.edgeThreshold,
+    // Map the substrate-build phases into the [0.18, 0.60] band of
+    // the overall loader so the bar moves during the 5–7 sec block
+    // at 2×/4× scaling instead of sitting frozen at "icosphere
+    // build". Callback fires synchronously between phases — Three's
+    // IcosahedronGeometry constructor itself is still one
+    // uninterruptible call inside the build.
+    onProgress: (frac, label) => {
+      const overall = 0.18 + frac * (0.60 - 0.18);
+      setProgress(overall, label);
+    },
   });
 
   agents = createAgents(scene, surface, {
@@ -646,11 +713,19 @@ function initScene() {
 
   window.addEventListener('resize', onResize);
   renderer.domElement.addEventListener('mousemove', onPointerMove);
+  renderer.domElement.addEventListener('mousemove', onPointerMoveForFirmHover);
   renderer.domElement.addEventListener('mouseleave', onPointerLeave);
 
-  toggleTradesEl?.addEventListener('change', () => {
-    edges?.setVisible(toggleTradesEl.checked);
+  // Trade arcs are now always hidden; the visualization moved to
+  // the trades panel and the toggle was retired in favour of
+  // show-cabals below.
+  if (edges) edges.setVisible(false);
+  toggleCabalsEl?.addEventListener('change', () => {
+    clusterOverlay?.setVisible(toggleCabalsEl.checked);
   });
+  if (toggleCabalsEl && clusterOverlay) {
+    clusterOverlay.setVisible(toggleCabalsEl.checked);
+  }
   toggleSectorsEl?.addEventListener('change', () => {
     sectorsEnabled = toggleSectorsEl.checked;
     if (!sectorsEnabled) {
@@ -668,7 +743,10 @@ function initScene() {
     btnPauseEl.textContent = paused ? 'resume' : 'pause';
     setStatus(paused ? `${theme.name} · paused` : `${theme.name} · live`, paused ? '' : 'live');
   });
-  btnRestartEl?.addEventListener('click', () => { restartRun(); });
+  btnResetEl?.addEventListener('click', () => { restartRun(); });
+  btnRestartEl?.addEventListener('click', () => {
+    if (typeof window !== 'undefined') window.location.reload();
+  });
   if (ratioSliderEl) {
     const applyRatio = () => {
       const n = sliderToAgentsPerHuman(ratioSliderEl.value);
@@ -765,6 +843,11 @@ function applyLeverChange(key, value, kind) {
   if (typeof value === 'number') _leverState[key] = value;
   updateAlphaHud();
   if (leversPendingRowEl) leversPendingRowEl.style.display = '';
+  // Plan §G.1 — refresh the restart preview every time a structural
+  // lever queues. The projected α reads the post-restart lever state
+  // (live levers + pending structural levers) through mapAlpha; EBI
+  // est is the cached α→EBI curve interpolated at that α.
+  updateRestartPreview();
 }
 
 // Debounced live-update POST. Per-key timer so simultaneous sliders
@@ -783,6 +866,10 @@ const _leverState = {};
 // overrides payload. Cleared after the restart completes.
 const _structuralPending = new Map();
 let _lastEngineAlpha = NaN;
+// Plan §G.1 — tracked alongside _lastEngineAlpha so the restart-
+// preview row can show ΔEBI against the live reading. Refreshed in
+// onStep from the same EBI-EMA path the shape morph reads.
+let _lastEngineEbi = NaN;
 
 // Read every data-key control's current value into _leverState.
 // Called once in main() so the lever-α mapping has the right
@@ -800,6 +887,204 @@ function seedLeverStateFromDom() {
     if (Number.isFinite(v)) _leverState[key] = v;
   }
 }
+// Plan §D.2 — walk the lever-panel rows and append a hollow-square
+// mark to any whose data-key maps to an alpha_weights entry with
+// `implemented: false`. The mark sits AFTER the label so it doesn't
+// fight the live/structural dot that sits BEFORE; tooltip explains
+// the meaning. Idempotent — re-running it (e.g. after a weights
+// reload) won't double up.
+function markUnimplementedLevers(weights) {
+  if (!weights) return;
+  const panel = document.getElementById('levers-panel');
+  if (!panel) return;
+  const unimplemented = new Set();
+  for (const [k, c] of Object.entries(weights.levers || {})) {
+    if (c.implemented === false) unimplemented.add(k);
+  }
+  for (const [k, c] of Object.entries(weights.categorical_levers || {})) {
+    if (c.implemented === false) unimplemented.add(k);
+  }
+  for (const el of panel.querySelectorAll('[data-key]')) {
+    const key = el.dataset.key;
+    if (!unimplemented.has(key)) continue;
+    const header = el.closest('.lever-row')?.querySelector('.lever-header');
+    if (!header) continue;
+    if (header.querySelector('.lever-mark-unimpl')) continue;
+    const label = header.querySelector('.lever-label');
+    if (!label) continue;
+    const mark = document.createElement('span');
+    mark.className = 'lever-mark-unimpl';
+    mark.title =
+      'structural — weight applied to lever-α only; engine reads on restart.';
+    label.insertAdjacentElement('afterend', mark);
+  }
+}
+
+// Plan §E.1/§E.2 — per-snapshot population stats. Sorted vectors
+// power both the unicode-block histograms (rendered into #pop-hist-*)
+// and the inspector card's percentile readout. Re-built once per
+// cast snapshot — the agentic levers don't change values across
+// per-tick events, only across snapshots.
+const POP_STATS = {
+  capability: { sorted: null, mu: 0, sigma: 0 },
+  autonomy:   { sorted: null, mu: 0, sigma: 0 },
+  trade_rate: { sorted: null, mu: 0, sigma: 0 },
+};
+const HIST_BAR_CHARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+const HIST_BUCKETS = 10;
+
+function _renderHistRow(field, range, barsEl, statsEl) {
+  const stats = POP_STATS[field];
+  if (!stats || !stats.sorted || stats.sorted.length === 0) {
+    if (barsEl) barsEl.textContent = '--';
+    if (statsEl) statsEl.textContent = '--';
+    return;
+  }
+  const [min, max] = range;
+  const span = Math.max(1e-9, max - min);
+  const counts = new Array(HIST_BUCKETS).fill(0);
+  for (let i = 0; i < stats.sorted.length; i += 1) {
+    let b = Math.floor(((stats.sorted[i] - min) / span) * HIST_BUCKETS);
+    if (b < 0) b = 0;
+    else if (b >= HIST_BUCKETS) b = HIST_BUCKETS - 1;
+    counts[b] += 1;
+  }
+  const peak = Math.max(1, ...counts);
+  let bars = '';
+  for (let i = 0; i < HIST_BUCKETS; i += 1) {
+    const norm = counts[i] / peak;
+    const ci = Math.min(
+      HIST_BAR_CHARS.length - 1,
+      Math.floor(norm * HIST_BAR_CHARS.length),
+    );
+    bars += HIST_BAR_CHARS[ci];
+  }
+  if (barsEl) barsEl.textContent = bars;
+  if (statsEl) {
+    statsEl.textContent = `μ=${stats.mu.toFixed(2)} σ=${stats.sigma.toFixed(2)}`;
+  }
+}
+
+function _statsFromArr(values) {
+  if (values.length === 0) return { sorted: null, mu: 0, sigma: 0 };
+  const sorted = values.slice().sort((a, b) => a - b);
+  let sum = 0;
+  for (let i = 0; i < sorted.length; i += 1) sum += sorted[i];
+  const mu = sum / sorted.length;
+  let varSum = 0;
+  for (let i = 0; i < sorted.length; i += 1) {
+    const d = sorted[i] - mu;
+    varSum += d * d;
+  }
+  return { sorted, mu, sigma: Math.sqrt(varSum / sorted.length) };
+}
+
+function rebuildPopulationStats(snapshot) {
+  if (!Array.isArray(snapshot) || snapshot.length === 0) return;
+  const capVals = [];
+  const autVals = [];
+  const trmVals = [];
+  // trade_rate is population-uniform in the engine — the lever sets a
+  // single multiplier per cohort. Stamp every cast member with the
+  // current lever value so the histogram bar shows a single spike
+  // at the value the slider is set to, and σ stays at 0.
+  const trmFromLever = _leverState['agent_trade_rate_multiplier'];
+  for (const e of snapshot) {
+    if (e && Number.isFinite(e.capability)) capVals.push(e.capability);
+    if (e && Number.isFinite(e.autonomy))   autVals.push(e.autonomy);
+    if (Number.isFinite(trmFromLever)) trmVals.push(trmFromLever);
+  }
+  POP_STATS.capability = _statsFromArr(capVals);
+  POP_STATS.autonomy   = _statsFromArr(autVals);
+  POP_STATS.trade_rate = _statsFromArr(trmVals);
+  // Render into the toggles panel.
+  _renderHistRow(
+    'capability', [0.0, 1.0],
+    document.getElementById('pop-hist-cap'),
+    document.getElementById('pop-hist-cap-stats'),
+  );
+  _renderHistRow(
+    'autonomy', [0.0, 1.0],
+    document.getElementById('pop-hist-aut'),
+    document.getElementById('pop-hist-aut-stats'),
+  );
+  _renderHistRow(
+    'trade_rate', [0.5, 5.0],
+    document.getElementById('pop-hist-trm'),
+    document.getElementById('pop-hist-trm-stats'),
+  );
+}
+
+// Plan §E.2 — percentile lookup against the latest snapshot's
+// distribution. Returns an integer 0..100. Used by the inspector
+// card to render "0.378 / p23" so the user reads the agent against
+// the population the histograms describe. Returns -1 if the field
+// hasn't been seen yet or the value isn't finite.
+function populationPercentile(field, value) {
+  if (!Number.isFinite(value)) return -1;
+  const stats = POP_STATS[field];
+  if (!stats || !stats.sorted || stats.sorted.length === 0) return -1;
+  const a = stats.sorted;
+  // Binary search for first element ≥ value; rank = that index.
+  let lo = 0, hi = a.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (a[mid] < value) lo = mid + 1;
+    else hi = mid;
+  }
+  const p = Math.round((lo / a.length) * 100);
+  return p < 0 ? 0 : (p > 100 ? 100 : p);
+}
+
+// Plan §G.1 — restart-preview row. Computes:
+//   α (lever)  — current displayed value (mapAlpha over _leverState)
+//   α (after)  — projected, with pending structural overrides applied
+//                (we already write structural changes into _leverState
+//                synchronously in scheduleLeverUpdate's structural
+//                branch, so the "after" is just mapAlpha over the
+//                full state).
+//   EBI est    — predictEbi(after) from the cached α→EBI curve.
+// Hides when no structural changes are queued, or when the projected
+// α leaves the curve's domain (so the estimate is honest about the
+// bound).
+function updateRestartPreview() {
+  if (!leversPreviewRowEl) return;
+  if (_structuralPending.size === 0) {
+    leversPreviewRowEl.style.display = 'none';
+    return;
+  }
+  const aAfter = mapAlpha(_leverState);
+  let aText = '--';
+  let aDelta = '';
+  if (Number.isFinite(aAfter)) {
+    aText = aAfter.toFixed(3);
+    // Δ vs the current engine α.
+    if (Number.isFinite(_lastEngineAlpha)) {
+      const dAlpha = aAfter - _lastEngineAlpha;
+      const sign = dAlpha >= 0 ? '+' : '';
+      aDelta = ` (${sign}${dAlpha.toFixed(3)})`;
+    }
+  }
+  if (leversPreviewAlphaEl) leversPreviewAlphaEl.textContent = aText + aDelta;
+  let eText = '--';
+  if (Number.isFinite(aAfter)) {
+    const eAfter = predictEbi(aAfter);
+    if (eAfter === null) {
+      eText = `out of range [${CURVE_DOMAIN.min}, ${CURVE_DOMAIN.max}]`;
+    } else {
+      eText = eAfter.toFixed(eAfter >= 100 ? 0 : (eAfter >= 10 ? 1 : 2));
+      if (Number.isFinite(_lastEngineEbi)) {
+        const dE = eAfter - _lastEngineEbi;
+        const sign = dE >= 0 ? '+' : '';
+        eText += ` (${sign}${Math.abs(dE) >= 100 ? dE.toFixed(0)
+                       : (Math.abs(dE) >= 10 ? dE.toFixed(1) : dE.toFixed(2))})`;
+      }
+    }
+  }
+  if (leversPreviewEbiEl) leversPreviewEbiEl.textContent = eText;
+  leversPreviewRowEl.style.display = '';
+}
+
 function scheduleLeverUpdate(key, value) {
   _leverPending.set(key, value);
   _leverState[key] = value;
@@ -994,6 +1279,43 @@ function onPointerMove(event) {
 
 function onPointerLeave() {
   setHoveredSector(-1);
+  // Plan §F.2 — clear the firm hover state when the cursor exits
+  // the canvas; otherwise the dimmed-other-firms render state
+  // sticks around indefinitely.
+  firms?.setHoveredFirm(-1);
+}
+
+// Plan §F.2 — firm-hover detection. The inspector card's pickAt
+// helper does an O(cast) sweep against the substrate ray to find
+// the nearest agent under the cursor; we throttle that to ≤ 10 Hz
+// so a fast-moving cursor doesn't burn CPU on a 5000-agent O(n)
+// loop every mouse frame. When the hovered agent has a non-
+// negative firm_id, firms.js boosts that firm's spokes to the cap.
+let _firmHoverPending = false;
+let _firmHoverLastClientX = -1;
+let _firmHoverLastClientY = -1;
+const FIRM_HOVER_THROTTLE_MS = 100;
+function onPointerMoveForFirmHover(ev) {
+  _firmHoverLastClientX = ev.clientX;
+  _firmHoverLastClientY = ev.clientY;
+  if (_firmHoverPending) return;
+  _firmHoverPending = true;
+  setTimeout(() => {
+    _firmHoverPending = false;
+    if (!inspector || !firms) return;
+    const pick = inspector.pickFromEvent?.({
+      clientX: _firmHoverLastClientX,
+      clientY: _firmHoverLastClientY,
+    });
+    if (!pick || pick.kind !== 'agent') {
+      firms.setHoveredFirm(-1);
+      return;
+    }
+    const e = _castByIdx.get(pick.id);
+    const fid = (e && Number.isInteger(e.firm_id) && e.firm_id >= 0)
+      ? e.firm_id : -1;
+    firms.setHoveredFirm(fid);
+  }, FIRM_HOVER_THROTTLE_MS);
 }
 
 function setHoveredSector(idx, mouseX = 0, mouseY = 0) {
@@ -1021,18 +1343,35 @@ function onResize() {
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
-  surface?.tick();
-  agents?.tick();
-  edges?.tick();
-  // Firms render after agents tick — spokes read each member's
-  // current face from agents.currentFaceForIdx() so they must follow.
-  firms?.tick();
-  // Folds re-anchor to their agent's current face each frame, so
-  // icospheres follow the caterpillar over their 150-frame life.
-  folds?.tick();
-  // Wealth-flow meter bars jitter every frame so the readout has
-  // life even when the underlying shares are stable.
-  updateWelfareMeter();
+  // Pause = halt all simulation activity. The camera (controls,
+  // renderer) keeps running so the user can still orbit the frozen
+  // scene, but the per-frame tickers — substrate altitude decay,
+  // caterpillar steps, trade-arc tweens, firm-spoke and fold
+  // re-anchoring, welfare meter — all sit out the frame. Engine
+  // event handlers (onStep, onEdges, onCastSnapshot, onFolds) also
+  // early-return on the paused flag, so the engine's continued
+  // event stream doesn't mutate visible state either.
+  if (!paused) {
+    drainBumpQueue();
+    tickShape();
+    tickEasedHud();
+    tickTradeStats();
+    tickSparkle();
+    surface?.tick();
+    agents?.tick();
+    edges?.tick();
+    // Firms render after agents tick — spokes read each member's
+    // current face from agents.currentFaceForIdx() so they must follow.
+    firms?.tick();
+    // Folds re-anchor to their agent's current face each frame, so
+    // icospheres follow the caterpillar over their 150-frame life.
+    folds?.tick();
+    // Wealth-flow meter bars jitter every frame so the readout has
+    // life even when the underlying shares are stable.
+    updateWelfareMeter();
+    // Top-left density readout. Updates each unpaused frame.
+    updateDensityPanel();
+  }
   renderer.render(scene, camera);
 
   // Trade counter updates moved to onEdges (event-driven) so the
@@ -1053,6 +1392,351 @@ function setStatus(text, kind = '') {
   statusEl.dataset.kind = kind;
 }
 
+// ─── HUD value smoother ─────────────────────────────────────────
+// Maps a DOM element id to an eased value. onStep callers stash
+// targets via easeHudValue(); tickEasedHud() runs every frame in
+// animate() and writes the rendered value through the formatter.
+// Kills the per-tick "jerk" that was making float readouts pulse
+// at the engine cadence.
+const _easedHud = new Map(); // id → { target, rendered, fmt, smooth }
+const HUD_EASE_DEFAULT = 0.08;
+function easeHudValue(id, target, fmt, smooth = HUD_EASE_DEFAULT) {
+  let f = _easedHud.get(id);
+  if (!f) {
+    f = { target, rendered: target, fmt, smooth };
+    _easedHud.set(id, f);
+  } else {
+    f.target = target;
+    f.fmt = fmt;
+    f.smooth = smooth;
+  }
+}
+function tickEasedHud() {
+  for (const [id, f] of _easedHud) {
+    f.rendered += (f.target - f.rendered) * f.smooth;
+    const el = document.getElementById(id);
+    if (el) el.textContent = f.fmt(f.rendered);
+  }
+}
+
+// ─── Trade stats panel ──────────────────────────────────────────
+// Live per-tick rejection mix smoothed via a slow EMA so percentages
+// roll over ~10 seconds instead of jerking with every engine tick.
+// The sparkle canvas underneath shows individual pair outcomes as
+// fading green/red dots, giving the panel a continuous activity feel
+// without committing to the spatial-arc visualization the user
+// pulled out.
+const tsTarget   = { success: 0, cost: 0, market: 0, align: 0,
+                     law: 0, compute: 0, perm: 0, reg: 0 };
+const tsRendered = { success: 0, cost: 0, market: 0, align: 0,
+                     law: 0, compute: 0, perm: 0, reg: 0 };
+const TS_SMOOTH = 0.0046;   // ~2.5 s half-life at 60 fps → ~10 s tail
+let _tsSeeded = false;
+const tsEls = {
+  success:      document.getElementById('ts-success'),
+  fail:         document.getElementById('ts-fail'),
+  cost:         document.getElementById('ts-cost'),
+  market:       document.getElementById('ts-market'),
+  align:        document.getElementById('ts-align'),
+  law:          document.getElementById('ts-law'),
+  compute:      document.getElementById('ts-compute'),
+  perm:         document.getElementById('ts-perm'),
+  reg:          document.getElementById('ts-reg'),
+  cumulative:   document.getElementById('trade-stats-total-value'),
+  splitSuccess: document.getElementById('ts-split-success'),
+  splitFail:    document.getElementById('ts-split-fail'),
+};
+
+// Cumulative executed-trade counter, mirrors the wealth panel's
+// cumulative-total readout. Counts every executed pair the engine
+// reports per step.
+let _tsCumulative = 0;
+
+// Per-step success/fail rate sparkline histories. Drawn in the
+// trades panel below the per-reason breakdown.
+const TS_SPARK_LEN = 60;
+const tsSparkHistory = { success: [], fail: [] };
+const tsSparkRendered = { success: 0, fail: 0 };
+const tsSparkCanvases = {
+  success: document.getElementById('ts-spark-success'),
+  fail:    document.getElementById('ts-spark-fail'),
+};
+const tsSparkValueEls = {
+  success: document.getElementById('ts-spark-success-val'),
+  fail:    document.getElementById('ts-spark-fail-val'),
+};
+const tsSparkColors = {
+  success: 'rgb(64, 166, 82)',
+  fail:    'rgb(199, 82, 82)',
+};
+
+function updateTradeStatsFromStep(step) {
+  if (!step) return;
+  const cost    = +step.rejected_cost         || 0;
+  const market  = +step.rejected_market       || 0;
+  const align   = +step.rejected_align        || 0;
+  const law     = +step.rejected_law          || 0;
+  const compute = +step.rejected_compute      || 0;
+  const perm    = +step.rejected_permeability || 0;
+  const reg     = +step.rejected_regulator    || 0;
+  const real    = +step.n_transactions_real   || 0;
+  const total = cost + market + align + law + compute + perm + reg + real;
+  if (total <= 0) return;
+  tsTarget.success = real    / total;
+  tsTarget.cost    = cost    / total;
+  tsTarget.market  = market  / total;
+  tsTarget.align   = align   / total;
+  tsTarget.law     = law     / total;
+  tsTarget.compute = compute / total;
+  tsTarget.perm    = perm    / total;
+  tsTarget.reg     = reg     / total;
+  if (!_tsSeeded) {
+    Object.assign(tsRendered, tsTarget);
+    _tsSeeded = true;
+  }
+  // Cumulative executed counter — wealth-panel-style headline.
+  // step.n_transactions_real is a weighted prototype-pair count
+  // (each prototype-pair stands for `pair_weight` real events),
+  // so the running sum is naturally fractional. We round on
+  // display so the headline reads as an integer count instead of
+  // showing the engine's internal accounting precision.
+  _tsCumulative += real;
+  if (tsEls.cumulative) {
+    tsEls.cumulative.textContent = Math.round(_tsCumulative).toLocaleString();
+  }
+}
+
+function _drawTsSpark(name) {
+  const canvas = tsSparkCanvases[name];
+  if (!canvas) return;
+  if (canvas.clientWidth === 0 || canvas.clientHeight === 0) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const targetW = Math.floor(canvas.clientWidth * dpr);
+  const targetH = Math.floor(canvas.clientHeight * dpr);
+  if (canvas.width !== targetW) canvas.width = targetW;
+  if (canvas.height !== targetH) canvas.height = targetH;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const hist = tsSparkHistory[name];
+  if (hist.length < 2) return;
+  // Ease the rendered right-edge toward the latest sample so the
+  // line glides continuously between engine ticks.
+  const target = hist[hist.length - 1];
+  tsSparkRendered[name] += (target - tsSparkRendered[name]) * 0.10;
+  if (tsSparkValueEls[name]) {
+    tsSparkValueEls[name].textContent =
+      (tsSparkRendered[name] * 100).toFixed(1) + '%';
+  }
+  const w = canvas.width;
+  const h = canvas.height;
+  const n = hist.length;
+  ctx.lineWidth = 1.5 * dpr;
+  ctx.strokeStyle = tsSparkColors[name];
+  ctx.beginPath();
+  for (let k = 0; k < n; k += 1) {
+    const x = (k / (TS_SPARK_LEN - 1)) * w;
+    const sample = (k === n - 1) ? tsSparkRendered[name] : hist[k];
+    const y = h - sample * h;
+    if (k === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+const _tsKeys = ['success', 'cost', 'market', 'align',
+                 'law', 'compute', 'perm', 'reg'];
+function _fmtPct(v) {
+  if (!Number.isFinite(v)) return '--';
+  const p = v * 100;
+  return (p >= 10 ? p.toFixed(1) : p.toFixed(2)) + '%';
+}
+function tickTradeStats() {
+  for (const k of _tsKeys) {
+    tsRendered[k] += (tsTarget[k] - tsRendered[k]) * TS_SMOOTH;
+  }
+  if (tsEls.success) tsEls.success.textContent = _fmtPct(tsRendered.success);
+  if (tsEls.fail)    tsEls.fail.textContent    = _fmtPct(1 - tsRendered.success);
+  for (const k of ['cost', 'market', 'align', 'law', 'compute', 'perm', 'reg']) {
+    if (tsEls[k]) tsEls[k].textContent = _fmtPct(tsRendered[k]);
+  }
+  // Drive the success/fail split bar widths from the same eased
+  // values so the bar glides instead of stepping each tick.
+  if (tsEls.splitSuccess) {
+    tsEls.splitSuccess.style.width = (tsRendered.success * 100).toFixed(2) + '%';
+  }
+  if (tsEls.splitFail) {
+    tsEls.splitFail.style.width = ((1 - tsRendered.success) * 100).toFixed(2) + '%';
+  }
+}
+
+// ─── Sparkle ────────────────────────────────────────────────────
+const sparkleCanvas = document.getElementById('trade-sparkle');
+const sparkleCtx = sparkleCanvas ? sparkleCanvas.getContext('2d') : null;
+const sparkleParticles = [];      // [{x, y, vy, age, ar, ag, ab}]
+const SPARKLE_MAX = 320;
+const SPARKLE_AGE_MAX = 180;      // ~3 s at 60 fps — long enough to
+                                  // drift across the taller canvas
+
+// Queue of pending spawn requests so a 3000-edge tick batch
+// doesn't burst-spawn 40 particles in one frame (which produced
+// the audible-feeling rhythm of "tick! 40 dots, silence, tick! 40
+// dots"). Pushed-into here from onEdges; tickSparkle drains a
+// fraction each frame so particles continually appear.
+const sparkleSpawnQueue = [];   // each entry: bool rejected
+const SPARKLE_SPAWN_FRACTION = 1 / 18;
+const SPARKLE_SPAWN_MIN = 2;
+
+function spawnSparkles(edges) {
+  if (!sparkleCanvas || !edges || edges.length === 0) return;
+  // Subsample so a large batch doesn't backlog the queue.
+  const stride = Math.max(1, Math.ceil(edges.length / 60));
+  for (let i = 0; i < edges.length; i += stride) {
+    const e = edges[i];
+    if (!e) continue;
+    sparkleSpawnQueue.push(!!e.reject_reason);
+  }
+  // Hard cap so the queue can't accumulate beyond what we can
+  // visually render anyway.
+  if (sparkleSpawnQueue.length > 600) {
+    sparkleSpawnQueue.splice(0, sparkleSpawnQueue.length - 600);
+  }
+}
+
+function _spawnOne(rejected) {
+  if (!sparkleCanvas) return;
+  if (sparkleParticles.length >= SPARKLE_MAX) return;
+  const w = sparkleCanvas.width;
+  const h = sparkleCanvas.height;
+  sparkleParticles.push({
+    x: Math.random() * w,
+    y: h - 1,
+    // Vertical velocity tuned so a typical particle takes
+    // ~SPARKLE_AGE_MAX frames to drift from h-1 to ~0 across the
+    // (now taller) canvas.
+    vy: -(0.6 + Math.random() * 0.6),
+    age: 0,
+    rejected,
+  });
+}
+
+function tickSparkle() {
+  if (!sparkleCtx || !sparkleCanvas) return;
+  // Drain a slice of the spawn queue so particles trickle in at
+  // frame rate instead of bursting once per tick.
+  if (sparkleSpawnQueue.length > 0) {
+    const target = Math.max(
+      SPARKLE_SPAWN_MIN,
+      Math.ceil(sparkleSpawnQueue.length * SPARKLE_SPAWN_FRACTION),
+    );
+    const n = Math.min(target, sparkleSpawnQueue.length);
+    for (let k = 0; k < n; k += 1) {
+      _spawnOne(sparkleSpawnQueue[k]);
+    }
+    sparkleSpawnQueue.splice(0, n);
+  }
+  const w = sparkleCanvas.width;
+  const h = sparkleCanvas.height;
+  sparkleCtx.clearRect(0, 0, w, h);
+  for (let i = sparkleParticles.length - 1; i >= 0; i -= 1) {
+    const p = sparkleParticles[i];
+    p.y += p.vy;
+    p.age += 1;
+    if (p.age >= SPARKLE_AGE_MAX || p.y < -1) {
+      sparkleParticles.splice(i, 1);
+      continue;
+    }
+    const alpha = 1 - (p.age / SPARKLE_AGE_MAX);
+    if (p.rejected) {
+      // Failed trades render as small black X marks. Shape alone
+      // distinguishes success/fail (colour-blind friendly); black
+      // also reads well against the cream substrate of the panel.
+      sparkleCtx.strokeStyle = `rgba(26,20,18,${alpha.toFixed(3)})`;
+      sparkleCtx.lineWidth = 1.2;
+      sparkleCtx.beginPath();
+      sparkleCtx.moveTo(p.x - 2.2, p.y - 2.2);
+      sparkleCtx.lineTo(p.x + 2.2, p.y + 2.2);
+      sparkleCtx.moveTo(p.x + 2.2, p.y - 2.2);
+      sparkleCtx.lineTo(p.x - 2.2, p.y + 2.2);
+      sparkleCtx.stroke();
+    } else {
+      sparkleCtx.fillStyle = `rgba(64,166,82,${alpha.toFixed(3)})`;
+      sparkleCtx.beginPath();
+      sparkleCtx.arc(p.x, p.y, 1.8, 0, Math.PI * 2);
+      sparkleCtx.fill();
+    }
+  }
+}
+
+// Drain a slice of the substrate-bump queue each frame. Spreads
+// engine-batched deposits across ~30 rAF frames so a 3000-edge tick
+// doesn't fire 3000 bumps in a single frame; combined with the
+// pending-pool drain in surface.js, the visible deformation stays
+// continuous instead of pulsing at the engine tick rate.
+function drainBumpQueue() {
+  if (paused || _bumpQueue.length === 0 || !surface || !agents) return;
+  const target = Math.max(
+    BUMP_QUEUE_DRAIN_MIN,
+    Math.ceil(_bumpQueue.length * BUMP_QUEUE_DRAIN_FRACTION),
+  );
+  const n = Math.min(target, _bumpQueue.length);
+  for (let i = 0; i < n; i += 1) {
+    const e = _bumpQueue[i];
+    if (!e) continue;
+    const a = e.proto_a ?? -1;
+    const b = e.proto_b ?? -1;
+    if (e.reject_reason) {
+      if (a >= 0) {
+        const f = agents.currentFaceForIdx(a);
+        if (f >= 0) surface.bumpAltitude(f, -REJECT_BUMP);
+      }
+      if (b >= 0) {
+        const f = agents.currentFaceForIdx(b);
+        if (f >= 0) surface.bumpAltitude(f, -REJECT_BUMP);
+      }
+    } else if (e.executed) {
+      const surplus = Math.max(0, e.real_surplus ?? 0);
+      const bump = TRADE_BUMP_BASE * (1.0 + Math.sqrt(surplus));
+      if (a >= 0) {
+        const f = agents.currentFaceForIdx(a);
+        if (f >= 0) surface.bumpAltitude(f, bump);
+      }
+      if (b >= 0) {
+        const f = agents.currentFaceForIdx(b);
+        if (f >= 0) surface.bumpAltitude(f, bump);
+      }
+    }
+  }
+  _bumpQueue.splice(0, n);
+}
+
+// Top-left density readout. Surfaces the substrate face count, the
+// live cast count, and caterpillar-per-1,000-faces ratio — the
+// scaling knob the prior conversation flagged as the cause of "more
+// agents but same density" perception.
+function updateDensityPanel() {
+  if (!densityCastEl && !densityPer1kEl) return;
+  const sd = surface?.diagnostics?.();
+  const ad = agents?.diagnostics?.();
+  const faces = sd?.faceCount ?? 0;
+  const cast = ad?.castCount ?? 0;
+  if (densityCastEl) {
+    densityCastEl.textContent = cast > 0
+      ? cast.toLocaleString()
+      : '--';
+  }
+  if (densityPer1kEl) {
+    if (faces > 0 && cast > 0) {
+      const ratio = (cast / faces) * 1000;
+      densityPer1kEl.textContent = ratio >= 10
+        ? ratio.toFixed(1)
+        : ratio.toFixed(2);
+    } else {
+      densityPer1kEl.textContent = '--';
+    }
+  }
+}
+
 function logSummary() {
   const sd = surface?.diagnostics?.() ?? {};
   const ad = agents?.diagnostics?.() ?? {};
@@ -1069,6 +1753,18 @@ function logSummary() {
   );
 }
 
+// Per-frame shape-morph driver. Smoothly eases the rendered
+// _shapeFlatten/_shapeChaos toward the per-tick targets, then
+// overlays a slow multi-frequency breathing modulation so the
+// shape never sits at a perfectly fixed value between engine
+// ticks. Both together eliminate the "tick-jump-sit" rhythm the
+// engine cadence would otherwise impose on the visual.
+function tickShape() {
+  _shapeFlatten += (_shapeFlattenTarget - _shapeFlatten) * SHAPE_SMOOTH_RATE;
+  _shapeChaos   += (_shapeChaosTarget   - _shapeChaos)   * SHAPE_SMOOTH_RATE;
+  applyShape();
+}
+
 // Apply the world-shape morph to every mesh whose vertices live in
 // scene-space — substrate, caterpillars, indicator dots, tethers,
 // trade arcs. mesh.scale.y is the cheapest way to do this; no
@@ -1077,10 +1773,27 @@ function logSummary() {
 // in onPointerMove so hit detection still resolves on the original
 // sphere geometry.
 function applyShape() {
-  const sy = 1 - _shapeFlatten;
+  // Slow multi-frequency breathing overlay — coprime-ish periods so
+  // the wave never quite repeats. Amplitudes are small (~2%) so the
+  // overlay reads as life, not as a separate animation layer.
+  const t = performance.now() * 0.001;
+  const breath = (
+    Math.sin(t * 0.41) * 0.55 +
+    Math.sin(t * 0.73 + 1.2) * 0.30 +
+    Math.sin(t * 1.19 + 2.7) * 0.15
+  );
+  const flatBreath = breath * SHAPE_BREATH_AMP_FLATTEN;
+  const chaosBreath = breath * SHAPE_BREATH_AMP_CHAOS;
+  let renderedFlatten = _shapeFlatten + flatBreath;
+  if (renderedFlatten < 0) renderedFlatten = 0;
+  else if (renderedFlatten > SHAPE_FLATTEN_MAX) renderedFlatten = SHAPE_FLATTEN_MAX;
+  let renderedChaos = _shapeChaos + chaosBreath;
+  if (renderedChaos < 0) renderedChaos = 0;
+  else if (renderedChaos > 1) renderedChaos = 1;
+  const sy = 1 - renderedFlatten;
   if (surface) {
     surface.mesh.scale.y = sy;
-    surface.setChaos(_shapeChaos);
+    surface.setChaos(renderedChaos);
   }
   if (agents) {
     agents.mesh.scale.y = sy;
@@ -1149,6 +1862,11 @@ function onStep(step) {
   if (typeof window !== 'undefined' && window.__devChecksOnStep) {
     window.__devChecksOnStep(step);
   }
+  // Update the trade-stats panel targets. tickTradeStats() in
+  // animate() eases the rendered values toward these with a slow
+  // EMA so the percentages roll over ~10 s instead of jerking
+  // every tick.
+  updateTradeStatsFromStep(step);
   setStatus(`${theme.name} · tick ${step.step}`, 'live');
 
   pushStepArrival(performance.now() * 0.001);
@@ -1166,25 +1884,42 @@ function onStep(step) {
       const ebi = nstep / rstep;
       hudEbiEl.textContent = ebi.toFixed(3);
       _ebiSmoothed = _ebiSmoothed * 0.94 + ebi * 0.06;
+      // Plan §G.1 — track engine EBI so the restart-preview row can
+      // show ΔEBI against the live reading. Uses the same per-step
+      // nominal/real ratio the HUD displays so the two numbers line
+      // up exactly.
+      _lastEngineEbi = ebi;
       // Flatten ramp on the low side: EBI < 2.0 starts compressing
       // toward disc; at EBI 0.5 (or below) the sphere is fully flat.
-      const flatT = (SHAPE_FLATTEN_EBI_HIGH - _ebiSmoothed)
+      // Smoothstep eases the linear ramp into an S-curve so the
+      // shape doesn't ride a perfectly flat slope across the band.
+      const flatT0 = (SHAPE_FLATTEN_EBI_HIGH - _ebiSmoothed)
         / (SHAPE_FLATTEN_EBI_HIGH - SHAPE_FLATTEN_EBI_LOW);
-      _shapeFlatten = Math.max(0, Math.min(SHAPE_FLATTEN_MAX, flatT * SHAPE_FLATTEN_MAX));
+      const flatT = Math.max(0, Math.min(1, flatT0));
+      const flatEased = flatT * flatT * (3 - 2 * flatT);
+      _shapeFlattenTarget = flatEased * SHAPE_FLATTEN_MAX;
       // Chaos ramp on the high side: EBI > 2.0 starts adding lobes;
       // saturates at EBI 5.0.
-      const chaosT = (_ebiSmoothed - SHAPE_CHAOS_EBI_LOW)
+      const chaosT0 = (_ebiSmoothed - SHAPE_CHAOS_EBI_LOW)
         / (SHAPE_CHAOS_EBI_HIGH - SHAPE_CHAOS_EBI_LOW);
-      _shapeChaos = Math.max(0, Math.min(1, chaosT));
-      applyShape();
+      const chaosT = Math.max(0, Math.min(1, chaosT0));
+      _shapeChaosTarget = chaosT * chaosT * (3 - 2 * chaosT);
+      // Note: applyShape() is no longer called here. tickShape() in
+      // animate() interpolates _shapeFlatten/_shapeChaos toward the
+      // targets each frame so the morph rides continuously instead
+      // of jumping at engine-tick boundaries.
     }
   }
-  if (hudWelfareStepEl && Number.isFinite(step.real_welfare_step)) {
-    const v = step.real_welfare_step;
-    const sign = v >= 0 ? '+' : '';
-    hudWelfareStepEl.textContent = sign + v.toFixed(1);
+  if (Number.isFinite(step.real_welfare_step)) {
+    // EMA-smooth the welfare-step value so it glides instead of
+    // jerking once per engine tick. The eased value is rendered by
+    // tickEasedHud() in animate().
+    easeHudValue('hud-welfare-step', step.real_welfare_step,
+      (v) => (v >= 0 ? '+' : '') + v.toFixed(1));
   }
-  if (hudGiniEl && Number.isFinite(step.gini_wealth)) hudGiniEl.textContent = step.gini_wealth.toFixed(3);
+  if (Number.isFinite(step.gini_wealth)) {
+    easeHudValue('hud-gini', step.gini_wealth, (v) => v.toFixed(3));
+  }
   if (hudTpsEl) hudTpsEl.textContent = ticksPerSec().toFixed(1);
 
   // Phase 5 §6.1 — folds and compute. FOLDS is the active mesh
@@ -1238,6 +1973,22 @@ function onStep(step) {
     if (hudCabalsEl) hudCabalsEl.textContent = String(d.cabals);
     if (hudSyndicatesEl) hudSyndicatesEl.textContent = String(d.syndicates);
   }
+  // Plan §C.1 — Louvain pipeline diagnostic readouts. Reads from
+  // clusters.diagnostics() (primary partition source) and
+  // clusterOverlay.diagnostics() (renderer floor). Splits the "0/0"
+  // cliff that the reviewer cannot distinguish into three failure
+  // modes: engine produces no structure / detector below floor /
+  // overlay never wires up.
+  if (hudEdgesInEl || hudCandidatesEl || hudRenderFloorEl) {
+    const cd = clusters?.diagnostics?.() ?? { edgesIn: 0, candidates: 0 };
+    const od = clusterOverlay?.diagnostics?.() ?? { minCabalRenderSize: 0 };
+    if (hudEdgesInEl) hudEdgesInEl.textContent = String(cd.edgesIn ?? 0);
+    if (hudCandidatesEl) hudCandidatesEl.textContent = String(cd.candidates ?? 0);
+    if (hudRenderFloorEl) {
+      hudRenderFloorEl.textContent =
+        `${od.minCabalRenderSize ?? 0} / ${cd.candidates ?? 0}`;
+    }
+  }
   // Phase 2 §3.3: rebuild the cabal-hull overlay from the stable-id
   // partition. The overlay reads each cluster's status (cabal vs
   // syndicate) and tints accordingly.
@@ -1265,8 +2016,19 @@ function onStep(step) {
   if (surface) {
     const ebi = step.exo_baroque_index;
     if (Number.isFinite(ebi)) {
-      // 1.0..1.10 effective range (clamped on the setter side).
-      surface.setAltitudeScale(1.0 + Math.max(0, ebi - 1.0) * 0.10);
+      // Plan §B.2 — EBI-driven altitude scale via the existing
+      // _ebiSmoothed EMA (same one the shape-morph reads), so per-
+      // tick jitter doesn't whiplash the substrate's amplitude.
+      // Formula:
+      //   uAltitudeScale = 0.6 + 1.4 * smoothstep(2.0, 4.0, ebiSmoothed)
+      // At EBI≈1.5 (disc band): bumps barely visible.
+      // At EBI≈3.5 (lobed band): bumps register as lobe-surface texture.
+      // The smoothstep is computed against _ebiSmoothed which is
+      // updated below in the shape-morph block.
+      const t = (_ebiSmoothed - 2.0) / 2.0;
+      const u = t < 0 ? 0 : (t > 1 ? 1 : t);
+      const ss = u * u * (3 - 2 * u);
+      surface.setAltitudeScale(0.6 + 1.4 * ss);
     }
     const depth = step.fold_max_depth;
     if (Number.isFinite(depth)) {
@@ -1302,6 +2064,10 @@ function onCastSnapshot(ev) {
     for (const e of ev.snapshot) {
       if (e && Number.isInteger(e.idx)) _castByIdx.set(e.idx, e);
     }
+    // Plan §E.1/§E.2 — rebuild the per-snapshot population stats
+    // so the histograms and inspector percentile read from the
+    // distribution the user actually sees on this tick.
+    rebuildPopulationStats(ev.snapshot);
   }
   inspector?.refresh();
   if (counters.cast === 1) setProgress(1.0, 'live');
@@ -1320,35 +2086,26 @@ function onFolds(ev) {
 // driving positive growth before.
 const REJECT_BUMP = 0.0015;
 const TRADE_BUMP_BASE = 0.009;
+// Spread substrate-bump processing across ~30 frames so the
+// engine's batched tick doesn't dump 3000 deposits in a single
+// frame and then go quiet for 0.5 s. Cluster ingest and arc
+// creation still happen at batch boundaries; only the substrate-
+// deformation deposits are deferred.
+const _bumpQueue = [];
+const BUMP_QUEUE_DRAIN_FRACTION = 1 / 30;
+const BUMP_QUEUE_DRAIN_MIN = 8;
+
 function onEdges(ev) {
   if (paused) return;
   if (!surface || !agents || !ev.edges) return;
+  // Feed the sparkle canvas in the trade-stats panel — each pair
+  // outcome spawns one green/red dot that drifts up and fades.
+  spawnSparkles(ev.edges);
+  // Push every edge into the bump queue. animate() drains a slice
+  // of this each frame so deformation deposits trickle in
+  // continuously instead of arriving all at once.
   for (let i = 0; i < ev.edges.length; i += 1) {
-    const e = ev.edges[i];
-    if (!e) continue;
-    const a = e.proto_a ?? -1;
-    const b = e.proto_b ?? -1;
-    if (e.reject_reason) {
-      if (a >= 0) {
-        const f = agents.currentFaceForIdx(a);
-        if (f >= 0) surface.bumpAltitude(f, -REJECT_BUMP);
-      }
-      if (b >= 0) {
-        const f = agents.currentFaceForIdx(b);
-        if (f >= 0) surface.bumpAltitude(f, -REJECT_BUMP);
-      }
-    } else if (e.executed) {
-      const surplus = Math.max(0, e.real_surplus ?? 0);
-      const bump = TRADE_BUMP_BASE * (1.0 + Math.sqrt(surplus));
-      if (a >= 0) {
-        const f = agents.currentFaceForIdx(a);
-        if (f >= 0) surface.bumpAltitude(f, bump);
-      }
-      if (b >= 0) {
-        const f = agents.currentFaceForIdx(b);
-        if (f >= 0) surface.bumpAltitude(f, bump);
-      }
-    }
+    if (ev.edges[i]) _bumpQueue.push(ev.edges[i]);
   }
   // Phase 2 §3.1: feed pair samples into the rolling cluster
   // detector. Reject pairs and weight-0 pairs are filtered inside
@@ -1390,8 +2147,11 @@ let _restarting = false;
 async function restartRun() {
   if (_restarting) return;
   _restarting = true;
-  if (btnRestartEl) btnRestartEl.disabled = true;
-  setStatus(`${theme.name} · restarting…`, '');
+  // Disable the in-place reset button while the run is being torn
+  // down + rebuilt. btn-restart (hard page reload) stays clickable
+  // as an escape hatch in case the in-place reset wedges.
+  if (btnResetEl) btnResetEl.disabled = true;
+  setStatus(`${theme.name} · resetting…`, '');
 
   // Restart override payload is the union of:
   //   - every live numeric lever's current value (so the new run
@@ -1424,6 +2184,7 @@ async function restartRun() {
   for (const [k, v] of _structuralPending) overrides[k] = v;
   _structuralPending.clear();
   if (leversPendingRowEl) leversPendingRowEl.style.display = 'none';
+  if (leversPreviewRowEl) leversPreviewRowEl.style.display = 'none';
 
   if (stream) {
     stream.cancel();
@@ -1448,11 +2209,20 @@ async function restartRun() {
   counters.cast = 0;
   cumulativeWealth = 0;
   cumulativeTrades = 0;
+  // Reset the trades-panel state so the cumulative counter and
+  // success/fail sparklines start fresh on Reset.
+  _tsCumulative = 0;
+  _tsSeeded = false;
+  if (tsEls.cumulative) tsEls.cumulative.textContent = '0';
+  if (tsEls.splitSuccess) tsEls.splitSuccess.style.width = '0%';
+  if (tsEls.splitFail)    tsEls.splitFail.style.width    = '0%';
   _stepArrivalCount = 0;
   _stepArrivalI = 0;
   _ebiSmoothed = 2.0;
   _shapeFlatten = 0;
   _shapeChaos = 0;
+  _shapeFlattenTarget = 0;
+  _shapeChaosTarget = 0;
   _lastEdgeT = 0;
   applyShape();
   if (hudStreamEl) hudStreamEl.textContent = '--';
@@ -1513,7 +2283,7 @@ async function restartRun() {
     console.error(err);
   } finally {
     _restarting = false;
-    if (btnRestartEl) btnRestartEl.disabled = false;
+    if (btnResetEl) btnResetEl.disabled = false;
   }
 }
 
@@ -1530,7 +2300,15 @@ async function main() {
   seedLeverStateFromDom();
   // Fetch weights in parallel with topology build — the JSON is
   // tiny and not on the render critical path.
-  loadAlphaWeights('./alpha_weights.json').then(() => updateAlphaHud());
+  // Plan §A.1 — call without a URL so the loader uses its module-
+  // relative DEFAULT_URL. Avoids the document.baseURI 404 trap.
+  loadAlphaWeights().then((w) => {
+    updateAlphaHud();
+    // Plan §D.2 — append a hollow-square marker to each lever whose
+    // engine field isn't implemented yet (and so contributes to the
+    // lever-α target but doesn't move the engine until Restart).
+    markUnimplementedLevers(w);
+  });
   // Plan §8.3 — opt in to runtime invariants via ?dev=1 URL.
   if (typeof location !== 'undefined'
       && new URLSearchParams(location.search).has('dev')) {
@@ -1547,7 +2325,16 @@ async function main() {
   setProgress(0.78, 'stream connect');
   await nextFrame();
   try {
-    stream = await startStream(LEVERS, {
+    // Ship the current slider state as overrides on the FIRST run
+    // so the calm-preset HTML defaults actually reach the engine
+    // without the user having to click Reset. Subsequent restartRun
+    // calls already do this; previously the first run alone used
+    // raw scenario defaults.
+    const initialOverrides = {};
+    for (const [k, v] of Object.entries(_leverState)) {
+      if (v !== undefined && v !== null) initialOverrides[k] = v;
+    }
+    stream = await startStream({ ...LEVERS, overrides: initialOverrides }, {
       onHello,
       onStep,
       onCastSnapshot,
@@ -1597,6 +2384,21 @@ window.__sandbox = {
   leverState: () => ({ ..._leverState }),
   alphaLever: () => mapAlpha(_leverState),
   alphaEngine: () => _lastEngineAlpha,
+  // Plan §A.3 — exposed so dev/checks.js can probe the loader cold-
+  // start. Returns the live mapAlpha symbol from alpha_map.js.
+  alphaMap: { mapAlpha },
+  // Plan §E.2 — percentile lookup against the per-snapshot
+  // population distribution. Used by inspector_agent.js to stamp
+  // capability/autonomy rows with their rank in the cast.
+  populationPercentile,
+  populationStats: () => ({
+    capability: { mu: POP_STATS.capability.mu, sigma: POP_STATS.capability.sigma,
+                  n: POP_STATS.capability.sorted?.length ?? 0 },
+    autonomy:   { mu: POP_STATS.autonomy.mu,   sigma: POP_STATS.autonomy.sigma,
+                  n: POP_STATS.autonomy.sorted?.length ?? 0 },
+    trade_rate: { mu: POP_STATS.trade_rate.mu, sigma: POP_STATS.trade_rate.sigma,
+                  n: POP_STATS.trade_rate.sorted?.length ?? 0 },
+  }),
   regimeLabel: (ebi) => regimeLabel(ebi),
   counters: () => ({ ...counters }),
   theme: () => theme,

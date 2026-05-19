@@ -16,7 +16,11 @@
 export const THEME = {
   name: 'fine-grain',
   background: 0xf0eee6,
-  subdivisions: 140,           // 20 × 141² ≈ 397,620 triangles
+  subdivisions: 198,           // 20 × 199² ≈ 792,020 triangles.
+                               // 2× the original 140 baseline, half
+                               // of the prior 280 build. Cast stays
+                               // at 20K so per-face density doubles
+                               // vs. the prior config.
   baseColor: [0.90, 0.89, 0.85],
   activeColor: [0.08, 0.08, 0.10],
   edgeColor: [0.62, 0.60, 0.55],
@@ -28,22 +32,30 @@ export const THEME = {
   minPersistFrames: 60,
   maxPersistFrames: 720,
   magnitudeRef: 10.0,
-  // 12-sector tint table. Linear sRGB triplets, even hue spacing at
-  // modest saturation so the mix with activeColor reads as a faint
-  // hue cast rather than a saturated stamp.
+  // 12-sector tint table. All-black uniform palette per the
+  // monochrome request: every caterpillar renders the same near-black
+  // regardless of sector. Sector identity is now entirely click-to-
+  // reveal (inspector card + compass-isolate); nothing on the
+  // substrate distinguishes sectors visually.
+  //
+  // Compass swatches also draw from this palette — they all render
+  // black, but the click-to-isolate behaviour still works by index
+  // (the swatches carry their sector id in dataset). The compass
+  // becomes 12 identical small black squares that hover-reveal the
+  // sector name; this is a deliberate consequence, not a bug.
   sectorPalette: [
-    [0.95, 0.45, 0.40],  // 0  red
-    [0.95, 0.65, 0.30],  // 1  amber
-    [0.90, 0.80, 0.30],  // 2  ochre
-    [0.65, 0.85, 0.35],  // 3  citron
-    [0.40, 0.80, 0.40],  // 4  leaf
-    [0.35, 0.80, 0.60],  // 5  teal
-    [0.30, 0.75, 0.80],  // 6  cyan
-    [0.30, 0.60, 0.90],  // 7  azure
-    [0.40, 0.45, 0.95],  // 8  indigo
-    [0.65, 0.40, 0.95],  // 9  violet
-    [0.85, 0.40, 0.85],  // 10 magenta
-    [0.90, 0.45, 0.65],  // 11 rose
+    [0.04, 0.04, 0.04],  // 0  agriculture
+    [0.04, 0.04, 0.04],  // 1  extraction
+    [0.04, 0.04, 0.04],  // 2  manufacturing
+    [0.04, 0.04, 0.04],  // 3  energy
+    [0.04, 0.04, 0.04],  // 4  logistics
+    [0.04, 0.04, 0.04],  // 5  construction
+    [0.04, 0.04, 0.04],  // 6  retail
+    [0.04, 0.04, 0.04],  // 7  finance
+    [0.04, 0.04, 0.04],  // 8  information
+    [0.04, 0.04, 0.04],  // 9  health
+    [0.04, 0.04, 0.04],  // 10 education
+    [0.04, 0.04, 0.04],  // 11 leisure
   ],
   sectorTintWeight: 0.20,
   // Persistence multiplier at the running max of degree_centrality.

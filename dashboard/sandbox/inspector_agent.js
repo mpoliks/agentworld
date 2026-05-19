@@ -268,8 +268,8 @@ export function createInspectorAgent(opts) {
                        ? `${cabalId}${cabalStatus === 'syndicate' ? ' (syndicate)' : ''}`
                        : '—'],
       ['wealth',     fmtNumber(e.wealth)],
-      ['capability', fmtFloat(e.capability)],
-      ['autonomy',   fmtFloat(e.autonomy)],
+      ['capability', _withPercentile('capability', e.capability)],
+      ['autonomy',   _withPercentile('autonomy', e.autonomy)],
       ['certified',  e.certified >= 0 ? fmtFloat(e.certified) : '—'],
       ['degree',     e.degree_centrality >= 0 ? String(e.degree_centrality) : '—'],
       ['norm dist',  e.norm_distance >= 0 ? fmtFloat(e.norm_distance) : '—'],
@@ -384,6 +384,19 @@ export function createInspectorAgent(opts) {
   function fmtFloat(v) {
     if (!Number.isFinite(v)) return '—';
     return v.toFixed(3);
+  }
+  // Plan §E.2 — stamp a percentile rank onto a per-agent field value
+  // so the inspector reads the agent against the population the
+  // toggles-panel histograms describe. Falls back to plain fmtFloat
+  // when the sandbox hasn't built the distribution yet.
+  function _withPercentile(field, v) {
+    if (!Number.isFinite(v)) return '—';
+    const base = v.toFixed(3);
+    const sandbox = (typeof window !== 'undefined') ? window.__sandbox : null;
+    if (!sandbox?.populationPercentile) return base;
+    const p = sandbox.populationPercentile(field, v);
+    if (!Number.isFinite(p) || p < 0) return base;
+    return `${base} / p${p}`;
   }
   function fmtNumber(v) {
     if (!Number.isFinite(v)) return '—';

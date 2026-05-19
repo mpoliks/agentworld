@@ -44,9 +44,15 @@ SANDBOX_HTML = (
 # RunRequest top-level field; the rest are override keys.
 EXPECTED_LEVERS: tuple[tuple[str, str], ...] = (
     # Agentic
-    ("agent_capability_mean",             "structural"),
+    # Plan §G.2 landed: agent_capability_mean and
+    # agent_trade_rate_multiplier are now live. The serve.py
+    # override hook shifts the per-prototype capability array by Δμ
+    # (no re-sampling, no seed disturbance) and re-runs
+    # Population._build_sampling_structures so the new trade-rate
+    # multiplier takes effect on the next partner-sample draw.
+    ("agent_capability_mean",             "live"),
     ("agent_autonomy_mean",               "structural"),
-    ("agent_trade_rate_multiplier",       "structural"),
+    ("agent_trade_rate_multiplier",       "live"),
     # Plan §5.1 stretch landed: network_model + network_p_local
     # are now live. network_model triggers a rewire between ticks
     # (~50-200 ms at the sandbox's 88k-prototype scale);

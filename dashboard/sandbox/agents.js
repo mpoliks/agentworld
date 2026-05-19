@@ -25,7 +25,9 @@
 import * as THREE from 'three';
 
 const MAX_TRAIL = 48;
-const MAX_CAST = 5000;
+// 4× scale-up: cast capped at 20,000 caterpillars. MAX_VERTS now
+// stands at 2.88M; position+color attribute pair = ~70 MB GPU.
+const MAX_CAST = 20000;
 const MAX_VERTS = MAX_CAST * MAX_TRAIL * 3;          // worst-case vertex count
 // Pass 26: stretch the wealth → bucket curve so the rich tail spans
 // more of the trail range. floor((log2(w+1)+2) · WEALTH_LENGTH_SCALE)
@@ -71,8 +73,12 @@ export function createAgents(scene, surface, opts = {}) {
   // Asymmetric scaling: positive wealth deltas push outward
   // positiveBumpFactor× harder than negative deltas push inward.
   // Counterweights the omnipresent inward forces (stack carving +
-  // rejects) so wealth peaks dominate the visual.
-  const positiveBumpFactor = opts.positiveBumpFactor ?? 10.0;
+  // rejects). Plan §B.1 — dropped from 10.0 to 3.5 alongside the
+  // surface-side ±0.06 per-event clamp; the regional welfare overlay
+  // now carries the accumulated signal across 30 ticks, so the per-
+  // vertex bump no longer needs to dominate the substrate to be
+  // legible.
+  const positiveBumpFactor = opts.positiveBumpFactor ?? 3.5;
   // Pass 26: amber dot floating above each human's head face so
   // humans are visually separable from AI agents at a glance.
   // Matches the rgb(217,166,77) used in the wealth-flow meter.
@@ -172,6 +178,34 @@ export function createAgents(scene, surface, opts = {}) {
   indicatorMesh.frustumCulled = false;
   scene.add(indicatorMesh);
 
+  // Plan §B.3 — caterpillar-density toggle. Dots-mode mesh: one
+  // Points vertex per cast member at the agent's current face
+  // centroid, lifted just off the substrate so it doesn't z-fight
+  // the grid. The caterpillar mesh and the dots mesh are mutually
+  // exclusive — setCaterpillarMode(true) shows segments and hides
+  // dots, setCaterpillarMode(false) does the opposite. Default
+  // matches today's behaviour: caterpillars on, dots off.
+  const dotsArr = new Float32Array(MAX_CAST * 3);
+  const dotsColorArr = new Float32Array(MAX_CAST * 3);
+  const dotsGeom = new THREE.BufferGeometry();
+  const dotsPosAttr = new THREE.BufferAttribute(dotsArr, 3);
+  dotsPosAttr.setUsage(THREE.DynamicDrawUsage);
+  dotsGeom.setAttribute('position', dotsPosAttr);
+  const dotsColorAttr = new THREE.BufferAttribute(dotsColorArr, 3);
+  dotsColorAttr.setUsage(THREE.DynamicDrawUsage);
+  dotsGeom.setAttribute('color', dotsColorAttr);
+  dotsGeom.setDrawRange(0, 0);
+  const dotsMat = new THREE.PointsMaterial({
+    size: 5,
+    sizeAttenuation: false,
+    vertexColors: true,
+    transparent: false,
+  });
+  const dotsMesh = new THREE.Points(dotsGeom, dotsMat);
+  dotsMesh.frustumCulled = false;
+  dotsMesh.visible = false;
+  scene.add(dotsMesh);
+
   // Tether line from the head face centroid up to the indicator dot.
   // One 2-vertex line segment per shown human. Worst-case sizing:
   // MAX_CAST × 2 verts × 3 floats = 30k floats (negligible).
@@ -210,6 +244,17 @@ export function createAgents(scene, surface, opts = {}) {
   // Firm centroids in 3D position space, rebuilt each snapshot.
   const firmCentroids = new Map();
 
+  // Wealth-delta bump queue. handleCastSnapshot pushes pairs
+  // (slot, signedMagnitude); tick() drains a fraction each frame
+  // and applies them via surface.bumpAltitude on the agent's
+  // CURRENT face. Spreads a per-snapshot burst of ~5000 deposits
+  // across ~30 frames so the substrate doesn't pulse at the cast-
+  // snapshot rate. Flat number array (slot, mag, slot, mag, ...)
+  // to avoid per-event object allocation.
+  const wealthBumpQueue = [];
+  const WEALTH_BUMP_DRAIN_FRACTION = 1 / 30;
+  const WEALTH_BUMP_DRAIN_MIN = 16;
+
   function initialLayout(snapshot) {
     castCount = snapshot.length;
     trail = new Int32Array(castCount * MAX_TRAIL);
@@ -223,7 +268,16 @@ export function createAgents(scene, surface, opts = {}) {
     stack = new Int8Array(castCount);
     firmId = new Int32Array(castCount);
     recentPartners = new Array(castCount);
+    // Init lastWealth to NaN so the first cast snapshot's
+    // wealth-delta bump path SHORT-CIRCUITS — `Number.isFinite(NaN)`
+    // is false, so prevW reads as "no prior reading" and no bump
+    // fires. Without this, the first snapshot computes delta =
+    // (current wealth) - 0 for every agent, queuing 20K oversized
+    // positive bumps that dump into the substrate as initialisation
+    // pockmarks. Real wealth-delta bumps only start on the SECOND
+    // snapshot, by which point each agent has a real baseline.
     lastWealth = new Float32Array(castCount);
+    lastWealth.fill(NaN);
     lastWealth.fill(NaN);
     agentSector = new Int8Array(castCount);
     agentColor = new Float32Array(castCount * 3);
@@ -282,24 +336,22 @@ export function createAgents(scene, surface, opts = {}) {
       bucket[slot] = b;
 
       // Wealth-delta → altitude bump on the agent's current face.
-      // log1p() so windfalls don't dominate; sign carried so losses
-      // dig craters and gains raise peaks. Positive deltas get a
-      // positiveBumpFactor multiplier (Pass 19) so wealth peaks
-      // remain visible against the omnipresent inward pressure from
-      // stack carving and rejects.
+      // Queued for gradual application in tick() so a single cast
+      // snapshot doesn't fire 5000+ bumps in one frame and pulse
+      // the substrate at the snapshot rate. Position uses the
+      // agent's slot — currentFaceForIdx is read at drain time so
+      // the bump lands on whichever face the agent occupies when
+      // the bump actually fires, not the face from the snapshot
+      // instant.
       const prevW = lastWealth[slot];
       lastWealth[slot] = w;
       if (Number.isFinite(prevW)) {
         const deltaSigned = w - prevW;
         const deltaMag = Math.abs(deltaSigned);
         if (deltaMag >= altitudeBumpThreshold) {
-          const cur = trail[slot * MAX_TRAIL + trailHead[slot]];
-          // sqrt response: small deltas still produce visible bumps
-          // (log1p was over-compressing the long tail of tiny wealth
-          // changes that dominate most ticks).
           const baseBump = altitudeBumpScale * Math.sqrt(deltaMag);
           const signed = deltaSigned >= 0 ? baseBump * positiveBumpFactor : -baseBump;
-          surface.bumpAltitude(cur, signed);
+          wealthBumpQueue.push(slot, signed);
         }
       }
 
@@ -362,6 +414,31 @@ export function createAgents(scene, surface, opts = {}) {
     }
 
     if (Math.random() < autonomy[slot]) {
+      // Bias the random walk toward neighbouring faces that already
+      // carry altitude (in either direction). Without this, agents
+      // diffuse uniformly across the icosphere and the substrate
+      // ends up evenly textured no matter what the levers say. The
+      // altitude bias creates positive feedback for visiting
+      // existing features, which combined with the substrate-side
+      // concentration bias produces clustered hotspots instead of
+      // uniform noise.
+      if (faceAltitudes && cands.length > 1) {
+        const FEATURE_STICKINESS = 8.0;
+        let totalW = 0;
+        const ws = new Array(cands.length);
+        for (let k = 0; k < cands.length; k += 1) {
+          const altMag = Math.abs(faceAltitudes[cands[k]] || 0);
+          const w = 0.25 + altMag * FEATURE_STICKINESS;
+          ws[k] = w;
+          totalW += w;
+        }
+        let r = Math.random() * totalW;
+        for (let k = 0; k < cands.length; k += 1) {
+          r -= ws[k];
+          if (r <= 0) return cands[k];
+        }
+        return cands[cands.length - 1];
+      }
       return cands[Math.floor(Math.random() * cands.length)];
     }
 
@@ -422,6 +499,31 @@ export function createAgents(scene, surface, opts = {}) {
   function tick() {
     if (!initialized) return;
 
+    // 0) Drain a slice of the wealth-delta bump queue. Each entry
+    //    is two consecutive numbers (slot, signedMagnitude); the
+    //    drain target is 1/30 of the current queue depth (min 16
+    //    pairs) so a 5000-event snapshot ramps over ~30 frames.
+    if (wealthBumpQueue.length > 0) {
+      const pairs = wealthBumpQueue.length >> 1;
+      const target = Math.max(
+        WEALTH_BUMP_DRAIN_MIN,
+        Math.ceil(pairs * WEALTH_BUMP_DRAIN_FRACTION),
+      );
+      const n = Math.min(target, pairs);
+      const consume = n * 2;
+      for (let k = 0; k < consume; k += 2) {
+        const slot = wealthBumpQueue[k];
+        const signed = wealthBumpQueue[k + 1];
+        if (slot < 0 || slot >= castCount) continue;
+        // Bump lands on the face the agent currently occupies, not
+        // the face from when the snapshot landed — the agent may
+        // have walked between snapshot and drain.
+        const cur = trail[slot * MAX_TRAIL + trailHead[slot]];
+        if (cur >= 0) surface.bumpAltitude(cur, signed);
+      }
+      wealthBumpQueue.splice(0, consume);
+    }
+
     // 1) Step decisions per agent.
     for (let i = 0; i < castCount; i += 1) {
       stepCooldown[i] -= 1;
@@ -469,6 +571,13 @@ export function createAgents(scene, surface, opts = {}) {
 
       const altScale = surface.mesh?.material?.uniforms?.uAltitudeScale?.value ?? 1.0;
       const globalAlt = surface.mesh?.material?.uniforms?.uGlobalAltitude?.value ?? 0.0;
+      // Mirror the substrate shader's chaos warp so caterpillars
+      // ride the same lobed displacement instead of staying glued
+      // to the un-warped sphere (which buried them inside the
+      // lobes at high EBI).
+      const uChaos = surface.mesh?.material?.uniforms?.uChaos?.value ?? 0.0;
+      const uChaosAmp = surface.mesh?.material?.uniforms?.uChaosAmplitude?.value ?? 0.0;
+      const chaosActive = uChaos > 0.0;
       const head = trailHead[i];
       const tBase = i * MAX_TRAIL;
       const cIdx = i * 3;
@@ -508,15 +617,54 @@ export function createAgents(scene, surface, opts = {}) {
         const lift1 = 1 + (a1 + globalAlt) * altScale;
         const lift2 = 1 + (a2 + globalAlt) * altScale;
 
-        const dv0x = v0x * lift0;
-        const dv0y = v0y * lift0;
-        const dv0z = v0z * lift0;
-        const dv1x = v1x * lift1;
-        const dv1y = v1y * lift1;
-        const dv1z = v1z * lift1;
-        const dv2x = v2x * lift2;
-        const dv2y = v2y * lift2;
-        const dv2z = v2z * lift2;
+        let dv0x = v0x * lift0;
+        let dv0y = v0y * lift0;
+        let dv0z = v0z * lift0;
+        let dv1x = v1x * lift1;
+        let dv1y = v1y * lift1;
+        let dv1z = v1z * lift1;
+        let dv2x = v2x * lift2;
+        let dv2y = v2y * lift2;
+        let dv2z = v2z * lift2;
+        if (chaosActive) {
+          // Match the substrate vertex shader's chaosOffset(n)
+          // formula exactly so segment vertices land on the warped
+          // substrate, not the un-warped sphere underneath.
+          const k = uChaos * uChaosAmp;
+          let n0len = Math.sqrt(v0x * v0x + v0y * v0y + v0z * v0z) || 1;
+          let nx = v0x / n0len, ny = v0y / n0len, nz = v0z / n0len;
+          let ax_ = Math.sin(nx * 3.7 + ny * 5.1) * Math.cos(nz * 4.3);
+          let ay_ = Math.sin(ny * 7.2 + nz * 3.9) * Math.cos(nx * 6.5);
+          let az_ = Math.sin(nz * 5.8 + nx * 4.1) * Math.cos(ny * 8.3);
+          let ad = Math.sin(nx * 11 + nz * 13) * 0.4;
+          let ae = Math.cos(ny * 9  + nx * 12) * 0.4;
+          let af = Math.sin(nz * 10.5 + ny * 14) * 0.4;
+          dv0x += (ax_ + ad) * k;
+          dv0y += (ay_ + ae) * k;
+          dv0z += (az_ + af) * k;
+          n0len = Math.sqrt(v1x * v1x + v1y * v1y + v1z * v1z) || 1;
+          nx = v1x / n0len; ny = v1y / n0len; nz = v1z / n0len;
+          ax_ = Math.sin(nx * 3.7 + ny * 5.1) * Math.cos(nz * 4.3);
+          ay_ = Math.sin(ny * 7.2 + nz * 3.9) * Math.cos(nx * 6.5);
+          az_ = Math.sin(nz * 5.8 + nx * 4.1) * Math.cos(ny * 8.3);
+          ad = Math.sin(nx * 11 + nz * 13) * 0.4;
+          ae = Math.cos(ny * 9  + nx * 12) * 0.4;
+          af = Math.sin(nz * 10.5 + ny * 14) * 0.4;
+          dv1x += (ax_ + ad) * k;
+          dv1y += (ay_ + ae) * k;
+          dv1z += (az_ + af) * k;
+          n0len = Math.sqrt(v2x * v2x + v2y * v2y + v2z * v2z) || 1;
+          nx = v2x / n0len; ny = v2y / n0len; nz = v2z / n0len;
+          ax_ = Math.sin(nx * 3.7 + ny * 5.1) * Math.cos(nz * 4.3);
+          ay_ = Math.sin(ny * 7.2 + nz * 3.9) * Math.cos(nx * 6.5);
+          az_ = Math.sin(nz * 5.8 + nx * 4.1) * Math.cos(ny * 8.3);
+          ad = Math.sin(nx * 11 + nz * 13) * 0.4;
+          ae = Math.cos(ny * 9  + nx * 12) * 0.4;
+          af = Math.sin(nz * 10.5 + ny * 14) * 0.4;
+          dv2x += (ax_ + ad) * k;
+          dv2y += (ay_ + ae) * k;
+          dv2z += (az_ + af) * k;
+        }
 
         const dcx = (dv0x + dv1x + dv2x) / 3;
         const dcy = (dv0y + dv1y + dv2y) / 3;
@@ -587,12 +735,69 @@ export function createAgents(scene, surface, opts = {}) {
     indicatorAttr.needsUpdate = true;
     tetherGeom.setDrawRange(0, indicatorVert * 2);
     tetherAttr.needsUpdate = true;
+
+    // 4) Plan §B.3 — dot-mode buffer. Only populated when the dot
+    //    mesh is visible; the caterpillar branch above does its own
+    //    bookkeeping and the two meshes are mutually exclusive. One
+    //    Points vertex per cast member at the head face centroid,
+    //    lifted just off the substrate so the dot rides the displaced
+    //    surface without z-fighting the grid.
+    if (dotsMesh.visible) {
+      let dvert = 0;
+      for (let i = 0; i < castCount; i += 1) {
+        if (humansOnly && !isHuman[i]) continue;
+        const f = trail[i * MAX_TRAIL + trailHead[i]];
+        if (f < 0 || f >= faceCount) continue;
+        const fb = f * 9;
+        const cx0 = (facePositions[fb + 0] + facePositions[fb + 3] + facePositions[fb + 6]) / 3;
+        const cy0 = (facePositions[fb + 1] + facePositions[fb + 4] + facePositions[fb + 7]) / 3;
+        const cz0 = (facePositions[fb + 2] + facePositions[fb + 5] + facePositions[fb + 8]) / 3;
+        const a0 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 0]] : 0;
+        const a1 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 1]] : 0;
+        const a2 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 2]] : 0;
+        const aAvg = (a0 + a1 + a2) / 3;
+        const lift = (1 + (aAvg + globalAlt) * altScale) * 1.005;
+        const cIdx = i * 3;
+        let cR = agentColor ? agentColor[cIdx + 0] : _baseR;
+        let cG = agentColor ? agentColor[cIdx + 1] : _baseG;
+        let cB = agentColor ? agentColor[cIdx + 2] : _baseB;
+        if (isolatedSector >= 0 && agentSector
+            && agentSector[i] !== isolatedSector) {
+          cR *= ISOLATE_DIM; cG *= ISOLATE_DIM; cB *= ISOLATE_DIM;
+        }
+        const w = dvert * 3;
+        dotsArr[w + 0] = cx0 * lift;
+        dotsArr[w + 1] = cy0 * lift;
+        dotsArr[w + 2] = cz0 * lift;
+        dotsColorArr[w + 0] = cR;
+        dotsColorArr[w + 1] = cG;
+        dotsColorArr[w + 2] = cB;
+        dvert += 1;
+      }
+      dotsGeom.setDrawRange(0, dvert);
+      dotsPosAttr.needsUpdate = true;
+      dotsColorAttr.needsUpdate = true;
+    }
   }
 
   function setVisible(v) { mesh.visible = !!v; }
   function setIndicatorVisible(v) {
     indicatorMesh.visible = !!v;
     tetherMesh.visible = !!v;
+  }
+  // Plan §B.3 — caterpillar/dots toggle. true = today's caterpillars,
+  // false = one 5 px dot per agent at the head face centroid. The
+  // two meshes are mutually exclusive; the disabled one clears its
+  // draw range on the next tick so the GPU doesn't keep drawing it.
+  function setCaterpillarMode(catOn) {
+    const on = !!catOn;
+    mesh.visible = on;
+    dotsMesh.visible = !on;
+    if (on) {
+      dotsGeom.setDrawRange(0, 0);
+    } else {
+      geometry.setDrawRange(0, 0);
+    }
   }
   function setHumansOnly(v) { humansOnly = !!v; }
   function setIsolatedSector(idx) {
@@ -607,6 +812,7 @@ export function createAgents(scene, surface, opts = {}) {
     slotByIdx.clear();
     castCount = 0;
     firmCentroids.clear();
+    wealthBumpQueue.length = 0;
     geometry.setDrawRange(0, 0);
     indicatorGeom.setDrawRange(0, 0);
     tetherGeom.setDrawRange(0, 0);
@@ -620,12 +826,15 @@ export function createAgents(scene, surface, opts = {}) {
     scene.remove(mesh);
     scene.remove(indicatorMesh);
     scene.remove(tetherMesh);
+    scene.remove(dotsMesh);
     geometry.dispose();
     material.dispose();
     indicatorGeom.dispose();
     indicatorMat.dispose();
     tetherGeom.dispose();
     tetherMat.dispose();
+    dotsGeom.dispose();
+    dotsMat.dispose();
   }
 
   function diagnostics() {
@@ -645,8 +854,10 @@ export function createAgents(scene, surface, opts = {}) {
   }
 
   return {
-    mesh, indicatorMesh, tetherMesh, handleCastSnapshot, tick, setVisible,
+    mesh, indicatorMesh, tetherMesh, dotsMesh,
+    handleCastSnapshot, tick, setVisible,
     setIndicatorVisible, setHumansOnly, setAgentsPerHuman, reset,
+    setCaterpillarMode,
     dispose, diagnostics, currentFaceForIdx,
     setIsolatedSector, isolatedSectorOf,
   };

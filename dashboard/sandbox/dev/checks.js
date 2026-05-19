@@ -204,6 +204,168 @@ function checkSegmentTintTruthfulness(sandbox) {
   // upstream in test_sector_overlay_contract.py.
 }
 
+// Plan §A.3 — cold-load assertion that the α-weights JSON actually
+// loaded. Without this, the prior bug (loader 404 against
+// document.baseURI) leaves _weights null and the α-lever HUD glued
+// at the 0.500 baseline. Single-shot: runs once after weights have
+// had a chance to fetch, then no-ops.
+let _coldLoadChecked = false;
+function checkAlphaWeightsLoaded(sandbox) {
+  if (_coldLoadChecked) return;
+  if (!sandbox?.alphaMap) return;
+  // Defer until we've ticked at least a second worth of frames so
+  // the JSON fetch (typically tens of ms on localhost) has had time
+  // to resolve.
+  if (frameCounter < 60) return;
+  _coldLoadChecked = true;
+  try {
+    const probe = { 'pigouvian.tax_rate': 0.45 };
+    const a = sandbox.alphaMap.mapAlpha(probe);
+    if (!Number.isFinite(a) || Math.abs(a - 0.5) < 1e-9) {
+      recordFailure('alpha-weights-load',
+        `mapAlpha({pigouvian.tax_rate:0.45}) = ${a} — weights did not load`);
+    }
+  } catch (err) {
+    recordFailure('alpha-weights-load', `mapAlpha threw: ${err.message}`);
+  }
+}
+
+// Plan §A.3 — cold-load assertion that the HUD's rejection-mix rows
+// are not occluded by the levers panel. Geometric: the centre of
+// `hud-rej-cost`'s bounding box must hit `hud-rej-cost` (or one of
+// its children) under elementFromPoint, not an element inside
+// `levers-panel`.
+let _layoutChecked = false;
+function checkLayoutNoHudCollision() {
+  if (_layoutChecked) return;
+  if (frameCounter < 30) return;
+  _layoutChecked = true;
+  const hud = document.getElementById('hud-rej-cost');
+  const levers = document.getElementById('levers-panel');
+  if (!hud || !levers) return;
+  const rect = hud.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const hit = document.elementFromPoint(cx, cy);
+  if (!hit) return;
+  if (hit === levers || levers.contains(hit)) {
+    recordFailure('layout-hud-collision',
+      `hud-rej-cost centre (${cx.toFixed(0)},${cy.toFixed(0)}) ` +
+      `is occluded by levers-panel`);
+  }
+}
+
+// Plan §B.4 / §H — substrate invariants. The per-event bump
+// magnitude must never exceed PER_EVENT_BUMP_CAP, the altitude
+// scale must sit inside the widened clamp, and the regional
+// overlay's per-sector alpha must stay ≤ 0.30 cap. Cheap reads
+// from surface.diagnostics().
+function checkSubstrateInvariants(sandbox) {
+  const d = sandbox?.surface?.();
+  if (!d) return;
+  if (Number.isFinite(d.perEventBumpCap) && d.perEventBumpCap > 0.10) {
+    recordFailure('substrate-bump-cap',
+      `PER_EVENT_BUMP_CAP=${d.perEventBumpCap} > 0.10`);
+  }
+  if (Number.isFinite(d.altitudeScale)) {
+    if (d.altitudeScale < 0.5 || d.altitudeScale > 2.1) {
+      recordFailure('substrate-alt-scale',
+        `uAltitudeScale=${d.altitudeScale} outside [0.5, 2.1]`);
+    }
+  }
+  if (Array.isArray(d.sectorOverlayAlpha)) {
+    for (let k = 0; k < d.sectorOverlayAlpha.length; k += 1) {
+      const a = d.sectorOverlayAlpha[k];
+      if (a > 0.16) {
+        recordFailure('substrate-overlay-alpha',
+          `sector ${k} alpha=${a} exceeds 0.15 cap`);
+        break;
+      }
+    }
+  }
+}
+
+// Plan §C.4 / §H — cluster diagnostic invariants. CABALS must
+// never exceed CANDIDATES (post-filter ≤ pre-filter), and EDGES IN
+// must be non-negative.
+function checkClusterDiagnostics(sandbox) {
+  const cd = sandbox?.clusters?.();
+  if (!cd) return;
+  if (Number.isFinite(cd.cabals) && Number.isFinite(cd.candidates)) {
+    if (cd.cabals > cd.candidates) {
+      recordFailure('cluster-counts',
+        `CABALS ${cd.cabals} > CANDIDATES ${cd.candidates}`);
+    }
+  }
+  if (Number.isFinite(cd.edgesIn) && cd.edgesIn < 0) {
+    recordFailure('cluster-edges-in',
+      `EDGES IN ${cd.edgesIn} < 0`);
+  }
+}
+
+// Plan §D.3 / §H — α-weight invariants. Every scalar lever must
+// carry a non-zero weight (catches accidental reverts to the v1
+// zero-weight defaults). Range-coverage check delegated to the
+// pytest contract — too heavy for a per-frame invariant.
+let _alphaWeightsZeroChecked = false;
+function checkAlphaWeightsAllNonZero(sandbox) {
+  if (_alphaWeightsZeroChecked) return;
+  if (frameCounter < 90) return;
+  const mapAlpha = sandbox?.alphaMap?.mapAlpha;
+  if (typeof mapAlpha !== 'function') return;
+  _alphaWeightsZeroChecked = true;
+  // Cheap proxy: drive each lever to its extreme one at a time and
+  // confirm α moves. If every lever has weight ≠ 0, every probe
+  // should change α from baseline.
+  const probe = (key, lo, hi) => {
+    const a0 = mapAlpha({ [key]: lo });
+    const a1 = mapAlpha({ [key]: hi });
+    if (!Number.isFinite(a0) || !Number.isFinite(a1)) return true;
+    return Math.abs(a1 - a0) > 1e-6;
+  };
+  const cases = [
+    ['agent_capability_mean', 0.1, 0.9],
+    ['norms.certified_fraction', 0, 1],
+    ['agent_autonomy_mean', 0.1, 1.0],
+    ['norms.update_rate', 0, 0.5],
+    ['agent_trade_rate_multiplier', 0.5, 5],
+    ['law.strength', 0, 1],
+    ['folding.max_depth', 1, 12],
+    ['law.transaction_size_cap', 0.01, 10],
+    ['regulator.enabled', 0, 1],
+    ['network_p_local', 0, 1],
+  ];
+  for (const [k, lo, hi] of cases) {
+    if (!probe(k, lo, hi)) {
+      recordFailure('alpha-weight-zero',
+        `lever ${k} produces zero Δα between ${lo}↔${hi} — weight=0?`);
+      return;
+    }
+  }
+}
+
+// Plan §E.3 / §H — population stats. After at least one cast
+// snapshot, the histograms must be populated and percentiles
+// returnable. Single-shot once snapshot exists.
+let _popStatsChecked = false;
+function checkPopulationStats(sandbox) {
+  if (_popStatsChecked) return;
+  const ps = sandbox?.populationStats?.();
+  if (!ps) return;
+  if (!ps.capability || ps.capability.n === 0) return;
+  _popStatsChecked = true;
+  if (ps.capability.sigma < 0) {
+    recordFailure('pop-stats',
+      `capability σ=${ps.capability.sigma} < 0 (impossible)`);
+  }
+  const p = sandbox.populationPercentile?.('capability', ps.capability.mu);
+  if (p === null || p === undefined || p < 0 || p > 100) {
+    recordFailure('pop-stats',
+      `percentile of μ returned ${p}; expected [0, 100]`);
+  }
+}
+
 function checkInspectorIdentity(sandbox) {
   // Programmatic identity check. If an agent card is open, the
   // diagnostics must report that agent's idx.
@@ -244,6 +406,14 @@ function tick(sandbox) {
     checkVisualPartitionConsistency(sandbox);
     checkSegmentTintTruthfulness(sandbox);
     checkInspectorIdentity(sandbox);
+    // Plan §A.3 — cold-load checks. Both are single-shot.
+    checkAlphaWeightsLoaded(sandbox);
+    checkLayoutNoHudCollision();
+    // Plan §H — per-phase invariants wired through this harness.
+    checkSubstrateInvariants(sandbox);
+    checkClusterDiagnostics(sandbox);
+    checkAlphaWeightsAllNonZero(sandbox);
+    checkPopulationStats(sandbox);
   } catch (err) {
     recordFailure('exception', err.message);
   }

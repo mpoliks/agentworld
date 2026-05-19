@@ -58,6 +58,7 @@ Emergence scenarios (30-33):
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Callable, Dict
 
 import numpy as np
@@ -1491,12 +1492,52 @@ def spatial_sandbox() -> WorldConfig:
                 pool_recovery=0.0,
             ),
         ),
-        pairs_per_step=20_000,
+        # 4× scale-up on visible cast (caterpillar count); pair-stream
+        # and per-step transaction counts left at the prior 2× values
+        # since the user only asked for faces + caterpillars to
+        # double. Trade-arc activity-per-agent therefore halves vs.
+        # the prior scale.
+        pairs_per_step=40_000,
         n_steps=0,
-        cast_size=5000,
-        pair_sample_k=1500,
+        cast_size=20_000,
+        pair_sample_k=3000,
         seed=24601,
     )
+
+
+def cabals_seeded() -> WorldConfig:
+    """Plan §C.3 contract scenario for the cluster pipeline.
+
+    A clone of ``spatial_sandbox`` with the SBM density knobs cranked
+    so the population partitions into per-sector cliques with almost
+    no cross-sector adjacency. Used by
+    ``engine/tests/test_cabals_seeded_scenario.py`` to assert that
+    the dashboard's HUD reports CABALS ≥ 3 within 60 ticks — if it
+    doesn't, the wiring between Louvain → stable id map → overlay
+    is broken; if it does, the absence of cabals in the default
+    ``spatial_sandbox`` scenario is a true engine result (not a
+    plumbing bug).
+
+    ``network_intra_sector_share`` is pushed to 0.99 so all but a
+    handful of edges land within the same sector block; the 12
+    sectors then function as 12 candidate communities, and Louvain
+    should recover at least three of them per tick once edges
+    accumulate.
+    """
+    cfg = spatial_sandbox()
+    # Replace just the SBM density knobs and keep everything else.
+    pop = cfg.population
+    cfg = replace(
+        cfg,
+        population=replace(
+            pop,
+            network_model="sbm",
+            network_p_local=0.95,
+            network_mean_degree=30,
+            network_intra_sector_share=0.99,
+        ),
+    )
+    return cfg
 
 
 SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
@@ -1541,6 +1582,7 @@ SCENARIOS: Dict[str, Callable[[], WorldConfig]] = {
     "norms_capture": norms_capture,
     "norms_brittle": norms_brittle,
     "spatial_sandbox": spatial_sandbox,
+    "cabals_seeded": cabals_seeded,
 }
 
 
@@ -1586,6 +1628,7 @@ SCENARIO_DESCRIPTIONS = {
     "norms_capture": "Adversarial sibling of norms_drift. Initial norm distribution is deliberately skewed (humans tightly clustered around the origin, agents broadly drawn), and `update_rate` is raised to 0.08. The densest cluster acts as an attractor and pulls peripheral norms toward it; alignment converges on the cluster's norm rather than a population-wide compromise. Read alongside norms_drift to see what gradient capture does to the binding-constraint rejection share.",
     "norms_brittle": "Adversarial sibling of norms_drift. `update_rate` raised to 0.50 so each step's executed partners overwhelm prior norm state. Norms oscillate rather than converging and the `align_reject` rate fluctuates with the per-step partner draw. The point: fast norm update is not automatically a good thing — there is a brittleness regime where Hadfield's alignment-as-participation flips into permanent whiplash.",
     "spatial_sandbox": "The single scenario the spatial-sandbox dashboard runs. Every optional subsystem is on with the lever-panel defaults from `docs/plans/spatial-sandbox.md` §3: norms with K=8 dimensions and a certified fraction, demand-side weighting, Pigouvian recycling to human wealth, registration, cross-sector firms, population dynamics, mission economy, strategic emergence, dynamic law with a per-pair size cap, regulator, and the new ComputeConfig admission filter. Cast size 5,000 and pair-sample K=1,500 so the rich SSE sub-events stream every tick. The dashboard's three lever panels patch this config through `RunRequest.overrides`; clusters appear because they form, not because they were drawn.",
+    "cabals_seeded": "Plan §C.3 contract sibling of spatial_sandbox. SBM density knobs are pushed to extremes (network_intra_sector_share=0.99, network_mean_degree=30, network_p_local=0.95) so the population partitions into 12 near-clique sector blocks with almost no cross-sector adjacency. The dashboard's HUD must report CABALS ≥ 3 within 60 ticks; if it doesn't, the wiring between Louvain → stable id map → cluster overlay is broken. Used by engine/tests/test_cabals_seeded_scenario.py to separate 'engine produces no community structure' from 'detector or overlay never wires up.'",
 }
 
 

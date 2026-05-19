@@ -47,8 +47,11 @@ def test_factory_turns_every_subsystem_on():
     assert t.law.enabled
     assert t.regulator.enabled
     assert t.compute.enabled
-    assert cfg.cast_size == 5000
-    assert cfg.pair_sample_k == 1500
+    # 4× scale-up landed for cast (faces and caterpillars doubled
+    # again on top of the prior 2× pass). pair_sample_k stayed at
+    # the 2× value per the user brief.
+    assert cfg.cast_size == 20_000
+    assert cfg.pair_sample_k == 3000
 
 
 def test_short_run_emits_cast_and_edges_v2():

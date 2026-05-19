@@ -30,7 +30,12 @@
 
 import * as THREE from 'three';
 
-const MIN_CABAL_RENDER_SIZE = 3;
+// Plan §C.2 — lowered from 3 to 2. The Fortunato-Barthélemy
+// resolution-limit floor (~√(2E) ≈ 45 at 1000 edges/tick) caps
+// cabal size from below, not from above; rendering 2-member
+// transient communities is honest about what Louvain actually
+// produces vs. what the resolution limit forbids.
+const MIN_CABAL_RENDER_SIZE = 2;
 const HUE_STEPS = 96;
 const HCL_C = 0.62;
 const HCL_L = 0.50;
@@ -328,7 +333,12 @@ export function createClusterOverlay(scene, surface, agents, opts = {}) {
   function diagnostics() {
     let visible = 0;
     for (const [, m] of meshByCabal) if (m.visible) visible += 1;
-    return { meshes: meshByCabal.size, visible };
+    return {
+      meshes: meshByCabal.size,
+      visible,
+      // Plan §C.1 — exposed so the HUD can show RENDER FLOOR.
+      minCabalRenderSize: MIN_CABAL_RENDER_SIZE,
+    };
   }
 
   return {

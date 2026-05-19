@@ -23,7 +23,12 @@
 import * as THREE from 'three';
 
 const DEFAULT_RADIUS = 700;
-const DEFAULT_SUBDIVISIONS = 140;    // 20 × 141² ≈ 397,620 triangles
+const DEFAULT_SUBDIVISIONS = 280;    // 20 × 281² ≈ 1,579,220 triangles.
+                                     // 4× the original (140) build,
+                                     // 2× the prior (198) build.
+                                     // Cast doubled in lockstep so
+                                     // per-face caterpillar density
+                                     // stays put.
 
 // Per-vertex `altitude` is a smoothed per-unique-vertex signed
 // fraction of the base radius. The shader displaces each vertex
@@ -65,6 +70,14 @@ const VERTEX_SHADER = /* glsl */ `
   varying float vShade;
   varying float vSector;
   varying vec3 vSectorBoundary;
+  varying vec3 vSectorOverlayRGB;
+  varying float vSectorOverlayAlpha;
+  // Plan §B.1 — per-sector welfare overlay. Tints and alphas are
+  // refreshed once per tick on the JS side and read here per-vertex
+  // (sectorIdx is constant across a face's three corners). 12 sectors
+  // ⇒ uniform arrays of length 12, indexed by int(sectorIdx + 0.5).
+  uniform vec3 uSectorOverlayRGB[12];
+  uniform float uSectorOverlayAlpha[12];
 
   vec3 chaosOffset(vec3 n) {
     // Three orthogonal sinusoidal trios so the lobes are 3D and
@@ -83,6 +96,14 @@ const VERTEX_SHADER = /* glsl */ `
     vBary = barycentric;
     vSector = sectorIdx;
     vSectorBoundary = sectorBoundary;
+    // Pin sector index → lookup once in the vertex stage and pass
+    // through. GLSL ES 1.0 doesn't allow dynamic indexing in the
+    // fragment stage, but a constant array index sourced from a
+    // varying-but-flat attribute is fine in the vertex stage.
+    int s = int(sectorIdx + 0.5);
+    if (s < 0) s = 0; else if (s > 11) s = 11;
+    vSectorOverlayRGB = uSectorOverlayRGB[s];
+    vSectorOverlayAlpha = uSectorOverlayAlpha[s];
     float a = altitude + uGlobalAltitude;
     vec3 displaced = position * (1.0 + a * uAltitudeScale);
     if (uChaos > 0.0) {
@@ -109,6 +130,8 @@ const FRAGMENT_SHADER = /* glsl */ `
   varying float vShade;
   varying float vSector;
   varying vec3 vSectorBoundary;
+  varying vec3 vSectorOverlayRGB;
+  varying float vSectorOverlayAlpha;
 
   void main() {
     float minBary = min(vBary.x, min(vBary.y, vBary.z));
@@ -127,7 +150,11 @@ const FRAGMENT_SHADER = /* glsl */ `
     } else if (minBary < uEdgeThreshold) {
       col = uEdgeColor;
     } else {
-      col = vColor;
+      // Plan §B.1 — mix in the regional welfare tint. Alpha capped
+      // at 0.30 on the JS side so the sector-hover edge highlight
+      // still survives. Edge and boundary fragments skip the mix so
+      // the grid stays legible.
+      col = mix(vColor, vSectorOverlayRGB, vSectorOverlayAlpha);
     }
     float hover = inHovered ? uHoverShade : 1.0;
     gl_FragColor = vec4(col * vShade * hover, 1.0);
@@ -140,6 +167,14 @@ export function createSurface(scene, opts = {}) {
   const baseColor = opts.baseColor ?? [0.90, 0.89, 0.85];
   const edgeColor = opts.edgeColor ?? [0.62, 0.60, 0.55];
   const edgeThreshold = opts.edgeThreshold ?? 0.03;
+  // Progress hook. scene.js wires this into the loader bar so the
+  // user sees substrate-build progress during the ~5–7 sec
+  // post-Three-geometry work at 2×/4× scaling. Three's
+  // IcosahedronGeometry is one blocking call we can't interrupt;
+  // the subsequent dedup + adjacency + sector partition is broken
+  // into chunks here so the bar can move.
+  const onProgress = typeof opts.onProgress === 'function'
+    ? opts.onProgress : () => {};
   // Pass 18a heightmap parameters. altitudeMax caps |face altitude|
   // so runaway accumulation can't push the mesh inside-out.
   // altitudeDecay is per-frame multiplicative relaxation back toward
@@ -151,14 +186,19 @@ export function createSurface(scene, opts = {}) {
   // source. Pits floor early, peaks have headroom.
   const altitudeMaxPos = opts.altitudeMaxPos ?? 0.40;
   const altitudeMaxNeg = opts.altitudeMaxNeg ?? 0.12;
-  const altitudeDecay = opts.altitudeDecay ?? 0.9991;
+  // Slower decay (was 0.9991) so existing features persist longer —
+  // combined with the concentration bias in bumpAltitude this lets
+  // trenches and peaks accumulate rather than blurring back to flat.
+  const altitudeDecay = opts.altitudeDecay ?? 0.9997;
   const altitudeBaseScale = opts.altitudeBaseScale ?? 1.0;
 
+  onProgress(0.0, 'icosphere mesh');
   // High-subdivision icosphere. Face count = 20 * (subdivisions+1)².
   const geometry = new THREE.IcosahedronGeometry(radius, subdivisions);
   const positionAttr = geometry.getAttribute('position');
   const vertexCount = positionAttr.count;
   const faceCount = vertexCount / 3;
+  onProgress(0.15, `${(faceCount / 1000).toFixed(0)}k faces`);
 
   // Initial per-vertex colour = baseColor on every face.
   const colors = new Float32Array(vertexCount * 3);
@@ -199,6 +239,14 @@ export function createSurface(scene, opts = {}) {
   // for the caterpillar segment lift.
   const faceAltitudes = new Float32Array(faceCount);
 
+  // Plan §B.1 — pre-allocate the 12 sector overlay uniform slots.
+  // RGB is the lerp target (cream for welfare-positive, copper-red
+  // for welfare-negative). Alpha is the per-sector mix factor in
+  // [0, 0.30] driven from the 30-tick wealth-Δ window.
+  const sectorOverlayRGBArr = [];
+  const sectorOverlayAlphaArr = new Float32Array(12);
+  for (let k = 0; k < 12; k += 1) sectorOverlayRGBArr.push(new THREE.Vector3(0, 0, 0));
+
   const material = new THREE.ShaderMaterial({
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,
@@ -220,6 +268,8 @@ export function createSurface(scene, opts = {}) {
       // 18% of radius at max chaos — visible lobes without
       // breaking the silhouette so badly the sphere reads as garbage.
       uChaosAmplitude: { value: radius * 0.18 },
+      uSectorOverlayRGB:  { value: sectorOverlayRGBArr },
+      uSectorOverlayAlpha:{ value: sectorOverlayAlphaArr },
     },
     side: THREE.FrontSide,
     transparent: false,
@@ -229,6 +279,7 @@ export function createSurface(scene, opts = {}) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.frustumCulled = false;
   scene.add(mesh);
+  onProgress(0.30, 'face centroids');
 
   // Face centroids and 3-neighbour adjacency, precomputed once.
   // The agent module reads these to walk the icosphere as a graph
@@ -244,6 +295,7 @@ export function createSurface(scene, opts = {}) {
     faceCentroids[f * 3 + 2] = (positions[v0 + 2] + positions[v0 + 5] + positions[v0 + 8]) / 3;
   }
 
+  onProgress(0.45, 'vertex dedup');
   // Vertex dedup: positions are reproducible to within 0.1 unit on an
   // icosphere of this resolution, so rounding to 0.1 is safe.
   // Packed key encoding stays under 2^53 for radius ≤ 700.
@@ -267,6 +319,7 @@ export function createSurface(scene, opts = {}) {
     vertIds[v] = id;
   }
 
+  onProgress(0.65, 'edge adjacency');
   // Edge → [face_a, face_b]. Pack (lo, hi) vertex IDs into a number.
   function ekey(a, b) {
     return a < b ? a * 1000000 + b : b * 1000000 + a;
@@ -304,7 +357,24 @@ export function createSurface(scene, opts = {}) {
   // altitudes. vertIds maps each non-indexed vertex into this array.
   const uniqueVertCount = nextVid;
   vertAltitudes = new Float32Array(uniqueVertCount);
+  // Pending-altitude pool. bumpAltitude() deposits the (already-
+  // clamped) magnitude here instead of straight onto vertAltitudes;
+  // tick() drains a fixed fraction per frame so the displacement
+  // ramps smoothly across the rAF cycle instead of jumping once
+  // per engine tick. Time constant ≈ 10 frames at PENDING_DRAIN_RATE
+  // = 0.10 — about 170 ms at 60 fps, which is shorter than the
+  // engine's ~250 ms tick interval so successive ticks blend.
+  const pendingAltitudes = new Float32Array(uniqueVertCount);
+  // 0.04 per frame ≈ 1.6 s effective time constant — longer than
+  // the engine's ~0.5–1 s tick interval, so the prior batch's
+  // ramp is still drifting in when the next batch lands. This is
+  // what kills the half-second pulse the user reported.
+  const PENDING_DRAIN_RATE = 0.04;
+  // Per-vertex hard cap on pending magnitude so a runaway burst on
+  // a single face can't accumulate an unboundedly tall residual.
+  const PENDING_CAP = 0.30;
 
+  onProgress(0.85, 'sector partition');
   // Sector partition (Pass 22). 12 Fibonacci-distributed anchor
   // points on the unit sphere; each face is tagged with the sector
   // whose anchor is closest to its centroid. The K=12 engine sector
@@ -377,6 +447,29 @@ export function createSurface(scene, opts = {}) {
 
   let frameCounter = 0;
 
+  // Per-sector welfare accumulator. EMA: bumpAltitude(faceIdx, m)
+  // deposits m into sectorTotals[faceSector[faceIdx]]; tick() decays
+  // the totals at SECTOR_DECAY each frame (~3 s half-life). Pure
+  // continuous evolution — no ring buffer cycle to produce a visible
+  // pulse at the cycle frequency.
+  const sectorTotals = new Float32Array(12);
+  // Palette: cream for welfare-positive, faint copper for negative.
+  // Subdued so the substrate's existing sector-hover blue still
+  // wins the visual fight when the user hovers a region.
+  const TINT_POSITIVE = new THREE.Vector3(0.96, 0.92, 0.80);  // light cream
+  const TINT_NEGATIVE = new THREE.Vector3(0.76, 0.51, 0.41);  // faint copper
+  const TINT_ZERO = new THREE.Vector3(0.0, 0.0, 0.0);
+  // The denominator above which |sectorTotal| reads as alpha cap.
+  // 30 ticks × 5,000 bumps/tick × 0.06 per-event cap = 9,000 ceiling;
+  // hitting ~60 of those bumps in a single sector saturates the tint.
+  // Max alpha dropped from 0.30 (plan default) to 0.15 — at 0.30 the
+  // cream tint washes the substrate enough that the sector-tinted
+  // caterpillars lose contrast against it. 0.15 keeps the regional
+  // signal legible while leaving the caterpillars' colour as the
+  // dominant feature.
+  const SECTOR_TINT_DENOM = 3.0;
+  const SECTOR_TINT_MAX_ALPHA = 0.15;
+
   // Pass 18a heightmap state. foldCascadeMultiplier is set per step
   // from fold_max_depth, so deep cascades amplify the radial impact
   // of subsequent wealth-delta bumps. altitudeScale is mutated per
@@ -390,10 +483,15 @@ export function createSurface(scene, opts = {}) {
   // the substrate render; these clamps cap how far the global
   // modulation can stretch the geometry while still letting EBI and
   // reject fraction nudge it visibly.
+  // Plan §B.2 widens this clamp so the EBI-driven altitude scale can
+  // ride the smoothstep(2.0, 4.0) curve from 0.6 (calibrated band)
+  // up to 2.0 (lobed band). The original [0.9, 1.10] range was set
+  // when EBI only modulated by ±0.10 — too tight to carry the lobed-
+  // regime amplification this phase introduces.
   function setAltitudeScale(s) {
     if (!Number.isFinite(s)) return;
-    if (s < 0.9) s = 0.9;
-    else if (s > 1.10) s = 1.10;
+    if (s < 0.5) s = 0.5;
+    else if (s > 2.1) s = 2.1;
     material.uniforms.uAltitudeScale.value = s;
   }
   function setGlobalAltitude(g) {
@@ -411,30 +509,121 @@ export function createSurface(scene, opts = {}) {
     if (t < 0) t = 0; else if (t > 1) t = 1;
     material.uniforms.uChaos.value = t;
   }
+  // Two per-event bump caps. Random walks across "empty" faces
+  // hit the tight cap (deformations barely register out of
+  // nowhere); bumps that align with an existing feature get the
+  // loose cap (peaks/pits accumulate where they already started).
+  // The gap between the two caps is what produces concentration —
+  // without it, both kinds of bumps would saturate identically.
+  const PER_EVENT_BUMP_CAP_PLAIN     = 0.012;
+  const PER_EVENT_BUMP_CAP_AMPLIFIED = 0.08;
+  // Concentration bias: bumps applied on faces that already have
+  // same-sign altitude get amplified (positive feedback: peaks
+  // attract more positive bumps, pits attract more negative ones);
+  // bumps opposing the local altitude get attenuated. This is what
+  // turns the previously-uniform "everywhere a little" deformation
+  // into discrete concentrated trenches and peaks.
+  const CONCENTRATION_GAIN = 6.0;        // amplification ramp per unit |alt|
+  const CONCENTRATION_OPPOSE = 0.30;     // factor for opposing-sign bumps
   function bumpAltitude(faceIdx, magnitude) {
     if (faceIdx < 0 || faceIdx >= faceCount) return;
-    const m = magnitude * foldCascadeMultiplier;
+    let m = magnitude * foldCascadeMultiplier;
+    if (m === 0) return;
+    // Concentration bias from a neighbor-averaged altitude — not
+    // just the bumped face. This lets features grow RADIALLY:
+    // a bump on a face adjacent to an existing peak gets amplified
+    // even if the face itself was flat. Without this, features
+    // only thickened in place and stayed point-sized; with it,
+    // peaks and trenches spread to cover groups of faces.
+    const adjOffset = faceIdx * 3;
+    const n0 = faceAdjacency[adjOffset + 0];
+    const n1 = faceAdjacency[adjOffset + 1];
+    const n2 = faceAdjacency[adjOffset + 2];
+    const selfAlt = faceAltitudes[faceIdx];
+    // Weighted mean: self counts triple so the bumped face still
+    // dominates the local read, but neighbour influence is enough
+    // for a fresh face near a feature to inherit the amplification.
+    const baseAlt = (
+      selfAlt * 3
+      + (n0 >= 0 ? faceAltitudes[n0] : 0)
+      + (n1 >= 0 ? faceAltitudes[n1] : 0)
+      + (n2 >= 0 ? faceAltitudes[n2] : 0)
+    ) / 6;
+    // Probabilistic skip on truly-flat faces. A bump landing where
+    // there's no existing altitude (and no neighbouring altitude)
+    // only survives ~5 % of the time. The rest fizzle. This kills
+    // the uniform pockmarking that comes from agents walking
+    // randomly across the sphere and dumping bumps everywhere —
+    // most random bumps disappear, the few that survive seed
+    // features, and the concentration bias above grows those
+    // features into mountains and trenches. Without the skip, the
+    // bias only sharpens an underlying uniform pattern.
+    const FLAT_THRESHOLD = 0.012;
+    const FLAT_SURVIVAL = 0.05;
+    if (Math.abs(baseAlt) < FLAT_THRESHOLD && Math.random() > FLAT_SURVIVAL) {
+      return;
+    }
+    let amplified = false;
+    if (baseAlt !== 0) {
+      const sameSign = (baseAlt > 0 && m > 0) || (baseAlt < 0 && m < 0);
+      if (sameSign) {
+        const mult = 1 + Math.min(3.0, Math.abs(baseAlt) * CONCENTRATION_GAIN);
+        m *= mult;
+        amplified = true;
+      } else {
+        m *= CONCENTRATION_OPPOSE;
+      }
+    }
+    const cap = amplified ? PER_EVENT_BUMP_CAP_AMPLIFIED : PER_EVENT_BUMP_CAP_PLAIN;
+    if (m >  cap) m =  cap;
+    else if (m < -cap) m = -cap;
+    if (m === 0) return;
     const base = faceIdx * 3;
     const u0 = vertIds[base + 0];
     const u1 = vertIds[base + 1];
     const u2 = vertIds[base + 2];
-    let a;
-    a = vertAltitudes[u0] + m;
-    if (a > altitudeMaxPos) a = altitudeMaxPos;
-    else if (a < -altitudeMaxNeg) a = -altitudeMaxNeg;
-    vertAltitudes[u0] = a;
-    a = vertAltitudes[u1] + m;
-    if (a > altitudeMaxPos) a = altitudeMaxPos;
-    else if (a < -altitudeMaxNeg) a = -altitudeMaxNeg;
-    vertAltitudes[u1] = a;
-    a = vertAltitudes[u2] + m;
-    if (a > altitudeMaxPos) a = altitudeMaxPos;
-    else if (a < -altitudeMaxNeg) a = -altitudeMaxNeg;
-    vertAltitudes[u2] = a;
+    // Deposit into the pending pool instead of applying immediately.
+    // tick() drains 10%/frame into vertAltitudes, so the displacement
+    // ramps smoothly across the rAF cycle instead of stepping once
+    // per engine tick.
+    let p;
+    p = pendingAltitudes[u0] + m;
+    if (p >  PENDING_CAP) p =  PENDING_CAP;
+    else if (p < -PENDING_CAP) p = -PENDING_CAP;
+    pendingAltitudes[u0] = p;
+    p = pendingAltitudes[u1] + m;
+    if (p >  PENDING_CAP) p =  PENDING_CAP;
+    else if (p < -PENDING_CAP) p = -PENDING_CAP;
+    pendingAltitudes[u1] = p;
+    p = pendingAltitudes[u2] + m;
+    if (p >  PENDING_CAP) p =  PENDING_CAP;
+    else if (p < -PENDING_CAP) p = -PENDING_CAP;
+    pendingAltitudes[u2] = p;
+    // Record the signed magnitude into the per-sector EMA totals
+    // for the welfare overlay. Reads the clamped value so the tint
+    // matches what the substrate displaces.
+    const sec = faceSector[faceIdx];
+    sectorTotals[sec] += m;
   }
 
   function tick() {
     frameCounter += 1;
+
+    // Drain the pending-altitude pool into vertAltitudes. Each frame
+    // transfers PENDING_DRAIN_RATE of the residual; this turns the
+    // bursty engine-tick deposits into a smooth ramp instead of a
+    // single-frame jump. Then the normal decay runs.
+    for (let u = 0; u < uniqueVertCount; u += 1) {
+      const p = pendingAltitudes[u];
+      if (p === 0) continue;
+      const delta = p * PENDING_DRAIN_RATE;
+      pendingAltitudes[u] = p - delta;
+      if (Math.abs(pendingAltitudes[u]) < 1e-5) pendingAltitudes[u] = 0;
+      let a = vertAltitudes[u] + delta;
+      if (a > altitudeMaxPos) a = altitudeMaxPos;
+      else if (a < -altitudeMaxNeg) a = -altitudeMaxNeg;
+      vertAltitudes[u] = a;
+    }
 
     // Altitude decay on the unique-vertex store, then replicate to
     // the non-indexed attribute and to the per-face average (which
@@ -466,6 +655,31 @@ export function createSurface(scene, opts = {}) {
     }
     altitudeAttr.needsUpdate = true;
     void anyNonZero;  // reserved for future dirty-skip optimisation
+
+    // EMA-based sector accumulator. Replaces the prior 30-slot ring
+    // buffer, which cycled every 0.5 s and produced a perceptible
+    // pulse whenever a sector's bumps clumped into a couple of slots
+    // that then got zeroed on cycle-out. The EMA decays continuously
+    // every frame (~3 s half-life), so the tint evolves smoothly
+    // regardless of the engine tick cadence. bumpAltitude deposits
+    // straight into sectorTotals; this loop just decays.
+    const SECTOR_DECAY = 0.9962;   // ≈ 3 s half-life at 60 fps
+    for (let k = 0; k < 12; k += 1) {
+      sectorTotals[k] *= SECTOR_DECAY;
+      if (Math.abs(sectorTotals[k]) < 1e-5) sectorTotals[k] = 0;
+    }
+    // Push to uniforms. Lerp toward TINT_POSITIVE or TINT_NEGATIVE
+    // depending on sign; alpha is |total| / SECTOR_TINT_DENOM
+    // saturated at SECTOR_TINT_MAX_ALPHA.
+    for (let k = 0; k < 12; k += 1) {
+      const v = sectorTotals[k];
+      const mag = Math.abs(v);
+      let alpha = mag / SECTOR_TINT_DENOM;
+      if (alpha > SECTOR_TINT_MAX_ALPHA) alpha = SECTOR_TINT_MAX_ALPHA;
+      sectorOverlayAlphaArr[k] = alpha;
+      const tint = v > 0 ? TINT_POSITIVE : (v < 0 ? TINT_NEGATIVE : TINT_ZERO);
+      sectorOverlayRGBArr[k].copy(tint);
+    }
   }
 
   function setVisible(visible) { mesh.visible = !!visible; }
@@ -475,9 +689,17 @@ export function createSurface(scene, opts = {}) {
   // 0.9991/frame relaxation rate.
   function resetHeightmap() {
     if (vertAltitudes) vertAltitudes.fill(0);
+    if (pendingAltitudes) pendingAltitudes.fill(0);
     faceAltitudes.fill(0);
     altitudeArr.fill(0);
     altitudeAttr.needsUpdate = true;
+    // Clear the per-sector EMA so a Restart snaps the overlay back
+    // to neutral instead of fading over its half-life.
+    sectorTotals.fill(0);
+    for (let k = 0; k < 12; k += 1) {
+      sectorOverlayAlphaArr[k] = 0;
+      sectorOverlayRGBArr[k].copy(TINT_ZERO);
+    }
   }
 
   function dispose() {
@@ -490,6 +712,10 @@ export function createSurface(scene, opts = {}) {
     return {
       faceCount,
       frame: frameCounter,
+      sectorTotals: Array.from(sectorTotals),
+      sectorOverlayAlpha: Array.from(sectorOverlayAlphaArr),
+      altitudeScale: material.uniforms.uAltitudeScale.value,
+      perEventBumpCap: PER_EVENT_BUMP_CAP_AMPLIFIED,
     };
   }
 

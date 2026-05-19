@@ -28,6 +28,7 @@ import json
 import threading
 import time
 import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -102,6 +103,69 @@ def _v2_subpayloads(step_payload: dict) -> list[tuple[str, dict]]:
     return out
 
 
+# Rolling-window cap on per-run step history. Trimmed to 60 (was
+# 300) — at cast_size=20K each cached payload is ~3-5 MB even after
+# the cast_snapshot strip below, and we keep N sessions in
+# history_by_id, so the multiplicative blow-up adds up fast.
+HISTORY_MAX_STEPS = 60
+
+# How many RunSession objects to keep in app.state.history_by_id.
+# Each /runs POST adds a session; without a cap the dict grows
+# unbounded as the user hits Reset, and each session holds its own
+# HISTORY_MAX_STEPS deque. Cap at 3 (current + 2 prior) — older
+# than that the user is unlikely to reconnect to anyway, and the
+# memory pressure is severe.
+SESSION_INVENTORY_MAX = 3
+
+# Per-subscriber queue depth. A slow client (background tab, network
+# stall) shouldn't stall the engine — when this cap is hit, the
+# oldest queued event is dropped to make room for the new one. The
+# subscriber's stream gets a gap; the engine keeps moving.
+SUBSCRIBER_QUEUE_MAX = 600
+
+
+def _strip_heavy_for_history(payload: dict) -> dict:
+    """Return a lighter copy of a step payload for history caching.
+
+    The cast_snapshot field carries per-agent state for every cast
+    member (norm_vector, recent_partners, firm_sectors, etc.) —
+    ~95% of the per-tick payload size at cast_size=20K. Late-
+    joining subscribers don't need historical cast snapshots
+    because the live stream re-emits a fresh one each tick; we
+    drop them from cached history. pair_samples stay because
+    they're small (~240 KB at K=3000) and tests + replay both
+    consume them.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    if "cast_snapshot" not in payload:
+        return payload
+    light = dict(payload)
+    light["cast_snapshot"] = []
+    return light
+
+
+def _publish_safely(q: "asyncio.Queue", item) -> None:
+    """Push an item onto a subscriber queue with overflow tolerance.
+
+    Runs on the event loop via loop.call_soon_threadsafe, so any
+    raise here would propagate as an unhandled exception. We catch
+    QueueFull explicitly and drop the oldest queued event to make
+    room — better a discontinuous stream than a stalled engine.
+    """
+    try:
+        q.put_nowait(item)
+    except asyncio.QueueFull:
+        try:
+            q.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+        try:
+            q.put_nowait(item)
+        except asyncio.QueueFull:
+            pass  # subscriber is fully wedged; drop
+
+
 class RunSession:
     """One scenario run, observed by zero or more SSE clients."""
 
@@ -137,7 +201,14 @@ class RunSession:
 
         self.status: str = "queued"  # queued | running | done | error | cancelled
         self.error: Optional[str] = None
-        self.history: list[dict] = []
+        # Rolling window of recent step payloads, capped at HISTORY_MAX_STEPS
+        # so a continuous run can't accumulate the full StepMetrics
+        # dict (cast_snapshot of N agents + pair_samples of K pairs)
+        # forever — at cast_size=20K, each payload is ~3-5 MB, so a
+        # few minutes of unbounded growth crosses the GB threshold
+        # and the worker thread starts GC-thrashing. Late-joining
+        # subscribers replay this window before tailing live events.
+        self.history: deque[dict] = deque(maxlen=HISTORY_MAX_STEPS)
         self.label: Optional[str] = None
         self.started_at: Optional[float] = None
         self.finished_at: Optional[float] = None
@@ -151,15 +222,26 @@ class RunSession:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
 
     def publish_step(self, payload: dict) -> None:
-        """Called from the worker thread once per step."""
+        """Called from the worker thread once per step.
+
+        Queue-full exceptions are swallowed per subscriber: a slow
+        client (background tab, network glitch) shouldn't stall the
+        engine. The dropped step is simply lost from that
+        subscriber's stream — they'll resync on the next live
+        event that fits.
+        """
         with self.lock:
-            self.history.append(payload)
+            # Cache a lightweight copy in history (no cast_snapshot,
+            # no pair_samples — those are MB-scale and the live
+            # stream re-emits them every tick anyway). Live
+            # subscribers still get the full payload.
+            self.history.append(_strip_heavy_for_history(payload))
             subs = list(self.subscribers)
             loop = self.loop
         if loop is None:
             return
         for q in subs:
-            loop.call_soon_threadsafe(q.put_nowait, ("step", payload))
+            loop.call_soon_threadsafe(_publish_safely, q, ("step", payload))
 
     def publish_event(self, event: str, payload: dict) -> None:
         """Called from the worker thread for non-step events (done/error)."""
@@ -169,7 +251,7 @@ class RunSession:
         if loop is None:
             return
         for q in subs:
-            loop.call_soon_threadsafe(q.put_nowait, (event, payload))
+            loop.call_soon_threadsafe(_publish_safely, q, (event, payload))
 
     def subscribe(self, q: asyncio.Queue) -> None:
         with self.lock:
@@ -223,6 +305,12 @@ def _run_worker(sess: RunSession) -> None:
                     pending = sess.pending_overrides
                     sess.pending_overrides = {}
                 if pending:
+                    # Plan §G.2 — capture the pre-override agent
+                    # capability mean so the delta can be applied to
+                    # the per-prototype array (the override setattr
+                    # erases the prior value).
+                    pre_cap_mean = float(
+                        world.cfg.population.agent_capability_mean)
                     try:
                         _apply_overrides(world.cfg, pending, extend_bounds=True)
                     except OverrideError:
@@ -243,6 +331,36 @@ def _run_worker(sess: RunSession) -> None:
                         except Exception as exc:  # pragma: no cover
                             sess.publish_event("update_error", {
                                 "detail": f"rewire failed: {exc}",
+                            })
+                    # Plan §G.2 — live-promote agent_capability_mean.
+                    # Shift the per-prototype agent capability array
+                    # by (new_mean - old_mean). Preserves variance;
+                    # no re-sampling so no seed disturbance. Clipped
+                    # to [0.01, 0.99] to match synthesis bounds.
+                    if "agent_capability_mean" in pending:
+                        try:
+                            import numpy as _np
+                            n_h = world.cfg.population.n_human_prototypes
+                            new_mean = float(
+                                world.cfg.population.agent_capability_mean)
+                            delta = new_mean - pre_cap_mean
+                            cap = world.population.capability
+                            cap[n_h:] = _np.clip(cap[n_h:] + delta, 0.01, 0.99)
+                        except Exception as exc:  # pragma: no cover
+                            sess.publish_event("update_error", {
+                                "detail": f"cap mean update failed: {exc}",
+                            })
+                    # Plan §G.2 — live-promote agent_trade_rate_multiplier.
+                    # The multiplier feeds sampling weights
+                    # (Population._build_sampling_structures). Re-run
+                    # that and the next partner-sample draw lands on
+                    # the new mix.
+                    if "agent_trade_rate_multiplier" in pending:
+                        try:
+                            world.population._build_sampling_structures()
+                        except Exception as exc:  # pragma: no cover
+                            sess.publish_event("update_error", {
+                                "detail": f"sampling rebuild failed: {exc}",
                             })
             sess.publish_step(_step_metrics_to_dict(m))
 
@@ -407,10 +525,10 @@ class RunRequest(BaseModel):
     # Cockpit Pass 2 / spatial sandbox: persistent-cast size. >0 means
     # the engine pins that many prototypes at build time and emits their
     # state per step in `StepMetrics.cast_snapshot`. The legacy live
-    # cockpit uses cast_size <= 600; the spatial sandbox (cast as a
-    # force-directed 3D graph) targets 5,000. Wire cost at K=8 norm
-    # dimensions is ~2 MB / tick / client.
-    cast_size: int = Field(default=0, ge=0, le=5000)
+    # cockpit uses cast_size <= 600; the spatial sandbox at the 4×
+    # scaling targets 20,000. Wire cost at K=8 norm dimensions is
+    # ~8 MB / tick / client at the 20K ceiling.
+    cast_size: int = Field(default=0, ge=0, le=20000)
 
 
 def create_app():
@@ -536,6 +654,20 @@ def create_app():
             if prior is not None and prior.status in ("queued", "running"):
                 # Cooperative cancel of prior run.
                 prior.cancel.set()
+
+            # Evict oldest sessions before adding a new one so
+            # repeated Reset clicks can't grow history_by_id
+            # unbounded. Each retained session still consumes
+            # HISTORY_MAX_STEPS × stripped-payload memory; capping
+            # at 3 keeps the multiplicative cost manageable.
+            while len(app.state.history_by_id) >= SESSION_INVENTORY_MAX:
+                old_id, old_sess = next(iter(app.state.history_by_id.items()))
+                if old_sess.status in ("queued", "running"):
+                    old_sess.cancel.set()
+                old_sess.history.clear()
+                with old_sess.lock:
+                    old_sess.subscribers.clear()
+                del app.state.history_by_id[old_id]
 
             run_id = uuid.uuid4().hex[:12]
             sess = RunSession(
@@ -675,6 +807,15 @@ def create_app():
         # (rebuilds `population.adjacency` + `degree_centrality`).
         "network_p_local",
         "network_model",
+        # Plan §G.2 — promote agent_capability_mean and
+        # agent_trade_rate_multiplier from structural to live. The
+        # post-override hook below shifts the per-prototype agent
+        # capability array by the delta (preserves variance, no
+        # re-sampling) and re-runs Population._build_sampling_structures
+        # so the new trade-rate multiplier takes effect on the next
+        # partner-sample draw.
+        "agent_capability_mean",
+        "agent_trade_rate_multiplier",
     }
 
     @app.post("/runs/{run_id}/update")
@@ -723,7 +864,11 @@ def create_app():
             raise HTTPException(status_code=404, detail="unknown run_id")
 
         async def event_gen():
-            q: asyncio.Queue = asyncio.Queue()
+            # Bounded queue: a slow consumer (background tab, network
+            # stall) drops oldest events on overflow via
+            # _publish_safely rather than letting the queue grow
+            # unbounded and OOM the engine process.
+            q: asyncio.Queue = asyncio.Queue(maxsize=SUBSCRIBER_QUEUE_MAX)
             # Atomically: replay snapshot of history under the lock, then
             # subscribe so we don't miss steps that arrive between the
             # snapshot and the subscribe.

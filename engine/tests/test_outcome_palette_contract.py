@@ -117,16 +117,31 @@ def test_reason_to_palette_maps_every_engine_string():
 
 def test_arc_legend_rows_cover_full_palette():
     """initArcLegend in scene.js walks an ARC_LEGEND_ROWS table.
-    Every palette key must appear so the legend matches arcs."""
+    Every legend row's palette key must EXIST in the palette so
+    each rendered dot has a real RGB to draw — but the legend may
+    cover fewer rows than the palette has keys when multiple
+    palette entries deliberately share the same RGB (current
+    design collapses all reject_* to one rejected-red, so the
+    legend shows 'executed' + 'rejected' even though the palette
+    still has 8 keys for the per-reason HUD/contract path)."""
     text = SCENE_JS.read_text()
     m = re.search(r"ARC_LEGEND_ROWS\s*=\s*\[(.*?)\];", text, re.DOTALL)
     assert m
     keys = re.findall(r"\['(\w+)',", m.group(1))
     palette = _outcome_palette()
-    assert set(keys) == set(palette.keys()), (
-        f"legend rows ↔ palette mismatch:\n"
+    assert set(keys).issubset(palette.keys()), (
+        f"legend rows reference palette keys that don't exist:\n"
         f"  legend: {sorted(keys)}\n"
         f"  palette: {sorted(palette.keys())}"
+    )
+    # Sanity: every distinct RGB in the palette is covered by at
+    # least one legend row.
+    palette_rgbs = {tuple(palette[k]) for k in palette}
+    legend_rgbs = {tuple(palette[k]) for k in keys}
+    assert palette_rgbs == legend_rgbs, (
+        f"legend does not cover every distinct palette colour:\n"
+        f"  palette colours: {sorted(palette_rgbs)}\n"
+        f"  legend colours:  {sorted(legend_rgbs)}"
     )
 
 

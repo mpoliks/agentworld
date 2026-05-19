@@ -26,7 +26,9 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 const ARC_SEGMENTS = 60;         // arc samples per pair — higher = smoother
-const MAX_AGE_FRAMES = 240;      // 4 s at 60 fps
+const MAX_AGE_FRAMES = 120;      // 2 s at 60 fps (halved from 240 —
+                                 // arcs were piling up too thick to
+                                 // read the substrate behind them)
 
 // Tier configuration. Per-tier active-arc caps sum to ~800 (the
 // pre-tier global cap). Thin gets the largest budget because most
@@ -34,8 +36,21 @@ const MAX_AGE_FRAMES = 240;      // 4 s at 60 fps
 // rare and should be visually scarce when they appear.
 // Phase 6 §7.2 — widened gap between thin/mid/thick so
 // surplus-tier distinctions read at a glance.
-const TIER_WIDTHS = [0.5, 3.0, 9.0];
-const TIER_CAPS = [500, 200, 100];
+const TIER_WIDTHS = [0.3, 1.6, 5.0];   // dialled down from
+                                       // [0.5, 3.0, 9.0] so the
+                                       // arcs ride lighter on the
+                                       // substrate; tier-distinction
+                                       // ratio preserved (~5–6×).
+const TIER_CAPS = [250, 100, 50];  // halved from the prior
+                                   // [500, 200, 100]. Caps were the
+                                   // binding constraint on visible
+                                   // density at the sandbox's
+                                   // ~3000 arcs/sec inbound — just
+                                   // changing MAX_AGE_FRAMES had no
+                                   // perceptible effect because the
+                                   // buffer was always cap-saturated.
+                                   // Now the on-screen population
+                                   // halves alongside the lifetime.
 // Direct base_surplus thresholds, calibrated against the
 // distribution observed in spatial_sandbox at defaults
 // (p50 ≈ 0.12, p90 ≈ 0.27, max ≈ 0.45). Roughly 60/30/10 split
@@ -53,23 +68,24 @@ const FADE_R = 0.94;
 const FADE_G = 0.93;
 const FADE_B = 0.90;
 
-// Phase 6 §7.2 — per-reject-reason palette. Each engine
-// reject-reason string maps to a hue; executed pairs stay blue.
-// Match the HUD rej-mix palette so "the screen is mostly magenta"
-// reads as "alignment rejects dominate" at a glance.
+// Trade-arc colour scheme: binary executed-vs-rejected. The 7
+// reject reasons share a single muted red on the substrate so
+// the visual reads as "did the trade clear or not" at a glance
+// without 8 hues competing for attention. The HUD's rej-mix rows
+// still carry the per-reason breakdown for users who want it.
 //
-// regulator deliberately shares the human-yellow `amber` hue
-// because the regulator and the humans are both governance
-// levers; the plan calls this an intentional palette choice.
+// Each engine reject_reason keeps its own palette entry (the
+// contract test parses this object literal) — they just all hold
+// the same RGB triple.
 const OUTCOME_COLORS = {
-  executed:        [0.102, 0.349, 0.949],     // blue rgb(26, 89, 242)
-  reject_cost:     [0.502, 0.502, 0.502],     // grey rgb(128, 128, 128)
-  reject_market:   [0.722, 0.529, 0.349],     // tan rgb(184, 135, 89)
-  reject_align:    [0.729, 0.298, 0.698],     // magenta rgb(186, 76, 178)
-  reject_law:      [0.851, 0.349, 0.349],     // red rgb(217, 89, 89)
-  reject_compute:  [0.349, 0.698, 0.769],     // cyan rgb(89, 178, 196)
-  reject_perm:     [0.349, 0.698, 0.451],     // green rgb(89, 178, 115)
-  reject_reg:      [0.851, 0.651, 0.302],     // amber rgb(217, 166, 77)
+  executed:        [0.25, 0.65, 0.32],            // green rgb(64, 166, 82)
+  reject_cost:     [0.78, 0.32, 0.32],            // red rgb(199, 82, 82)
+  reject_market:   [0.78, 0.32, 0.32],
+  reject_align:    [0.78, 0.32, 0.32],
+  reject_law:      [0.78, 0.32, 0.32],
+  reject_compute:  [0.78, 0.32, 0.32],
+  reject_perm:     [0.78, 0.32, 0.32],
+  reject_reg:      [0.78, 0.32, 0.32],
 };
 // Mapping from engine reject_reason strings → palette key. The
 // engine emits "permeability" / "regulator"; the dashboard
@@ -102,7 +118,13 @@ export function createEdges(scene, surface, agents, opts = {}) {
   // archHeight is the additive radial bulge at the arc midpoint as
   // a fraction of the endpoint radius. sin(πt) profile — clean
   // parabolic arch anchored to both endpoints.
-  const archHeight = opts.archHeight ?? 0.28;
+  const archHeight = opts.archHeight ?? 0.04;    // 0.28 → 0.04: arcs
+                                                 // now hug the
+                                                 // substrate (4 %
+                                                 // bulge above the
+                                                 // surface) rather
+                                                 // than vaulting
+                                                 // out into space.
   const tierWidths = opts.tierWidths ?? TIER_WIDTHS;
   const tierCaps = opts.tierCaps ?? TIER_CAPS;
 
@@ -129,7 +151,11 @@ export function createEdges(scene, surface, agents, opts = {}) {
       linewidth: width,
       transparent: true,
       opacity: 1.0,
-      depthTest: false,
+      // depthTest on so arcs behind the visible sphere get occluded
+      // properly during orbit. Was false (always-on-top), which made
+      // back-of-sphere arcs bleed through and feel "stuck to the
+      // screen" while the sphere rotated underneath.
+      depthTest: true,
       depthWrite: false,
       worldUnits: false,
     });
@@ -191,14 +217,15 @@ export function createEdges(scene, surface, agents, opts = {}) {
     const angle = Math.acos(dot);
     const sinA = Math.sin(angle);
 
-    const fade = edge.age / MAX_AGE_FRAMES;       // 0..1
-    // Phase 6 §7.2: color by reject reason (or executed). The
-    // edge carries `reason` — '' for executed, otherwise the
-    // engine reject_reason string.
+    // Colour by outcome — executed green or rejected red — held
+    // at full saturation across the arc's whole lifetime. Was
+    // previously blended toward a fixed near-white target as the
+    // arc aged, which read as "white arcs" against the cream
+    // substrate. Arcs just disappear at age=MAX_AGE_FRAMES now.
     const base = outcomeColor(edge.reason);
-    const cr = base[0] * (1 - fade) + FADE_R * fade;
-    const cg = base[1] * (1 - fade) + FADE_G * fade;
-    const cbl = base[2] * (1 - fade) + FADE_B * fade;
+    const cr = base[0];
+    const cg = base[1];
+    const cbl = base[2];
 
     const positionsArray = tier.positionsArray;
     const colorsArray = tier.colorsArray;
@@ -225,7 +252,13 @@ export function createEdges(scene, surface, agents, opts = {}) {
       }
       const baseR = ra * (1 - t) + rb * t;
       // sin(πt) parabolic arch — zero at endpoints, peak at t=0.5.
-      const archMul = 1.0 + archHeight * Math.sin(t * Math.PI);
+      // Bow grows with arc length so antipodal arcs clear tall
+      // terrain peaks they'd otherwise tunnel through; short arcs
+      // (which can't span a peak anyway) stay flat against the
+      // surface. Adds up to 0.22 R of bow at angle=π on top of the
+      // archHeight baseline.
+      const effectiveArch = archHeight + 0.22 * (angle / Math.PI);
+      const archMul = 1.0 + effectiveArch * Math.sin(t * Math.PI);
       const rt = baseR * arcLift * archMul;
       const nx = ux * rt, ny = uy * rt, nz = uz * rt;
 
@@ -249,11 +282,20 @@ export function createEdges(scene, surface, agents, opts = {}) {
     return ARC_SEGMENTS;
   }
 
+  // Spread each batch's arc births across this many frames so all
+  // of a tick's pairs don't appear simultaneously at age 0. 60
+  // frames (~1 s at 60 fps) is longer than the engine's typical
+  // tick interval, so the prior batch is still emitting arcs when
+  // the next one arrives — no perceptible gap.
+  const BIRTH_STAGGER_FRAMES = 60;
+
   // Called per snapshot — route each new edge to its surplus tier.
   // Both endpoints must be in the cast or the edge is discarded.
   function handleEdges(edges) {
     if (!edges) return;
-    for (let i = 0; i < edges.length; i += 1) {
+    const n = edges.length;
+    let staggerIdx = 0;
+    for (let i = 0; i < n; i += 1) {
       const e = edges[i];
       if (!e) continue;
       const a = e.proto_a;
@@ -276,11 +318,18 @@ export function createEdges(scene, surface, agents, opts = {}) {
       // per-outcome palette. `isReject` retained for back-compat
       // with any caller reading it.
       const reason = (typeof e.reject_reason === 'string') ? e.reject_reason : '';
+      // Distribute the birth delay evenly across the batch so arc
+      // appearance feels continuous instead of bursty.
+      const birthDelay = n > 1
+        ? Math.floor((staggerIdx / n) * BIRTH_STAGGER_FRAMES)
+        : 0;
+      staggerIdx += 1;
       tier.active.push({
         a, b,
         isReject: !!e.reject_reason,
         reason,
         age: 0,
+        birthDelay,
         surplus,
       });
     }
@@ -295,8 +344,16 @@ export function createEdges(scene, surface, agents, opts = {}) {
     for (const tier of tiers) {
       const active = tier.active;
       for (let i = active.length - 1; i >= 0; i -= 1) {
-        active[i].age += 1;
-        if (active[i].age >= MAX_AGE_FRAMES) active.splice(i, 1);
+        const arc = active[i];
+        // Honour the per-arc birth delay. Until it expires, the arc
+        // hasn't visually entered the scene yet — don't age it and
+        // don't render it.
+        if (arc.birthDelay && arc.birthDelay > 0) {
+          arc.birthDelay -= 1;
+          continue;
+        }
+        arc.age += 1;
+        if (arc.age >= MAX_AGE_FRAMES) active.splice(i, 1);
       }
       if (active.length === 0) {
         tier.geometry.instanceCount = 0;
@@ -305,7 +362,10 @@ export function createEdges(scene, surface, agents, opts = {}) {
       let segCount = 0;
       for (let i = 0; i < active.length; i += 1) {
         if (segCount + ARC_SEGMENTS > tier.maxSegTotal) break;
-        const wrote = writeArc(tier, active[i], segCount, altScale, globalAlt);
+        const arc = active[i];
+        if (arc.birthDelay && arc.birthDelay > 0) continue;
+        if (segCount + ARC_SEGMENTS > tier.maxSegTotal) break;
+        const wrote = writeArc(tier, arc, segCount, altScale, globalAlt);
         segCount += wrote;
       }
       tier.geometry.instanceCount = segCount;

@@ -16,7 +16,9 @@
 
 import * as THREE from 'three';
 
-const MAX_SPOKES_DEFAULT = 5000;     // covers ~25 firms × 200 members
+const MAX_SPOKES_DEFAULT = 20000;    // 4× scale-up — covers ~100 firms
+                                     // × 200 members, matching the
+                                     // 20K-cast agent ceiling.
 const HUE_STEPS = 64;
 const HCL_C = 0.55;
 const HCL_L = 0.58;
@@ -65,8 +67,18 @@ export function createFirms(scene, surface, agents, opts = {}) {
   const { faceCentroids, vertAltitudes, vertIds, radius } = surface;
   const sphereRadius = opts.sphereRadius ?? radius ?? 700;
   const maxSpokes = opts.maxSpokes ?? MAX_SPOKES_DEFAULT;
-  const opacity = opts.opacity ?? 0.08;
+  // Plan §F.1 — size-weighted per-firm opacity. opacity = max alpha
+  // the material renders at; per-spoke intensity comes from pre-
+  // multiplying the palette RGB by (perFirmAlpha / opacity). A
+  // 2-member firm reads at 0.125; a 64-member firm at 0.275; a
+  // 1000-member firm at the 0.55 cap. Cross-sector firms get a +0.10
+  // boost so the engine PR that delivered them is actually visible.
+  const opacity = opts.opacity ?? 0.55;
   const spokeLift = opts.spokeLift ?? 1.003;
+  const FIRM_OPACITY_CAP = 0.55;
+  const FIRM_OPACITY_INTERCEPT = 0.10;
+  const FIRM_OPACITY_SLOPE = 0.025;
+  const FIRM_CROSS_SECTOR_BOOST = 0.10;
 
   const palette = buildPalette();
 
@@ -103,6 +115,27 @@ export function createFirms(scene, surface, agents, opts = {}) {
   };
   // Cast-side sector lookup for the cross-sector check.
   let sectorByIdx = new Map();
+  // Plan §F.1 — per-firm computed opacity (0..0.55). Re-derived on
+  // every cast snapshot from the firm's member count and
+  // cross-sector flag, stable across the per-frame spoke render.
+  let firmAlpha = new Map();           // firmId → number
+  let firmCrossSector = new Set();     // firmIds with members in ≥2 sectors
+  // Plan §F.2 — when a caterpillar is hovered, set _hoveredFirmId
+  // to its firm. The tick() loop boosts that firm's spokes to the
+  // FIRM_OPACITY_CAP and dims everything else by HOVERED_OTHER_DIM
+  // so the user sees the hovered firm's full structure at a glance.
+  let _hoveredFirmId = -1;
+  const HOVERED_OTHER_DIM = 0.35;
+
+  function _computeFirmAlpha(memberCount, isCrossSector) {
+    if (memberCount < 2) return 0;
+    const log2n = Math.log2(memberCount);
+    let a = FIRM_OPACITY_INTERCEPT + FIRM_OPACITY_SLOPE * log2n;
+    if (isCrossSector) a += FIRM_CROSS_SECTOR_BOOST;
+    if (a > FIRM_OPACITY_CAP) a = FIRM_OPACITY_CAP;
+    if (a < 0) a = 0;
+    return a;
+  }
 
   function handleCastSnapshot(snapshot) {
     if (!snapshot || snapshot.length === 0) return;
@@ -125,10 +158,17 @@ export function createFirms(scene, surface, agents, opts = {}) {
 
     let nCross = 0;
     let nMembers = 0;
+    firmAlpha = new Map();
+    firmCrossSector = new Set();
     for (const [fid, arr] of castIdxByFirm) {
       nMembers += arr.length;
       const sset = sectorsByFirm.get(fid);
-      if (sset && sset.size >= 2) nCross += 1;
+      const cross = !!(sset && sset.size >= 2);
+      if (cross) {
+        nCross += 1;
+        firmCrossSector.add(fid);
+      }
+      firmAlpha.set(fid, _computeFirmAlpha(arr.length, cross));
     }
     memberStats = {
       n_firms: firmIdsActive.length,
@@ -188,9 +228,25 @@ export function createFirms(scene, surface, agents, opts = {}) {
 
       // Palette colour for this firm.
       const slot = ((fid % HUE_STEPS) + HUE_STEPS) % HUE_STEPS;
-      const cr = palette[slot * 3 + 0];
-      const cg = palette[slot * 3 + 1];
-      const cb = palette[slot * 3 + 2];
+      // Plan §F.1 — scale palette RGB by (perFirmAlpha / materialOpacity)
+      // so the LineBasicMaterial's uniform opacity carries the
+      // max alpha, and per-firm visual intensity comes from the
+      // pre-multiplied vertex colour. Larger firms hit higher
+      // apparent intensity; cross-sector firms get a +0.10 boost
+      // applied upstream in _computeFirmAlpha.
+      let a = firmAlpha.get(fid) ?? FIRM_OPACITY_INTERCEPT;
+      // Plan §F.2 — hover boost. The hovered firm renders at cap;
+      // every other firm gets dimmed so the hovered structure is
+      // the only thing competing visually. -1 = no hover, everyone
+      // renders at their size-weighted alpha.
+      if (_hoveredFirmId >= 0) {
+        if (fid === _hoveredFirmId) a = FIRM_OPACITY_CAP;
+        else a *= HOVERED_OTHER_DIM;
+      }
+      const scale = opacity > 0 ? (a / opacity) : 0;
+      const cr = palette[slot * 3 + 0] * scale;
+      const cg = palette[slot * 3 + 1] * scale;
+      const cb = palette[slot * 3 + 2] * scale;
 
       // One spoke per member from member position → centroid.
       for (let m = 0; m < members.length; m += 1) {
@@ -250,6 +306,12 @@ export function createFirms(scene, surface, agents, opts = {}) {
     return out;
   }
 
+  // Plan §F.2 — set by scene.js when the cursor hovers over an
+  // agent with a non-negative firm_id. -1 clears the hover state.
+  function setHoveredFirm(fid) {
+    _hoveredFirmId = (Number.isInteger(fid) && fid >= 0) ? fid : -1;
+  }
+
   return {
     mesh,
     handleCastSnapshot,
@@ -259,5 +321,8 @@ export function createFirms(scene, surface, agents, opts = {}) {
     dispose,
     diagnostics,
     membersByFirm,
+    setHoveredFirm,
+    firmAlphaOf: (fid) => firmAlpha.get(fid) ?? 0,
+    hoveredFirmId: () => _hoveredFirmId,
   };
 }

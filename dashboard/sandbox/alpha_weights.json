@@ -1,27 +1,27 @@
 {
-  "version": 1,
+  "version": 2,
   "method": "hand_pinned_sign_vector",
-  "rationale": "step.alpha is a static TopologyConfig knob in the current engine, not an endogenous per-tick computation. A ridge regression of step.alpha against other levers would be degenerate. The dashboard side computes its own lever-α mapping using the sign vector from the research docs (see spatial-sandbox.md research/) and per-lever magnitudes calibrated so the all-positive corner hits α=0.90 and the all-negative corner hits α=0.10. The HUD shows both lever-α and engine-α, with the gap as the diagnostic when the static engine knob disagrees with what the user's levers say the regime should be. The weights are forward-compatible: Phase 4 levers ship with weight 0 and slot in once the corresponding UI controls land.",
+  "rationale": "step.alpha is a static TopologyConfig knob in the current engine, not an endogenous per-tick computation. A ridge regression of step.alpha against other levers would be degenerate. The dashboard side computes its own lever-α mapping using the sign vector from the research docs (see spatial-sandbox.md research/) and per-lever magnitudes calibrated so the all-positive scalar corner lands at α≈0.90 and the all-negative scalar corner at α≈0.10. The HUD shows both lever-α and engine-α, with the gap as the diagnostic when the static engine knob disagrees with what the user's levers say the regime should be. v2 (Plan §D.1): all 10 previously-zero scalar levers received non-zero weights and the existing 6 were re-scaled downward so the corner-coverage check still holds (each pre-scaling weight × 0.374, scaling factor = target scalar |sum| 0.40 / new raw |sum| 1.07). Weights of unimplemented-but-mapped levers (`implemented: false`) contribute to the lever-α target the user is steering toward; the engine reads those values only on Restart, so the dashboard's pending-banner / hollow-square UI signals that gap (see §D.2).",
   "baseline": 0.5,
   "levers": {
-    "market_layer_tax":               {"sign": -1, "weight": 0.04, "min": 0,    "max": 0.25,  "default": 0.025,  "implemented": true,  "category": "legal",         "live": true},
-    "pigouvian.tax_rate":             {"sign": -1, "weight": 0.08, "min": 0,    "max": 0.5,   "default": 0.10,   "implemented": true,  "category": "legal",         "live": true},
-    "pigouvian.recycling_progressivity":{"sign": -1, "weight": 0.06, "min": 0,    "max": 4,     "default": 1.0,    "implemented": true,  "category": "legal",         "live": true},
-    "compute.budget_per_tick":        {"sign":  1, "weight": 0.08, "min": 0.1,  "max": 5,     "default": 1.0,    "implemented": true,  "category": "environmental", "live": true},
-    "compute.power_cost_per_trade":   {"sign": -1, "weight": 0.04, "min": 0,    "max": 0.001, "default": 0.0001, "implemented": true,  "category": "environmental", "live": true},
-    "cross_stack_permeability":       {"sign":  1, "weight": 0.10, "min": 0,    "max": 1,     "default": 0.4,    "implemented": true,  "category": "legal",         "live": true},
+    "market_layer_tax":               {"sign": -1, "weight": 0.0150, "min": 0,    "max": 0.25,  "default": 0.025,  "implemented": true,  "category": "legal",         "live": true},
+    "pigouvian.tax_rate":             {"sign": -1, "weight": 0.0299, "min": 0,    "max": 0.5,   "default": 0.10,   "implemented": true,  "category": "legal",         "live": true},
+    "pigouvian.recycling_progressivity":{"sign": -1, "weight": 0.0224, "min": 0,    "max": 4,     "default": 1.0,    "implemented": true,  "category": "legal",         "live": true},
+    "compute.budget_per_tick":        {"sign":  1, "weight": 0.0299, "min": 0.1,  "max": 5,     "default": 1.0,    "implemented": true,  "category": "environmental", "live": true},
+    "compute.power_cost_per_trade":   {"sign": -1, "weight": 0.0150, "min": 0,    "max": 0.001, "default": 0.0001, "implemented": true,  "category": "environmental", "live": true},
+    "cross_stack_permeability":       {"sign":  1, "weight": 0.0374, "min": 0,    "max": 1,     "default": 0.4,    "implemented": true,  "category": "legal",         "live": true},
 
-    "agent_capability_mean":          {"sign": -1, "weight": 0.0,  "min": 0.1,  "max": 0.9,   "default": 0.55,   "implemented": false, "category": "agentic",       "live": false},
-    "norms.certified_fraction":       {"sign": -1, "weight": 0.0,  "min": 0,    "max": 1,     "default": 0.5,    "implemented": false, "category": "agentic",       "live": true},
-    "network_p_local":                {"sign":  1, "weight": 0.0,  "min": 0,    "max": 1,     "default": 0.6,    "implemented": false, "category": "agentic",       "live": true},
-    "agent_autonomy_mean":            {"sign":  1, "weight": 0.0,  "min": 0.1,  "max": 1.0,   "default": 0.7,    "implemented": false, "category": "agentic",       "live": true},
-    "norms.update_rate":              {"sign": -1, "weight": 0.0,  "min": 0,    "max": 0.5,   "default": 0.05,   "implemented": false, "category": "agentic",       "live": true},
-    "agent_trade_rate_multiplier":    {"sign":  1, "weight": 0.0,  "min": 0.5,  "max": 5,     "default": 2.0,    "implemented": false, "category": "agentic",       "live": true},
+    "agent_capability_mean":          {"sign": -1, "weight": 0.0250, "min": 0.1,  "max": 0.9,   "default": 0.55,   "implemented": true,  "category": "agentic",       "live": true},
+    "norms.certified_fraction":       {"sign": -1, "weight": 0.0250, "min": 0,    "max": 1,     "default": 0.5,    "implemented": false, "category": "agentic",       "live": true},
+    "network_p_local":                {"sign":  1, "weight": 0.0250, "min": 0,    "max": 1,     "default": 0.6,    "implemented": true,  "category": "agentic",       "live": true},
+    "agent_autonomy_mean":            {"sign":  1, "weight": 0.0250, "min": 0.1,  "max": 1.0,   "default": 0.7,    "implemented": false, "category": "agentic",       "live": true},
+    "norms.update_rate":              {"sign": -1, "weight": 0.0250, "min": 0,    "max": 0.5,   "default": 0.05,   "implemented": false, "category": "agentic",       "live": true},
+    "agent_trade_rate_multiplier":    {"sign":  1, "weight": 0.0250, "min": 0.5,  "max": 5,     "default": 2.0,    "implemented": true,  "category": "agentic",       "live": true},
 
-    "law.strength":                   {"sign": -1, "weight": 0.0,  "min": 0,    "max": 1,     "default": 0.5,    "implemented": false, "category": "legal",         "live": true},
-    "folding.max_depth":              {"sign":  1, "weight": 0.0,  "min": 1,    "max": 12,    "default": 7,      "implemented": false, "category": "legal",         "live": false},
-    "law.transaction_size_cap":       {"sign": -1, "weight": 0.0,  "min": 0.01, "max": 10,    "default": 1.0,    "implemented": false, "category": "legal",         "live": true},
-    "regulator.enabled":              {"sign": -1, "weight": 0.0,  "min": 0,    "max": 1,     "default": 1,      "implemented": false, "category": "legal",         "live": false}
+    "law.strength":                   {"sign": -1, "weight": 0.0250, "min": 0,    "max": 1,     "default": 0.5,    "implemented": false, "category": "legal",         "live": true},
+    "folding.max_depth":              {"sign":  1, "weight": 0.0250, "min": 1,    "max": 12,    "default": 7,      "implemented": false, "category": "legal",         "live": false},
+    "law.transaction_size_cap":       {"sign": -1, "weight": 0.0250, "min": 0.01, "max": 10,    "default": 1.0,    "implemented": false, "category": "legal",         "live": true},
+    "regulator.enabled":              {"sign": -1, "weight": 0.0250, "min": 0,    "max": 1,     "default": 1,      "implemented": false, "category": "legal",         "live": false}
   },
   "categorical_levers": {
     "network_model":      {"values": ["well_mixed", "scale_free", "sbm", "hyperbolic"], "default": "sbm",          "offsets": {"well_mixed": -0.05, "scale_free": 0.0, "sbm": 0.02, "hyperbolic": 0.08}, "implemented": false},
@@ -30,8 +30,9 @@
     "scale_preset":       {"values": ["SMALL", "MEDIUM", "LARGE"], "default": "SMALL", "offsets": {"SMALL": 0.0, "MEDIUM": 0.0, "LARGE": 0.0}, "implemented": false}
   },
   "diagnostics": {
-    "weight_sum_signed": 0.40,
+    "weight_sum_signed": 0.3996,
     "min_corner_alpha":  0.10,
-    "max_corner_alpha":  0.90
+    "max_corner_alpha":  0.90,
+    "notes": "Scalar best-corner α = baseline 0.5 + |Σ weights| 0.40 ≈ 0.90. Scalar worst-corner ≈ 0.10. Categorical offsets push the all-corner extremes into clamp (categorical max ≈ +0.12, min ≈ -0.10), but the scalar-only contract test in test_alpha_weights_contract.py uses only scalars and asserts ≥0.85 / ≤0.15."
   }
 }

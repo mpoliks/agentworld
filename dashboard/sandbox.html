@@ -53,36 +53,48 @@
   #status[data-kind="error"]     { color: var(--red); }
   #status[data-kind="cancelled"] { color: var(--text-3); }
 
-  /* Init loader. Thin bar across the top whose fill matches the
-     caterpillar segment colour, on a faint grid-edge background.
-     Fades out once the first cast snapshot arrives. */
+  /* Init loader. Centered card with a thick progress bar and a
+     label that names the current phase — visible enough that a 5–7
+     sec substrate build at the 2× / 4× scaling doesn't read as
+     "the page is broken." Fades out once the first cast snapshot
+     arrives. */
   #loader {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
+    inset: 0;
     z-index: 100;
     pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(245, 240, 230, 0.55);
     transition: opacity 700ms ease-out;
   }
-  #loader[data-done="1"] { opacity: 0; }
+  #loader[data-done="1"] {
+    opacity: 0;
+    background: rgba(245, 240, 230, 0);
+  }
   #loader-track {
-    height: 3px;
-    background: rgba(158, 152, 140, 0.30);
+    width: 280px;
+    height: 10px;
+    background: rgba(158, 152, 140, 0.35);
+    border: 1px solid rgba(26, 20, 18, 0.20);
+    border-radius: 2px;
+    overflow: hidden;
   }
   #loader-fill {
     height: 100%;
     width: 0%;
     background: rgb(26, 20, 18);
-    transition: width 450ms ease-out;
+    transition: width 220ms ease-out;
   }
   #loader-label {
-    margin: 8px auto 0;
-    width: max-content;
-    font-size: 10px;
-    letter-spacing: 0.16em;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.20em;
     text-transform: uppercase;
-    color: rgba(26, 20, 18, 0.55);
+    color: rgba(26, 20, 18, 0.75);
   }
 
   /* Layer-toggle panel. Lives in the bottom-left, matches the
@@ -101,6 +113,12 @@
     border: 1px solid var(--border);
     border-radius: 2px;
     padding: 7px 11px;
+    /* Plan §E.1 added the agentic histogram block inside #toggles —
+       cap the panel width so the histograms can't push the lever
+       panel off the screen. 220 px matches the inspector-card width
+       so the left column reads as a single visual band. */
+    width: 220px;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 5px;
@@ -271,6 +289,39 @@
     display: flex;
     gap: 6px;
   }
+  /* Density readout — top-left. Surfaces the substrate face count,
+     the live cast count, and the per-1K-face caterpillar density so
+     the user can read the scaling ratio between the geometry and
+     the population at a glance. Updates each tick from the
+     surface and agents diagnostics. */
+  #density-panel {
+    position: fixed;
+    top: 14px;
+    left: 18px;
+    z-index: 50;
+    background: rgba(245, 240, 230, 0.94);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 6px 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.85);
+    min-width: 160px;
+  }
+  .density-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    line-height: 1.5;
+  }
+  .density-row-label { color: rgba(26, 20, 18, 0.55); }
+  .density-row-value {
+    font-variant-numeric: tabular-nums;
+    color: rgba(26, 20, 18, 0.95);
+  }
   .control-btn {
     font-family: var(--mono);
     font-size: 10px;
@@ -302,9 +353,10 @@
     cursor: not-allowed;
   }
 
-  /* HUD readout — top-right under the control bar. Numeric mirror
-     of the engine signals that drive the visual: α (lever input),
-     EBI (engine output), welfare delta, gini, ticks/sec. */
+  /* HUD readout — top-right under the control bar. Geometry and
+     section-header styling match the wealth panel at the bottom-
+     right so the right-edge column reads as one consistent stack
+     of three panels. Row body retains the tabular numeric look. */
   #hud-panel {
     position: fixed;
     top: 54px;
@@ -313,33 +365,38 @@
     background: rgba(245, 240, 230, 0.94);
     border: 1px solid var(--border);
     border-radius: 2px;
-    padding: 7px 11px;
+    padding: 9px 12px 11px;
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.10em;
     text-transform: uppercase;
     color: rgba(26, 20, 18, 0.85);
-    min-width: 130px;
+    width: 240px;
+    box-sizing: border-box;
   }
   .hud-row {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     gap: 14px;
-    line-height: 1.5;
+    line-height: 1.55;
   }
   .hud-row-label { color: rgba(26, 20, 18, 0.55); }
   .hud-row-value {
     font-variant-numeric: tabular-nums;
     color: rgba(26, 20, 18, 0.95);
   }
+  /* Section headers across all three right-column panels are
+     visually identical — same 9 px uppercase muted style as
+     .meter-section-header (the wealth panel's STOCK / PER-TICK FLOW
+     headers). */
   .hud-section-header {
     font-size: 9px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: rgba(26, 20, 18, 0.45);
-    margin-top: 6px;
-    margin-bottom: 2px;
+    margin-top: 9px;
+    margin-bottom: 4px;
   }
   .hud-row-sub {
     padding-left: 10px;
@@ -358,14 +415,16 @@
     text-align: right;
   }
 
-  /* Live levers — right side, under the HUD. Each row is a slider
-     for a parameter the engine accepts via POST /runs/{id}/update.
-     Anchored to the viewport bottom so the HUD can grow above it
-     without recalculating the top offset. */
+  /* Live levers — left column, takes the full vertical band above
+     the (now-trimmed) toggles panel. The toggles panel is small
+     enough to anchor at the very bottom of the column; this lever
+     panel grabs everything above it. Internal scroll handles
+     overflow when the lever inventory exceeds the available height. */
   #levers-panel {
     position: fixed;
-    bottom: 18px;
-    right: 18px;
+    left: 18px;
+    top: 18px;
+    bottom: 240px;
     z-index: 50;
     background: rgba(245, 240, 230, 0.94);
     border: 1px solid var(--border);
@@ -376,8 +435,8 @@
     letter-spacing: 0.10em;
     text-transform: uppercase;
     color: rgba(26, 20, 18, 0.85);
-    width: 180px;
-    max-height: calc(100vh - 36px);
+    width: 220px;
+    box-sizing: border-box;
     overflow-y: auto;
   }
   #levers-title {
@@ -422,6 +481,22 @@
   }
   .lever-dot-live      { background: rgba(80, 168, 96, 0.95); }
   .lever-dot-structural{ background: transparent; border: 1px solid rgba(26, 20, 18, 0.40); width: 4px; height: 4px; }
+  /* Plan §D.2 — hollow-square mark for levers whose engine field is
+     not yet implemented. The lever contributes to lever-α (the
+     mapping side) but the engine doesn't read it until Restart, so
+     the user sees the substrate react less than the lever-α gap row
+     suggests it should. Placed AFTER the label, distinct from the
+     live/structural dot which goes BEFORE. */
+  .lever-mark-unimpl {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-left: 4px;
+    border: 1px solid rgba(26, 20, 18, 0.40);
+    background: transparent;
+    vertical-align: middle;
+    cursor: help;
+  }
   #levers-pending-row {
     margin-top: 8px;
     padding: 4px 6px;
@@ -431,6 +506,38 @@
     font-size: 9px;
     letter-spacing: 0.14em;
     color: rgba(120, 80, 20, 0.90);
+  }
+  /* Plan §G.1 — restart preview block. Sits right under the
+     pending banner with a softer border so the eye reads "this is
+     a derived projection of the pending changes, not a separate
+     surface." */
+  #levers-preview-row {
+    margin-top: 4px;
+    padding: 4px 6px;
+    background: rgba(245, 240, 230, 0.94);
+    border: 1px dashed rgba(217, 166, 77, 0.55);
+    border-radius: 2px;
+    font-size: 9px;
+    color: rgba(80, 60, 30, 0.85);
+  }
+  #levers-preview-title {
+    font-size: 8.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(80, 60, 30, 0.65);
+    margin-bottom: 2px;
+  }
+  .levers-preview-line {
+    display: flex;
+    justify-content: space-between;
+    line-height: 1.4;
+  }
+  .levers-preview-label {
+    color: rgba(26, 20, 18, 0.55);
+  }
+  .levers-preview-value {
+    font-variant-numeric: tabular-nums;
+    color: rgba(26, 20, 18, 0.95);
   }
   #levers-panel select {
     margin-top: 2px;
@@ -464,6 +571,134 @@
     font-family: var(--mono);
     color: rgba(26, 20, 18, 0.85);
     width: 240px;
+  }
+  /* Trade stats — sits above the welfare panel on the right column.
+     Shows live success/fail percentages (10s smoothed) plus a
+     per-reason breakdown for failures, with a sparkle canvas at the
+     bottom that flickers green/red dots for incoming pair outcomes
+     as a live activity indicator. */
+  #trade-stats-panel {
+    position: fixed;
+    bottom: 320px;
+    right: 18px;
+    z-index: 50;
+    background: rgba(245, 240, 230, 0.94);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 9px 12px 11px;
+    font-family: var(--mono);
+    color: rgba(26, 20, 18, 0.85);
+    width: 240px;
+    box-sizing: border-box;
+  }
+  /* Trades panel title matches #welfare-title exactly so the
+     three right-column panels read as a single visual stack. */
+  #trade-stats-title {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.65);
+    margin-bottom: 4px;
+  }
+  .trade-stats-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    line-height: 1.55;
+    font-size: 10px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+  }
+  .trade-stats-row .trade-stats-label { color: rgba(26, 20, 18, 0.55); }
+  .trade-stats-row .trade-stats-value {
+    font-variant-numeric: tabular-nums;
+    color: rgba(26, 20, 18, 0.95);
+  }
+  /* Only the headline success/fail rows carry meaningful colour
+     emphasis; the per-reason breakdown stays muted so the eye reads
+     the two-tier hierarchy at a glance, same way the wealth panel
+     splits TOTAL from section breakdowns. */
+  .trade-stats-row.success .trade-stats-value { color: rgb(64, 166, 82); }
+  .trade-stats-row.fail .trade-stats-value    { color: rgb(26, 20, 18); }
+  .trade-stats-reasons {
+    margin-top: 9px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(102, 140, 200, 0.18);
+  }
+  .trade-stats-reason {
+    display: flex;
+    justify-content: space-between;
+    line-height: 1.55;
+    font-size: 9px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    padding-left: 10px;
+  }
+  .trade-stats-reason .trade-stats-label { color: rgba(26, 20, 18, 0.45); }
+  .trade-stats-reason .trade-stats-value {
+    font-variant-numeric: tabular-nums;
+    color: rgba(26, 20, 18, 0.75);
+  }
+  #trade-sparkle {
+    display: block;
+    width: 100%;
+    height: 120px;
+    margin-top: 9px;
+    background: rgba(158, 152, 140, 0.10);
+    border-radius: 2px;
+  }
+  /* Success/failed split bar — same shape and treatment as the
+     wealth panel's stock split bar (green executed on the left,
+     red rejected on the right, no gap). Replaces the prior SUCCESS
+     / FAILED percentage text rows. */
+  #ts-split-bar {
+    position: relative;
+    height: 9px;
+    margin-top: 2px;
+    background: rgba(26, 20, 18, 0.07);
+    border-radius: 1px;
+    overflow: hidden;
+    display: flex;
+  }
+  .ts-split-segment {
+    height: 100%;
+    transition: width 0.18s ease-out;
+  }
+  .ts-split-segment.success { background: rgb(64, 166, 82); }
+  .ts-split-segment.fail    { background: rgb(26, 20, 18); }
+  #ts-split-readout {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2px;
+    font-size: 9px;
+    letter-spacing: 0.10em;
+    color: rgba(26, 20, 18, 0.65);
+    font-variant-numeric: tabular-nums;
+  }
+  #ts-split-readout .success { color: rgb(40, 130, 60); }
+  #ts-split-readout .fail    { color: rgb(26, 20, 18); }
+  /* Cumulative-trades headline row, same treatment as the
+     wealth panel's CUMULATIVE row so the two right-column panels
+     read as siblings. */
+  #trade-stats-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 7px;
+    margin-bottom: 7px;
+    border-bottom: 1px solid rgba(102, 140, 200, 0.18);
+  }
+  #trade-stats-total-label {
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.55);
+  }
+  #trade-stats-total-value {
+    font-size: 14px;
+    color: rgba(26, 20, 18, 0.95);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
   }
   #welfare-title {
     font-size: 10px;
@@ -621,11 +856,14 @@
     border-radius: 1px;
   }
 
-  /* Phase 6 §7.1 — inspector card stack. */
+  /* Phase 6 §7.1 — inspector card stack. Moved out of the left
+     column (which now belongs to density + levers + toggles) into
+     its own band just to the right of the lever panel so clicking
+     an agent doesn't bury the lever controls behind the card. */
   #inspector-stack {
     position: fixed;
     top: 54px;
-    left: 18px;
+    left: 250px;
     z-index: 60;
     display: flex;
     flex-direction: column;
@@ -735,6 +973,48 @@
     height: 8px;
     border: 1px solid rgba(26, 20, 18, 0.12);
   }
+  /* Plan §E.1 — population histograms in the bottom-left toggles
+     panel. Three rows (capability, autonomy, trade rate). Each row
+     packs a label, a 10-cell unicode-block histogram, and the
+     μ ± σ readout into a single line so the panel doesn't sprawl. */
+  #pop-histograms-label {
+    margin-top: 7px;
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.45);
+  }
+  #pop-histograms {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 3px;
+  }
+  .pop-hist-row {
+    display: grid;
+    grid-template-columns: 70px 64px 1fr;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: rgba(26, 20, 18, 0.85);
+  }
+  .pop-hist-name {
+    color: rgba(26, 20, 18, 0.55);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .pop-hist-bars {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+    color: rgba(26, 20, 18, 0.85);
+  }
+  .pop-hist-stats {
+    color: rgba(26, 20, 18, 0.55);
+    font-variant-numeric: tabular-nums;
+    font-size: 8.5px;
+  }
+
   /* Sector hover label. Follows the cursor when the pointer is
      over a sector region. */
   #sector-label {
@@ -764,7 +1044,8 @@
 </div>
 <div id="control-bar">
   <button id="btn-pause" class="control-btn" type="button">pause</button>
-  <button id="btn-restart" class="control-btn" type="button">restart</button>
+  <button id="btn-reset" class="control-btn" type="button" title="Re-run the engine with current lever values (no page reload)">reset</button>
+  <button id="btn-restart" class="control-btn" type="button" title="Hard restart: reload the dashboard page from scratch">restart</button>
 </div>
 <div id="hud-panel">
   <div class="hud-row"><span class="hud-row-label">α (lever)</span><span class="hud-row-value" id="hud-alpha-lever">--</span></div>
@@ -778,15 +1059,18 @@
   <div class="hud-row"><span class="hud-row-label">compute</span><span class="hud-row-value" id="hud-compute">--</span></div>
   <div class="hud-row"><span class="hud-row-label">cabals</span><span class="hud-row-value" id="hud-cabals">--</span></div>
   <div class="hud-row"><span class="hud-row-label">syndicates</span><span class="hud-row-value" id="hud-syndicates">--</span></div>
-  <div class="hud-section-header">rej mix</div>
-  <div class="hud-row hud-row-sub"><span class="hud-row-label">cost</span><span class="hud-row-value" id="hud-rej-cost">--</span></div>
-  <div class="hud-row hud-row-sub"><span class="hud-row-label">market</span><span class="hud-row-value" id="hud-rej-market">--</span></div>
-  <div class="hud-row hud-row-sub"><span class="hud-row-label">align</span><span class="hud-row-value" id="hud-rej-align">--</span></div>
-  <div class="hud-row hud-row-sub"><span class="hud-row-label">law</span><span class="hud-row-value" id="hud-rej-law">--</span></div>
-  <div class="hud-row hud-row-sub"><span class="hud-row-label">compute</span><span class="hud-row-value" id="hud-rej-compute">--</span></div>
-  <div class="hud-row hud-row-sub"><span class="hud-row-label">perm</span><span class="hud-row-value" id="hud-rej-perm">--</span></div>
-  <div class="hud-row hud-row-sub"><span class="hud-row-label">reg</span><span class="hud-row-value" id="hud-rej-reg">--</span></div>
-  <div class="hud-row hud-row-sub hud-row-sum" id="hud-rej-sum-row" style="display:none"><span class="hud-row-label">‼ sum</span><span class="hud-row-value" id="hud-rej-sum">--</span></div>
+  <!-- Plan §C.1 — Louvain pipeline diagnostics. Distinguishes
+       "no community structure" (CANDIDATES=0) from "structure exists
+       but below render floor" (CANDIDATES>0 but CABALS=0) from
+       "overlay never wires up" (CANDIDATES>0, CABALS>0, but the 3D
+       overlay never appears). -->
+  <div class="hud-row hud-row-sub"><span class="hud-row-label">edges in</span><span class="hud-row-value" id="hud-edges-in">--</span></div>
+  <div class="hud-row hud-row-sub"><span class="hud-row-label">candidates</span><span class="hud-row-value" id="hud-candidates">--</span></div>
+  <div class="hud-row hud-row-sub"><span class="hud-row-label">render floor</span><span class="hud-row-value" id="hud-render-floor">--</span></div>
+  <!-- REJ MIX block removed — the trades panel now carries the
+       per-objection breakdown alongside the success/fail
+       percentages. The dev/checks invariant for rej-sum still runs
+       against the engine payload directly. -->
   <div class="hud-row"><span class="hud-row-label">ticks/s</span><span class="hud-row-value" id="hud-tps">--</span></div>
   <div class="hud-row"><span class="hud-row-label">stream</span><span class="hud-row-value" id="hud-stream">--</span></div>
 </div>
@@ -798,29 +1082,34 @@
   <div id="levers-title">levers</div>
 
   <div class="lever-section-header">agentic</div>
+  <!-- Plan §G.2 — agent_capability_mean and agent_trade_rate_multiplier
+       were promoted from structural to live. The serve.py override
+       hook shifts the per-prototype capability array by Δμ and
+       re-runs Population._build_sampling_structures so the new
+       trade-rate multiplier takes effect on the next partner sample. -->
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">capability (mean)</span><span class="lever-value" id="lever-cap-value">0.55</span></div>
-    <input type="range" id="lever-cap" data-key="agent_capability_mean" data-kind="structural" min="0.1" max="0.9" step="0.01" value="0.55">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">capability (mean)</span><span class="lever-value" id="lever-cap-value">0.85</span></div>
+    <input type="range" id="lever-cap" data-key="agent_capability_mean" data-kind="live" min="0.1" max="0.9" step="0.01" value="0.85">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">autonomy (mean)</span><span class="lever-value" id="lever-aut-value">0.70</span></div>
-    <input type="range" id="lever-aut" data-key="agent_autonomy_mean" data-kind="structural" min="0.1" max="1.0" step="0.01" value="0.70">
+    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">autonomy (mean)</span><span class="lever-value" id="lever-aut-value">0.30</span></div>
+    <input type="range" id="lever-aut" data-key="agent_autonomy_mean" data-kind="structural" min="0.1" max="1.0" step="0.01" value="0.30">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">trade rate × (agent)</span><span class="lever-value" id="lever-trm-value">2.0</span></div>
-    <input type="range" id="lever-trm" data-key="agent_trade_rate_multiplier" data-kind="structural" min="0.5" max="5" step="0.1" value="2.0">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">trade rate × (agent)</span><span class="lever-value" id="lever-trm-value">1.0</span></div>
+    <input type="range" id="lever-trm" data-key="agent_trade_rate_multiplier" data-kind="live" min="0.5" max="5" step="0.1" value="1.0">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">network: p-local</span><span class="lever-value" id="lever-pnl-value">0.60</span></div>
-    <input type="range" id="lever-pnl" data-key="network_p_local" data-kind="live" min="0" max="1" step="0.01" value="0.60">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">network: p-local</span><span class="lever-value" id="lever-pnl-value">0.85</span></div>
+    <input type="range" id="lever-pnl" data-key="network_p_local" data-kind="live" min="0" max="1" step="0.01" value="0.85">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">certified (fraction)</span><span class="lever-value" id="lever-cf-value">0.50</span></div>
-    <input type="range" id="lever-cf" data-key="norms.certified_fraction" data-kind="structural" min="0" max="1" step="0.01" value="0.50">
+    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">certified (fraction)</span><span class="lever-value" id="lever-cf-value">0.85</span></div>
+    <input type="range" id="lever-cf" data-key="norms.certified_fraction" data-kind="structural" min="0" max="1" step="0.01" value="0.85">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">norms update rate</span><span class="lever-value" id="lever-nur-value">0.05</span></div>
-    <input type="range" id="lever-nur" data-key="norms.update_rate" data-kind="live" min="0" max="0.5" step="0.005" value="0.05">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">norms update rate</span><span class="lever-value" id="lever-nur-value">0.01</span></div>
+    <input type="range" id="lever-nur" data-key="norms.update_rate" data-kind="live" min="0" max="0.5" step="0.005" value="0.01">
   </div>
   <div class="lever-row">
     <!-- Plan §5.1 stretch — live mid-run rewire of the network
@@ -836,28 +1125,28 @@
 
   <div class="lever-section-header">legal</div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">market layer tax</span><span class="lever-value" id="lever-market-tax-value">2.5%</span></div>
-    <input type="range" id="lever-market-tax" data-key="market_layer_tax" data-kind="live" min="0" max="0.25" step="0.005" value="0.025">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">market layer tax</span><span class="lever-value" id="lever-market-tax-value">0.5%</span></div>
+    <input type="range" id="lever-market-tax" data-key="market_layer_tax" data-kind="live" min="0" max="0.25" step="0.005" value="0.005">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">pigouvian tax</span><span class="lever-value" id="lever-pig-tax-value">10.0%</span></div>
-    <input type="range" id="lever-pig-tax" data-key="pigouvian.tax_rate" data-kind="live" min="0" max="0.5" step="0.005" value="0.10">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">pigouvian tax</span><span class="lever-value" id="lever-pig-tax-value">0.0%</span></div>
+    <input type="range" id="lever-pig-tax" data-key="pigouvian.tax_rate" data-kind="live" min="0" max="0.5" step="0.005" value="0.00">
   </div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">recycling progressivity</span><span class="lever-value" id="lever-pig-prog-value">1.0</span></div>
     <input type="range" id="lever-pig-prog" data-key="pigouvian.recycling_progressivity" data-kind="live" min="0" max="4" step="0.1" value="1.0">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">law strength (init)</span><span class="lever-value" id="lever-lsi-value">0.50</span></div>
-    <input type="range" id="lever-lsi" data-key="law.law_strength_initial" data-kind="structural" min="0" max="1" step="0.01" value="0.50">
+    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">law strength (init)</span><span class="lever-value" id="lever-lsi-value">0.20</span></div>
+    <input type="range" id="lever-lsi" data-key="law.law_strength_initial" data-kind="structural" min="0" max="1" step="0.01" value="0.20">
   </div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">law: txn size cap</span><span class="lever-value" id="lever-tsc-value">∞</span></div>
     <input type="range" id="lever-tsc" data-key="law.transaction_size_cap" data-kind="live" min="0.01" max="10" step="0.01" value="10">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">folding max depth</span><span class="lever-value" id="lever-fmd-value">7</span></div>
-    <input type="range" id="lever-fmd" data-key="folding_max_depth" data-kind="live" min="1" max="12" step="1" value="7">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">folding max depth</span><span class="lever-value" id="lever-fmd-value">2</span></div>
+    <input type="range" id="lever-fmd" data-key="folding_max_depth" data-kind="live" min="1" max="12" step="1" value="2">
   </div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">regulator</span><span class="lever-value" id="lever-rg-value">on</span></div>
@@ -867,8 +1156,8 @@
     </select>
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">cross-stack permeability</span><span class="lever-value" id="lever-csp-value">40.0%</span></div>
-    <input type="range" id="lever-csp" data-key="cross_stack_permeability" data-kind="live" min="0" max="1" step="0.01" value="0.4">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">cross-stack permeability</span><span class="lever-value" id="lever-csp-value">85.0%</span></div>
+    <input type="range" id="lever-csp" data-key="cross_stack_permeability" data-kind="live" min="0" max="1" step="0.01" value="0.85">
   </div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">pigouvian recycling</span><span class="lever-value" id="lever-pre-value">human_wealth</span></div>
@@ -881,8 +1170,8 @@
 
   <div class="lever-section-header">environmental</div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">compute budget / tick</span><span class="lever-value" id="lever-cb-value">1.00</span></div>
-    <input type="range" id="lever-cb" data-key="compute.budget_per_tick" data-kind="live" min="0.1" max="5" step="0.05" value="1.0">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">compute budget / tick</span><span class="lever-value" id="lever-cb-value">5.00</span></div>
+    <input type="range" id="lever-cb" data-key="compute.budget_per_tick" data-kind="live" min="0.1" max="5" step="0.05" value="5.0">
   </div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">power cost / trade</span><span class="lever-value" id="lever-pc-value">0.0001</span></div>
@@ -909,6 +1198,52 @@
   <div id="levers-pending-row" style="display:none">
     <span id="levers-pending-text">structural changes queued — click Restart</span>
   </div>
+  <!-- Plan §G.1 — restart preview. Visible only when there are
+       pending structural changes. The numbers project what the
+       engine will land at if the user clicks Restart now: α(lever)
+       at the new slider positions, and the EBI estimate from the
+       cached α→EBI curve in the latest Sobol sweep. -->
+  <div id="levers-preview-row" style="display:none">
+    <div id="levers-preview-title">restart preview</div>
+    <div class="levers-preview-line">
+      <span class="levers-preview-label">α (lever)</span>
+      <span class="levers-preview-value" id="levers-preview-alpha">--</span>
+    </div>
+    <div class="levers-preview-line">
+      <span class="levers-preview-label">EBI est</span>
+      <span class="levers-preview-value" id="levers-preview-ebi">--</span>
+    </div>
+  </div>
+</div>
+<div id="trade-stats-panel">
+  <div id="trade-stats-title">trades</div>
+  <div id="trade-stats-total-row">
+    <span id="trade-stats-total-label">cumulative</span>
+    <span id="trade-stats-total-value">0</span>
+  </div>
+  <!-- Split bar in the wealth-panel-style: green segment for
+       successful trades on the left, red for failed on the right,
+       composing to 1.0 by construction. Readout under the bar
+       carries the two percentages. Replaces the prior SUCCESS / FAILED
+       text rows. -->
+  <div id="ts-split-bar">
+    <div class="ts-split-segment success" id="ts-split-success"></div>
+    <div class="ts-split-segment fail" id="ts-split-fail"></div>
+  </div>
+  <div id="ts-split-readout">
+    <span class="success" id="ts-success">--</span>
+    <span class="fail" id="ts-fail">--</span>
+  </div>
+  <div class="trade-stats-reasons">
+    <div class="trade-stats-reason"><span class="trade-stats-label">cost</span><span class="trade-stats-value" id="ts-cost">--</span></div>
+    <div class="trade-stats-reason"><span class="trade-stats-label">market</span><span class="trade-stats-value" id="ts-market">--</span></div>
+    <div class="trade-stats-reason"><span class="trade-stats-label">align</span><span class="trade-stats-value" id="ts-align">--</span></div>
+    <div class="trade-stats-reason"><span class="trade-stats-label">law</span><span class="trade-stats-value" id="ts-law">--</span></div>
+    <div class="trade-stats-reason"><span class="trade-stats-label">compute</span><span class="trade-stats-value" id="ts-compute">--</span></div>
+    <div class="trade-stats-reason"><span class="trade-stats-label">perm</span><span class="trade-stats-value" id="ts-perm">--</span></div>
+    <div class="trade-stats-reason"><span class="trade-stats-label">reg</span><span class="trade-stats-value" id="ts-reg">--</span></div>
+  </div>
+  <canvas id="trade-sparkle" width="216" height="120"></canvas>
 </div>
 <div id="welfare-panel">
   <div id="welfare-title">wealth</div>
@@ -940,29 +1275,9 @@
 <div id="inspector-stack"></div>
 <div id="sector-label"></div>
 <div id="toggles">
-  <label><input type="checkbox" id="toggle-trades" checked> show trades</label>
+  <label><input type="checkbox" id="toggle-cabals" checked> show cabals</label>
   <label><input type="checkbox" id="toggle-sectors" checked> show sectors</label>
   <label><input type="checkbox" id="toggle-humans-only"> show humans only</label>
-  <!-- Phase 6 §7.4 — trade-arc legend. 8 dots labelled by outcome
-       name so the user reads "magenta" as "alignment-reject" at a
-       glance. Palette source-of-truth lives in edges.js. -->
-  <div id="arc-legend-label">arc outcomes</div>
-  <div id="arc-legend"></div>
-  <!-- Phase 3 §4.2 sector compass — 12 swatches keyed to the agent
-       palette. Clicking a swatch isolates that sector (others fade
-       to 0.2 alpha for 5 s) so the user can answer "where do the
-       manufacturing agents end up under this configuration?" -->
-  <div id="sector-compass-label">sector compass</div>
-  <div id="sector-compass"></div>
-  <!-- Phase 6 §7.4 — EBI shape-morph legend. Three glyphs marking
-       the regime band currently driving the substrate's morph
-       (disc → sphere → lobes). Active glyph highlights. -->
-  <div id="ebi-legend-label">ebi shape</div>
-  <div id="ebi-legend">
-    <span class="ebi-glyph" data-band="disc" title="flat real economy / low baroque"></span>
-    <span class="ebi-glyph" data-band="sphere" title="calibrated reference"></span>
-    <span class="ebi-glyph" data-band="lobes" title="pricing reflexivity / exo-baroque / untethered"></span>
-  </div>
   <!-- Plan §8.3 — dev/checks runtime invariants badge. Hidden by
        default; surfaces when any in-browser invariant fails. Hover
        for the assertion text. -->
@@ -971,7 +1286,31 @@
     <div class="ratio-readout"><span>humans : agents</span><span>1 : <span id="ratio-value">100</span></span></div>
     <input type="range" id="ratio-slider" min="0" max="100" value="67" step="1">
   </div>
-  <div id="trade-counter"><span>trades</span><span id="trade-counter-value">0</span></div>
+  <!-- Plan §E.1 — population histograms for the agentic levers.
+       capability and autonomy histogram the cast snapshot's per-
+       agent values; trade-rate is population-uniform so the readout
+       is the scalar mean. The user dragging the corresponding
+       slider sees the histogram shift in real time (or, for trade
+       rate, the value tick over) — the population-level visual
+       confirms the slider does something. -->
+  <div id="pop-histograms-label">agentic distribution</div>
+  <div id="pop-histograms">
+    <div class="pop-hist-row">
+      <span class="pop-hist-name">capability</span>
+      <span class="pop-hist-bars" id="pop-hist-cap">--</span>
+      <span class="pop-hist-stats" id="pop-hist-cap-stats">--</span>
+    </div>
+    <div class="pop-hist-row">
+      <span class="pop-hist-name">autonomy</span>
+      <span class="pop-hist-bars" id="pop-hist-aut">--</span>
+      <span class="pop-hist-stats" id="pop-hist-aut-stats">--</span>
+    </div>
+    <div class="pop-hist-row">
+      <span class="pop-hist-name">trade rate</span>
+      <span class="pop-hist-bars" id="pop-hist-trm">--</span>
+      <span class="pop-hist-stats" id="pop-hist-trm-stats">--</span>
+    </div>
+  </div>
 </div>
 <div id="status" data-kind="">starting…</div>
 

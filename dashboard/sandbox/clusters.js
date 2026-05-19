@@ -56,6 +56,12 @@ export function createClusters(opts = {}) {
   let lastModularity = 0.0;
   let lastCabalIds = [];
   let lastRunMs = 0;
+  // Plan §C.1 — surfaced via diagnostics() so the HUD can show
+  // EDGES IN / CANDIDATES / RENDER FLOOR and the user can distinguish
+  // "no community structure" from "structure exists but is below the
+  // render floor" from "wiring is broken."
+  let lastCandidates = 0;
+  let lastEdgesIn = 0;
 
   function edgeKey(a, b) {
     return a < b ? `${a}|${b}` : `${b}|${a}`;
@@ -180,7 +186,7 @@ export function createClusters(opts = {}) {
       adj[e.v].push({ to: e.u, w: e.w });
     }
 
-    return { n, twoM, degree, adj, nodeBack, nodeIds };
+    return { n, twoM, degree, adj, nodeBack, nodeIds, edgeCount: edges.length };
   }
 
   // One Louvain pass over the given graph. Returns the community
@@ -191,7 +197,7 @@ export function createClusters(opts = {}) {
   // LOUVAIN_MAX_PHASES so a degenerate graph can't hang the tick.
   function runLouvain(graph, warmStart) {
     if (graph.n === 0 || graph.twoM === 0) {
-      return { partition: new Int32Array(0), modularity: 0.0, n: 0 };
+      return { partition: new Int32Array(0), modularity: 0.0, n: 0, nCandidates: 0 };
     }
     let { n, twoM, degree, adj } = graph;
     let comm = new Int32Array(n);
@@ -282,6 +288,10 @@ export function createClusters(opts = {}) {
     for (let i = 0; i < n; i += 1) {
       sizeOf.set(comm[i], (sizeOf.get(comm[i]) ?? 0) + 1);
     }
+    // Plan §C.1 — pre-filter community count, exposed via the tick's
+    // result so diagnostics() can surface CANDIDATES separately from
+    // CABALS (which counts only post-MIN_CABAL_SIZE survivors).
+    const nCandidates = sizeOf.size;
 
     // Relabel: communities below MIN_CABAL_SIZE collapse to -1
     // (the "orphan" bucket — not a cabal). Everything else gets a
@@ -335,7 +345,7 @@ export function createClusters(opts = {}) {
       }
     }
 
-    return { partition: out, modularity: Q, n };
+    return { partition: out, modularity: Q, n, nCandidates };
   }
 
   // Per-tick orchestrator. Called from scene.js after the engine's
@@ -381,6 +391,13 @@ export function createClusters(opts = {}) {
     lastCabalIds = Array.from(cabalSet).sort((a, b) => a - b);
     lastModularity = result.modularity;
     lastRunMs = ((typeof performance !== "undefined") ? performance.now() : 0) - t0;
+    // Plan §C.1 — remember the Louvain pre-filter community count so
+    // the HUD can show CANDIDATES separately from CABALS. Also stash
+    // the edge-count fed into Louvain so EDGES IN is the exact size
+    // of the graph the partition came from (the buffer.size live
+    // value may have changed by the time the HUD reads it).
+    lastCandidates = result.nCandidates ?? 0;
+    lastEdgesIn = graph.edgeCount ?? 0;
   }
 
   function reset() {
@@ -390,6 +407,8 @@ export function createClusters(opts = {}) {
     lastModularity = 0.0;
     lastCabalIds = [];
     lastRunMs = 0;
+    lastCandidates = 0;
+    lastEdgesIn = 0;
   }
 
   function diagnostics() {
@@ -399,6 +418,13 @@ export function createClusters(opts = {}) {
       cabals: lastCabalIds.length,
       modularity: lastModularity,
       runMs: lastRunMs,
+      // Plan §C.1 — number of Louvain communities before the
+      // MIN_CABAL_SIZE orphan-filter collapses singletons. The HUD
+      // surfaces this alongside the post-filter cabals count so the
+      // user can see whether Louvain found structure that the floor
+      // is hiding.
+      candidates: lastCandidates,
+      edgesIn: lastEdgesIn,
     };
   }
 

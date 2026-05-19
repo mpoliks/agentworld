@@ -162,6 +162,21 @@ def test_clamp_bounds_at_extremes():
     assert 0.0 <= a <= 1.0
 
 
+def test_no_zero_weight_scalar_levers():
+    """Plan §D.1/§D.3 — every scalar lever's weight must be > 0. A
+    pinned weight=0 makes the slider lie: the user sees the lever
+    respond on the UI side but α never moves, so the gap diagnostic
+    (the dashboard's most honest disclosure of static-knob-vs-lever
+    drift) reads as 'lever has no effect' instead of the truth, which
+    is 'this lever maps into α just like the others.'"""
+    w = _load()
+    zero_weight = [k for k, c in w["levers"].items() if c["weight"] == 0.0]
+    assert not zero_weight, (
+        f"levers with weight=0 ship as live controls but don't move α: "
+        f"{zero_weight}"
+    )
+
+
 def test_signs_match_research_doc_intent():
     """A pinned-sign check: each implemented lever has the sign the
     research docs assign. Catches accidental sign flips when the JSON

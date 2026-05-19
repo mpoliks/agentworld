@@ -22,9 +22,19 @@ let _weights = null;
 let _readyResolve = null;
 const _ready = new Promise((res) => { _readyResolve = res; });
 
-export function loadAlphaWeights(url = './alpha_weights.json') {
+// Resolve relative to this module so the fetch survives any future
+// relocation of either file. Plan §A.1 fix — previously the loader
+// used a path relative to document.baseURI (/dashboard/sandbox.html),
+// which resolved to /dashboard/alpha_weights.json and 404'd on cold
+// load, leaving the HUD α-lever glued at the baseline 0.500.
+const DEFAULT_URL = new URL('./alpha_weights.json', import.meta.url);
+
+export function loadAlphaWeights(url = DEFAULT_URL) {
   return fetch(url)
-    .then((r) => r.json())
+    .then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status} for ${r.url}`);
+      return r.json();
+    })
     .then((w) => { _weights = w; _readyResolve(w); return w; })
     .catch((err) => {
       console.warn('[alpha_map] failed to load weights:', err);
