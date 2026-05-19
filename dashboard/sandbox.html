@@ -1088,28 +1088,28 @@
        re-runs Population._build_sampling_structures so the new
        trade-rate multiplier takes effect on the next partner sample. -->
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">capability (mean)</span><span class="lever-value" id="lever-cap-value">0.85</span></div>
-    <input type="range" id="lever-cap" data-key="agent_capability_mean" data-kind="live" min="0.1" max="0.9" step="0.01" value="0.85">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">capability (mean)</span><span class="lever-value" id="lever-cap-value">0.55</span></div>
+    <input type="range" id="lever-cap" data-key="agent_capability_mean" data-kind="live" min="0.1" max="0.9" step="0.01" value="0.55">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">autonomy (mean)</span><span class="lever-value" id="lever-aut-value">0.30</span></div>
-    <input type="range" id="lever-aut" data-key="agent_autonomy_mean" data-kind="structural" min="0.1" max="1.0" step="0.01" value="0.30">
+    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">autonomy (mean)</span><span class="lever-value" id="lever-aut-value">0.70</span></div>
+    <input type="range" id="lever-aut" data-key="agent_autonomy_mean" data-kind="structural" min="0.1" max="1.0" step="0.01" value="0.70">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">trade rate × (agent)</span><span class="lever-value" id="lever-trm-value">1.0</span></div>
-    <input type="range" id="lever-trm" data-key="agent_trade_rate_multiplier" data-kind="live" min="0.5" max="5" step="0.1" value="1.0">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">trade rate × (agent)</span><span class="lever-value" id="lever-trm-value">2.0</span></div>
+    <input type="range" id="lever-trm" data-key="agent_trade_rate_multiplier" data-kind="live" min="0.5" max="5" step="0.1" value="2.0">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">network: p-local</span><span class="lever-value" id="lever-pnl-value">0.85</span></div>
-    <input type="range" id="lever-pnl" data-key="network_p_local" data-kind="live" min="0" max="1" step="0.01" value="0.85">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">network: p-local</span><span class="lever-value" id="lever-pnl-value">0.60</span></div>
+    <input type="range" id="lever-pnl" data-key="network_p_local" data-kind="live" min="0" max="1" step="0.01" value="0.60">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">certified (fraction)</span><span class="lever-value" id="lever-cf-value">0.85</span></div>
-    <input type="range" id="lever-cf" data-key="norms.certified_fraction" data-kind="structural" min="0" max="1" step="0.01" value="0.85">
+    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">certified (fraction)</span><span class="lever-value" id="lever-cf-value">0.50</span></div>
+    <input type="range" id="lever-cf" data-key="norms.certified_fraction" data-kind="structural" min="0" max="1" step="0.01" value="0.50">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">norms update rate</span><span class="lever-value" id="lever-nur-value">0.01</span></div>
-    <input type="range" id="lever-nur" data-key="norms.update_rate" data-kind="live" min="0" max="0.5" step="0.005" value="0.01">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">norms update rate</span><span class="lever-value" id="lever-nur-value">0.050</span></div>
+    <input type="range" id="lever-nur" data-key="norms.update_rate" data-kind="live" min="0" max="0.5" step="0.005" value="0.05">
   </div>
   <div class="lever-row">
     <!-- Plan §5.1 stretch — live mid-run rewire of the network
@@ -1125,28 +1125,28 @@
 
   <div class="lever-section-header">legal</div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">market layer tax</span><span class="lever-value" id="lever-market-tax-value">0.5%</span></div>
-    <input type="range" id="lever-market-tax" data-key="market_layer_tax" data-kind="live" min="0" max="0.25" step="0.005" value="0.005">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">market layer tax</span><span class="lever-value" id="lever-market-tax-value">2.5%</span></div>
+    <input type="range" id="lever-market-tax" data-key="market_layer_tax" data-kind="live" min="0" max="0.25" step="0.005" value="0.025">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">pigouvian tax</span><span class="lever-value" id="lever-pig-tax-value">0.0%</span></div>
-    <input type="range" id="lever-pig-tax" data-key="pigouvian.tax_rate" data-kind="live" min="0" max="0.5" step="0.005" value="0.00">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">pigouvian tax</span><span class="lever-value" id="lever-pig-tax-value">10.0%</span></div>
+    <input type="range" id="lever-pig-tax" data-key="pigouvian.tax_rate" data-kind="live" min="0" max="0.5" step="0.005" value="0.10">
   </div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">recycling progressivity</span><span class="lever-value" id="lever-pig-prog-value">1.0</span></div>
     <input type="range" id="lever-pig-prog" data-key="pigouvian.recycling_progressivity" data-kind="live" min="0" max="4" step="0.1" value="1.0">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">law strength (init)</span><span class="lever-value" id="lever-lsi-value">0.20</span></div>
-    <input type="range" id="lever-lsi" data-key="law.law_strength_initial" data-kind="structural" min="0" max="1" step="0.01" value="0.20">
+    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">law strength (init)</span><span class="lever-value" id="lever-lsi-value">0.50</span></div>
+    <input type="range" id="lever-lsi" data-key="law.law_strength_initial" data-kind="structural" min="0" max="1" step="0.01" value="0.50">
   </div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">law: txn size cap</span><span class="lever-value" id="lever-tsc-value">∞</span></div>
     <input type="range" id="lever-tsc" data-key="law.transaction_size_cap" data-kind="live" min="0.01" max="10" step="0.01" value="10">
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">folding max depth</span><span class="lever-value" id="lever-fmd-value">2</span></div>
-    <input type="range" id="lever-fmd" data-key="folding_max_depth" data-kind="live" min="1" max="12" step="1" value="2">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">folding max depth</span><span class="lever-value" id="lever-fmd-value">7</span></div>
+    <input type="range" id="lever-fmd" data-key="folding_max_depth" data-kind="live" min="1" max="12" step="1" value="7">
   </div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">regulator</span><span class="lever-value" id="lever-rg-value">on</span></div>
@@ -1156,8 +1156,8 @@
     </select>
   </div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">cross-stack permeability</span><span class="lever-value" id="lever-csp-value">85.0%</span></div>
-    <input type="range" id="lever-csp" data-key="cross_stack_permeability" data-kind="live" min="0" max="1" step="0.01" value="0.85">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">cross-stack permeability</span><span class="lever-value" id="lever-csp-value">40.0%</span></div>
+    <input type="range" id="lever-csp" data-key="cross_stack_permeability" data-kind="live" min="0" max="1" step="0.01" value="0.40">
   </div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">pigouvian recycling</span><span class="lever-value" id="lever-pre-value">human_wealth</span></div>
@@ -1170,8 +1170,8 @@
 
   <div class="lever-section-header">environmental</div>
   <div class="lever-row">
-    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">compute budget / tick</span><span class="lever-value" id="lever-cb-value">5.00</span></div>
-    <input type="range" id="lever-cb" data-key="compute.budget_per_tick" data-kind="live" min="0.1" max="5" step="0.05" value="5.0">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">compute budget / tick</span><span class="lever-value" id="lever-cb-value">1.00</span></div>
+    <input type="range" id="lever-cb" data-key="compute.budget_per_tick" data-kind="live" min="0.1" max="5" step="0.05" value="1.0">
   </div>
   <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">power cost / trade</span><span class="lever-value" id="lever-pc-value">0.0001</span></div>
