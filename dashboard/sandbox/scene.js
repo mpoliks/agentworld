@@ -139,7 +139,7 @@ const LEVER_FORMAT = {
   'compute.power_cost_per_trade':      (v) => v.toFixed(4),
   'cross_stack_permeability':          (v) => (v * 100).toFixed(1) + '%',
   'norms.update_rate':                 (v) => v.toFixed(3),
-  'law.transaction_size_cap':          (v) => (v >= 10 ? '∞' : v.toFixed(2)),
+  'law.transaction_size_cap':          (v) => v.toFixed(2),
   'folding_max_depth':                 (v) => String(Math.round(v)),
   // Structural numeric levers
   'agent_capability_mean':             (v) => v.toFixed(2),

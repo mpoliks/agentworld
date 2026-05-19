@@ -1482,7 +1482,21 @@ def spatial_sandbox() -> WorldConfig:
             pop_dynamics=PopulationDynamicsConfig(enabled=True),
             mission=MissionConfig(enabled=True),
             strategy=StrategyConfig(enabled=True),
-            law=LawConfig(enabled=True, law_strength_initial=0.5),
+            law=LawConfig(
+                enabled=True,
+                law_strength_initial=0.5,
+                # Per-pair surplus cap, tax mode. Calibrated against
+                # the sandbox's pair-surplus distribution via
+                # scripts/calibrate_transaction_cap.py: cap=0.3
+                # captures ~2% of gross surplus as windfall (gentle
+                # bite) while firm formation and persistence stay at
+                # the inf-baseline (16 firms, 100% long-lived). Push
+                # toward 0.1 for aggressive redistribution (~40%
+                # captured); toward 1.0 to disengage. Engine
+                # LawConfig default stays `inf` so the Sobol N=2048
+                # baseline reproduces bit-identically.
+                transaction_size_cap=0.3,
+            ),
             regulator=RegulatorConfig(enabled=True),
             compute=ComputeConfig(
                 enabled=True,
