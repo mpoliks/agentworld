@@ -40,11 +40,20 @@ const HUE_STEPS = 96;
 const HCL_C = 0.62;
 const HCL_L = 0.50;
 const PATCH_LIFT = 1.006;             // hover just above substrate
+const OUTLINE_LIFT = 1.008;           // outline + dot sit a hair
+                                       // above the fill so they don't
+                                       // z-fight the patch surface
 const CABAL_OPACITY = 0.10;
 const SYNDICATE_OPACITY = 0.22;       // plan §3.3 — promoted clusters
                                        // render bolder so the eye
                                        // distinguishes lasting groups
                                        // from transient ones
+const OUTLINE_OPACITY_CABAL = 0.65;
+const OUTLINE_OPACITY_SYNDICATE = 0.90;
+const OUTLINE_WIDTH_CABAL = 1;
+const OUTLINE_WIDTH_SYNDICATE = 2;
+const SYNDICATE_DOT_FRAC = 0.012;     // centroid marker for promoted
+                                       // clusters only — 1.2% of R
 
 // HSL → RGB (matches firms.js helper). HCL distinctness is close
 // enough at low opacity that HSL works.
@@ -155,21 +164,71 @@ export function createClusterOverlay(scene, surface, agents, opts = {}) {
       vertexColors: false,
     });
     const slot = ((cabalId % HUE_STEPS) + HUE_STEPS) % HUE_STEPS;
-    material.color.setRGB(
-      palette[slot * 3 + 0],
-      palette[slot * 3 + 1],
-      palette[slot * 3 + 2],
-    );
+    const r = palette[slot * 3 + 0];
+    const g = palette[slot * 3 + 1];
+    const b = palette[slot * 3 + 2];
+    material.color.setRGB(r, g, b);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.renderOrder = 1;
     mesh.frustumCulled = false;
+
+    // Hull-boundary outline. LineLoop over the same hull vertices
+    // as the fill, lifted slightly so it crisply rims the patch.
+    // Width is approximate (most GPUs clamp LineBasicMaterial width
+    // to 1px) but opacity carries the cabal/syndicate distinction.
+    const outlineGeom = new THREE.BufferGeometry();
+    const outlineMat = new THREE.LineBasicMaterial({
+      color: new THREE.Color(r, g, b),
+      transparent: true,
+      opacity: OUTLINE_OPACITY_CABAL,
+      linewidth: OUTLINE_WIDTH_CABAL,
+      depthTest: true,
+      depthWrite: false,
+    });
+    const outline = new THREE.LineLoop(outlineGeom, outlineMat);
+    outline.renderOrder = 2;
+    outline.frustumCulled = false;
+    mesh.add(outline);
+    mesh.userData.outline = outline;
+
+    // Centroid dot. Only visible for syndicates; cabals keep the
+    // soft-fill-only treatment so transient groups don't visually
+    // compete with promoted ones.
+    const dotGeom = new THREE.SphereGeometry(1, 10, 8);
+    const dotMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(r, g, b),
+      transparent: true,
+      opacity: 0.0,
+      depthTest: true,
+      depthWrite: false,
+    });
+    const dot = new THREE.Mesh(dotGeom, dotMat);
+    dot.renderOrder = 3;
+    dot.frustumCulled = false;
+    dot.visible = false;
+    mesh.add(dot);
+    mesh.userData.dot = dot;
+
     return mesh;
   }
 
   function setMeshStatus(mesh, status) {
-    mesh.material.opacity = status === 'syndicate'
-      ? syndicateOpacity
-      : cabalOpacity;
+    const isSyndicate = status === 'syndicate';
+    mesh.material.opacity = isSyndicate ? syndicateOpacity : cabalOpacity;
+    const outline = mesh.userData.outline;
+    if (outline) {
+      outline.material.opacity = isSyndicate
+        ? OUTLINE_OPACITY_SYNDICATE
+        : OUTLINE_OPACITY_CABAL;
+      outline.material.linewidth = isSyndicate
+        ? OUTLINE_WIDTH_SYNDICATE
+        : OUTLINE_WIDTH_CABAL;
+    }
+    const dot = mesh.userData.dot;
+    if (dot) {
+      dot.visible = isSyndicate;
+      dot.material.opacity = isSyndicate ? 1.0 : 0.0;
+    }
   }
 
   function rebuildPatchGeometry(mesh, members) {
@@ -266,6 +325,42 @@ export function createClusterOverlay(scene, surface, agents, opts = {}) {
       geom.setIndex(new THREE.BufferAttribute(indices, 1));
     }
     mesh.visible = true;
+
+    // Build the outline. Same hull vertices as the patch, but lifted
+    // by OUTLINE_LIFT/PATCH_LIFT so the line crisply rims the fill
+    // instead of co-planar z-fighting it.
+    const outline = mesh.userData.outline;
+    if (outline) {
+      const liftBoost = OUTLINE_LIFT / PATCH_LIFT;
+      const outPos = new Float32Array(hull2.length * 3);
+      for (let i = 0; i < hull2.length; i += 1) {
+        outPos[i * 3 + 0] = positions[(1 + i) * 3 + 0] * liftBoost;
+        outPos[i * 3 + 1] = positions[(1 + i) * 3 + 1] * liftBoost;
+        outPos[i * 3 + 2] = positions[(1 + i) * 3 + 2] * liftBoost;
+      }
+      const og = outline.geometry;
+      const oldOut = og.getAttribute('position');
+      if (oldOut && oldOut.array.length === outPos.length) {
+        oldOut.array.set(outPos);
+        oldOut.needsUpdate = true;
+      } else {
+        og.setAttribute('position', new THREE.BufferAttribute(outPos, 3));
+      }
+    }
+
+    // Position the centroid dot (visible only for syndicates). Sized
+    // here too so a sphere-radius shift in PATCH_LIFT carries over.
+    const dot = mesh.userData.dot;
+    if (dot) {
+      const liftBoost = OUTLINE_LIFT / PATCH_LIFT;
+      dot.position.set(
+        positions[0] * liftBoost,
+        positions[1] * liftBoost,
+        positions[2] * liftBoost,
+      );
+      const dotR = sphereRadius * SYNDICATE_DOT_FRAC;
+      dot.scale.set(dotR, dotR, dotR);
+    }
   }
 
   // Called each cluster tick. `partition` is a Map<agentIdx, stableId>
@@ -312,6 +407,10 @@ export function createClusterOverlay(scene, surface, agents, opts = {}) {
         group.remove(mesh);
         mesh.geometry.dispose();
         mesh.material.dispose();
+        const outline = mesh.userData.outline;
+        if (outline) { outline.geometry.dispose(); outline.material.dispose(); }
+        const dot = mesh.userData.dot;
+        if (dot) { dot.geometry.dispose(); dot.material.dispose(); }
         meshByCabal.delete(clusterId);
       }
     }

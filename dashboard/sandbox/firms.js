@@ -19,9 +19,17 @@ import * as THREE from 'three';
 const MAX_SPOKES_DEFAULT = 20000;    // 4× scale-up — covers ~100 firms
                                      // × 200 members, matching the
                                      // 20K-cast agent ceiling.
+const MAX_FIRMS_DEFAULT = 256;       // centroid-marker pool ceiling.
+                                     // ~100 firms typical; 256 leaves
+                                     // headroom for high-fragmentation
+                                     // configurations.
 const HUE_STEPS = 64;
 const HCL_C = 0.55;
 const HCL_L = 0.58;
+const CENTROID_BASE_FRAC = 0.008;    // tiniest firm marker = 0.8% of R
+const CENTROID_GROWTH_FRAC = 0.004;  // each log2(members) doubling
+                                     // adds 0.4% of R
+const CENTROID_MAX_FRAC = 0.020;     // cap at 2.0% of R
 
 // HCL → RGB. h in [0,1], c in [0,1], l in [0,1]. Approximate
 // (HSL is close enough for distinct colour bands at our opacity).
@@ -69,16 +77,18 @@ export function createFirms(scene, surface, agents, opts = {}) {
   const maxSpokes = opts.maxSpokes ?? MAX_SPOKES_DEFAULT;
   // Plan §F.1 — size-weighted per-firm opacity. opacity = max alpha
   // the material renders at; per-spoke intensity comes from pre-
-  // multiplying the palette RGB by (perFirmAlpha / opacity). A
-  // 2-member firm reads at 0.125; a 64-member firm at 0.275; a
-  // 1000-member firm at the 0.55 cap. Cross-sector firms get a +0.10
-  // boost so the engine PR that delivered them is actually visible.
-  const opacity = opts.opacity ?? 0.55;
+  // multiplying the palette RGB by (perFirmAlpha / opacity). Spokes
+  // now read as a faint membership trace under the brighter centroid
+  // marker, so the ceiling is lower than before (cap 0.25 vs 0.55).
+  // Cross-sector firms keep a boost so the engine PR that delivered
+  // them is still visible.
+  const opacity = opts.opacity ?? 0.25;
   const spokeLift = opts.spokeLift ?? 1.003;
-  const FIRM_OPACITY_CAP = 0.55;
-  const FIRM_OPACITY_INTERCEPT = 0.10;
-  const FIRM_OPACITY_SLOPE = 0.025;
-  const FIRM_CROSS_SECTOR_BOOST = 0.10;
+  const centroidLift = opts.centroidLift ?? 1.012;
+  const FIRM_OPACITY_CAP = 0.25;
+  const FIRM_OPACITY_INTERCEPT = 0.05;
+  const FIRM_OPACITY_SLOPE = 0.015;
+  const FIRM_CROSS_SECTOR_BOOST = 0.05;
 
   const palette = buildPalette();
 
@@ -101,6 +111,49 @@ export function createFirms(scene, surface, agents, opts = {}) {
   mesh.renderOrder = 5;
   mesh.frustumCulled = false;
   scene.add(mesh);
+
+  // Firm centroid markers. One instance per active firm, sized by
+  // log2(member count), tinted by the same palette as the spokes.
+  // Hexagonal prism geometry (radial=6, height short) gives a
+  // distinctive "badge" silhouette so the markers don't read as
+  // fold rings or cabal dots. renderOrder=6 puts them above spokes
+  // but below trade arcs (10).
+  const maxFirmMarkers = opts.maxFirmMarkers ?? MAX_FIRMS_DEFAULT;
+  const firmMarkerGeom = new THREE.CylinderGeometry(1, 1, 0.6, 6);
+  // Cylinder defaults to lying along Y. We'll rotate per-instance so
+  // the prism's axis aligns with the outward radial direction.
+  const firmMarkerMat = new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0.95,
+    depthTest: true,
+    depthWrite: false,
+  });
+  const firmMarkerMesh = new THREE.InstancedMesh(
+    firmMarkerGeom, firmMarkerMat, maxFirmMarkers,
+  );
+  firmMarkerMesh.renderOrder = 6;
+  firmMarkerMesh.frustumCulled = false;
+  firmMarkerMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  const firmMarkerColorBuf = new Float32Array(maxFirmMarkers * 3);
+  firmMarkerMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    firmMarkerColorBuf, 3,
+  );
+  firmMarkerMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+  // Hide all instances until tick() places them.
+  const _zeroMat = new THREE.Matrix4().makeScale(0, 0, 0);
+  for (let i = 0; i < maxFirmMarkers; i += 1) {
+    firmMarkerMesh.setMatrixAt(i, _zeroMat);
+  }
+  firmMarkerMesh.instanceMatrix.needsUpdate = true;
+  scene.add(firmMarkerMesh);
+
+  // Reusable math scratch for the marker tick.
+  const _markerMat = new THREE.Matrix4();
+  const _markerPos = new THREE.Vector3();
+  const _markerQuat = new THREE.Quaternion();
+  const _markerScale = new THREE.Vector3();
+  const _yAxis = new THREE.Vector3(0, 1, 0);
+  const _markerOutward = new THREE.Vector3();
 
   // Cast-snapshot bookkeeping. membersByFirm[fid] = array of agent
   // idx values from the most recent snapshot. Used to compute
@@ -207,6 +260,7 @@ export function createFirms(scene, surface, agents, opts = {}) {
     const globalAlt = surface.mesh?.material?.uniforms?.uGlobalAltitude?.value ?? 0.0;
     let seg = 0;
     let nWithSpoke = 0;
+    let markerSlot = 0;
     for (let f = 0; f < firmIdsActive.length; f += 1) {
       const fid = firmIdsActive[f];
       const members = castIdxByFirm.get(fid);
@@ -228,6 +282,44 @@ export function createFirms(scene, surface, agents, opts = {}) {
 
       // Palette colour for this firm.
       const slot = ((fid % HUE_STEPS) + HUE_STEPS) % HUE_STEPS;
+      const palR = palette[slot * 3 + 0];
+      const palG = palette[slot * 3 + 1];
+      const palB = palette[slot * 3 + 2];
+
+      // Place this firm's centroid marker. Size scales with log2 of
+      // member count and caps at CENTROID_MAX_FRAC of R. Hovered firm
+      // pops to full size; non-hovered firms during a hover dim
+      // slightly to match the spoke dim.
+      if (markerSlot < maxFirmMarkers) {
+        const memCount = members.length;
+        const sizeFrac = Math.min(
+          CENTROID_MAX_FRAC,
+          CENTROID_BASE_FRAC + CENTROID_GROWTH_FRAC * Math.log2(memCount),
+        );
+        let markerR = sphereRadius * sizeFrac;
+        // Marker sits a bit higher than spokes so it floats over the
+        // spoke fan.
+        _markerPos.set(
+          (cx / n) * centroidLift,
+          (cy / n) * centroidLift,
+          (cz / n) * centroidLift,
+        );
+        _markerOutward.copy(_markerPos).normalize();
+        _markerQuat.setFromUnitVectors(_yAxis, _markerOutward);
+        _markerScale.set(markerR, markerR, markerR);
+        _markerMat.compose(_markerPos, _markerQuat, _markerScale);
+        firmMarkerMesh.setMatrixAt(markerSlot, _markerMat);
+        // Hovered firm marker at full intensity; others dim slightly
+        // when something is hovered. Plain palette color otherwise.
+        let mr = palR, mg = palG, mb = palB;
+        if (_hoveredFirmId >= 0 && fid !== _hoveredFirmId) {
+          mr *= 0.55; mg *= 0.55; mb *= 0.55;
+        }
+        firmMarkerColorBuf[markerSlot * 3 + 0] = mr;
+        firmMarkerColorBuf[markerSlot * 3 + 1] = mg;
+        firmMarkerColorBuf[markerSlot * 3 + 2] = mb;
+        markerSlot += 1;
+      }
       // Plan §F.1 — scale palette RGB by (perFirmAlpha / materialOpacity)
       // so the LineBasicMaterial's uniform opacity carries the
       // max alpha, and per-firm visual intensity comes from the
@@ -276,20 +368,37 @@ export function createFirms(scene, surface, agents, opts = {}) {
     geometry.attributes.color.needsUpdate = true;
     geometry.setDrawRange(0, seg * 2);
     memberStats.n_members_with_spoke = nWithSpoke;
+
+    // Hide unused centroid-marker slots and flush GPU buffers.
+    for (let i = markerSlot; i < maxFirmMarkers; i += 1) {
+      firmMarkerMesh.setMatrixAt(i, _zeroMat);
+    }
+    firmMarkerMesh.instanceMatrix.needsUpdate = true;
+    firmMarkerMesh.instanceColor.needsUpdate = true;
   }
 
-  function setVisible(v) { mesh.visible = !!v; }
+  function setVisible(v) {
+    mesh.visible = !!v;
+    firmMarkerMesh.visible = !!v;
+  }
   function reset() {
     castIdxByFirm = new Map();
     firmIdsActive = [];
     sectorByIdx = new Map();
     memberStats = { n_firms: 0, n_members: 0, n_cross_sector: 0, n_members_with_spoke: 0 };
     geometry.setDrawRange(0, 0);
+    for (let i = 0; i < maxFirmMarkers; i += 1) {
+      firmMarkerMesh.setMatrixAt(i, _zeroMat);
+    }
+    firmMarkerMesh.instanceMatrix.needsUpdate = true;
   }
   function dispose() {
     scene.remove(mesh);
     geometry.dispose();
     material.dispose();
+    scene.remove(firmMarkerMesh);
+    firmMarkerGeom.dispose();
+    firmMarkerMat.dispose();
   }
 
   function diagnostics() {
@@ -314,6 +423,7 @@ export function createFirms(scene, surface, agents, opts = {}) {
 
   return {
     mesh,
+    markerMesh: firmMarkerMesh,
     handleCastSnapshot,
     tick,
     setVisible,

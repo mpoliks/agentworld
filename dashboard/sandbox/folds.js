@@ -1,35 +1,37 @@
-// Fold-spawn icospheres (Phase 1.3). Each `folds_v2` event reports
+// Fold-spawn rings (Phase 1.3). Each `folds_v2` event reports
 // nominal contribution per depth and a total `n_sub_markets_added`
-// count for the tick. We allocate that many small icospheres,
-// distribute them across depths proportional to `per_depth`, and
-// place each at a random cast member's current face centroid
-// (offset radially by 1.5% of R). Each mesh fades in over 30
-// frames, holds 60, fades out 60.
+// count for the tick. We allocate that many small rings, distribute
+// them across depths proportional to `per_depth`, and place each at
+// a random cast member's current face centroid (offset radially by
+// 1.5% of R). Each ring snaps in fast, briefly holds, then fades.
+//
+// Visual idiom: thin torus rings — hollow centres so they overlap
+// without occluding the substrate beneath, and the eye can count
+// concurrent events. Ring radius scales with depth so deeper folds
+// (rare, costly) read as larger; depth-1 stays small.
 //
 // The engine emits fold contributions as economy-wide aggregates,
 // not per-agent — so the agent attribution here is a proxy
 // (placement is on random cast members weighted by trade activity).
-// The visual semantics — "folds appear where the economy is
-// transacting, colored by depth, count tied to nominal flow" —
-// match the plan §2.3 intent. When the engine grows per-agent
-// fold-spawn provenance, swap the random placement for the
-// engine-provided index list without changing the rest of this
-// module.
 //
 // Color by depth: depth 1 = neutral grey, deepest depth = magenta
-// rgb(140, 102, 191) (matches the matryoshka flow row). Linear
-// interpolation between depths.
+// rgb(140, 102, 191) (matches the matryoshka flow row). Color stays
+// saturated across the lifetime; alpha carries the fade.
 
 import * as THREE from 'three';
 
-const FADE_IN = 30;
-const HOLD = 60;
-const FADE_OUT = 60;
+const FADE_IN = 8;
+const HOLD = 20;
+const FADE_OUT = 32;
 const TOTAL_LIFE = FADE_IN + HOLD + FADE_OUT;
 
 const MAX_INSTANCES_DEFAULT = 4000;   // unbounded pool — set high enough
                                        // for ~10 ticks of 5000-fold backlog
 const RADIAL_OFFSET = 0.015;          // 1.5% of R radially outward
+const RING_BASE_FRAC = 0.010;         // depth-1 ring radius = 1.0% of R
+const RING_DEPTH_FRAC = 0.012;        // each extra depth adds 1.2% of R
+const RING_TUBE_FRAC = 0.20;          // tube thickness = 20% of ring radius
+const RING_OPACITY = 0.85;
 
 // Color endpoints. Match the matryoshka flow row palette.
 const COLOR_SHALLOW = [0.55, 0.55, 0.55];     // grey
@@ -53,15 +55,16 @@ export function createFolds(scene, surface, agents, opts = {}) {
   const { faceCentroids, vertAltitudes, vertIds, radius } = surface;
   const sphereRadius = opts.sphereRadius ?? radius ?? 700;
   const maxInstances = opts.maxInstances ?? MAX_INSTANCES_DEFAULT;
-  // Icosphere geometry sized to ~1.2% of R. Detail=1 keeps the
-  // poly count low; thousands of these stay cheap.
-  const meshSize = (sphereRadius * (opts.sizeFrac ?? 0.012));
-  const geometry = new THREE.IcosahedronGeometry(meshSize, 1);
+  // Unit-radius torus (major=1, minor=tube/R). At draw time the
+  // per-instance scale matrix sizes the ring by depth, so a single
+  // geometry serves every depth bucket.
+  const geometry = new THREE.TorusGeometry(1, RING_TUBE_FRAC, 6, 28);
   const material = new THREE.MeshBasicMaterial({
     transparent: true,
-    opacity: 1.0,
+    opacity: RING_OPACITY,
     depthTest: true,
     depthWrite: false,
+    side: THREE.DoubleSide,
   });
   const mesh = new THREE.InstancedMesh(geometry, material, maxInstances);
   mesh.renderOrder = 8;                // above substrate (0), below arcs (10)
@@ -71,6 +74,10 @@ export function createFolds(scene, surface, agents, opts = {}) {
   const colorBuf = new Float32Array(maxInstances * 3);
   mesh.instanceColor = new THREE.InstancedBufferAttribute(colorBuf, 3);
   mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
+  function ringRadiusFor(depth) {
+    return sphereRadius * (RING_BASE_FRAC + RING_DEPTH_FRAC * Math.max(0, depth - 1));
+  }
   // Track each instance's life — frame counter, depth, base color,
   // anchor agent idx, anchor face index. Hidden instances get
   // matrix = zero-scale.
@@ -104,6 +111,15 @@ export function createFolds(scene, surface, agents, opts = {}) {
   const _pos = new THREE.Vector3();
   const _scaleVec = new THREE.Vector3();
   const _quat = new THREE.Quaternion();
+  // Torus default normal points along +Z; orientForOutward rotates
+  // it to align with the radial direction at the placement so the
+  // ring lies flat on the sphere surface.
+  const _zAxis = new THREE.Vector3(0, 0, 1);
+  const _outward = new THREE.Vector3();
+  function orientForOutward(pos, outQuat) {
+    _outward.copy(pos).normalize();
+    outQuat.setFromUnitVectors(_zAxis, _outward);
+  }
 
   // Displaced face centroid, matching edges.js / firms.js.
   function faceDisplacedCentroid(f, altScale, globalAlt, out) {
@@ -181,10 +197,12 @@ export function createFolds(scene, surface, agents, opts = {}) {
         inst.baseColor[2] = _color[2];
         inst.agentIdx = idx;
         inst.face = face;
-        // Initial placement.
+        // Initial placement at scale 0 — the first tick() pass will
+        // grow it. Orient so the ring lies tangent to the sphere.
         faceDisplacedCentroid(face, altScale, globalAlt, _tmpVec);
         _pos.set(_tmpVec[0], _tmpVec[1], _tmpVec[2]);
-        _scaleVec.set(0.01, 0.01, 0.01); // fade-in starts near zero
+        orientForOutward(_pos, _quat);
+        _scaleVec.set(0, 0, 0);
         _scratch.compose(_pos, _quat, _scaleVec);
         mesh.setMatrixAt(slot, _scratch);
         colorBuf[slot * 3 + 0] = _color[0];
@@ -214,33 +232,38 @@ export function createFolds(scene, surface, agents, opts = {}) {
         anyChange = true;
         continue;
       }
-      // Fade curve. Scale interpolated against frame.
-      let scale;
+      // Fade curve. Fast pop-in, brief hold, slower shrink-out.
+      // Ease-out on fade-in so the ring snaps to size, then linear
+      // shrink on fade-out so events read as discrete pulses.
+      let scale01;
       if (inst.frame < FADE_IN) {
-        scale = inst.frame / FADE_IN;
+        const t = inst.frame / FADE_IN;
+        scale01 = 1 - (1 - t) * (1 - t);    // ease-out quad
       } else if (inst.frame < FADE_IN + HOLD) {
-        scale = 1.0;
+        scale01 = 1.0;
       } else {
         const f = inst.frame - (FADE_IN + HOLD);
-        scale = 1.0 - f / FADE_OUT;
+        scale01 = 1.0 - f / FADE_OUT;
       }
-      if (scale < 0) scale = 0;
+      if (scale01 < 0) scale01 = 0;
 
-      // Re-anchor to the agent's current face so the icosphere
-      // tracks the caterpillar as it walks.
+      // Re-anchor to the agent's current face so the ring tracks
+      // the caterpillar as it walks.
       const f = agents.currentFaceForIdx(inst.agentIdx);
       if (f >= 0) inst.face = f;
       faceDisplacedCentroid(inst.face, altScale, globalAlt, _tmpVec);
       _pos.set(_tmpVec[0], _tmpVec[1], _tmpVec[2]);
-      _scaleVec.set(scale, scale, scale);
+      orientForOutward(_pos, _quat);
+      const r = ringRadiusFor(inst.depth) * scale01;
+      _scaleVec.set(r, r, r);
       _scratch.compose(_pos, _quat, _scaleVec);
       mesh.setMatrixAt(s, _scratch);
 
-      // Color fades toward background along with scale (linked
-      // so depth saturation stays monotonic across the lifetime).
-      colorBuf[s * 3 + 0] = inst.baseColor[0] * scale + 0.94 * (1 - scale);
-      colorBuf[s * 3 + 1] = inst.baseColor[1] * scale + 0.93 * (1 - scale);
-      colorBuf[s * 3 + 2] = inst.baseColor[2] * scale + 0.90 * (1 - scale);
+      // Keep depth hue solid across the lifetime — the shrink curve
+      // already does the alpha-like fade.
+      colorBuf[s * 3 + 0] = inst.baseColor[0];
+      colorBuf[s * 3 + 1] = inst.baseColor[1];
+      colorBuf[s * 3 + 2] = inst.baseColor[2];
       anyChange = true;
       anyColorChange = true;
     }
