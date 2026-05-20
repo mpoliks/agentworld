@@ -141,8 +141,13 @@ const LEVER_FORMAT = {
   'norms.update_rate':                 (v) => v.toFixed(3),
   'law.transaction_size_cap':          (v) => v.toFixed(2),
   'folding_max_depth':                 (v) => String(Math.round(v)),
+  'alpha':                             (v) => v.toFixed(2),
+  'folding_propensity':                (v) => v.toFixed(2),
+  'fold_nominal_multiplier':           (v) => v.toFixed(2),
+  'base_friction':                     (v) => v.toFixed(3),
   // Structural numeric levers
   'agent_capability_mean':             (v) => v.toFixed(2),
+  'human_capability_mean':             (v) => v.toFixed(2),
   'agent_autonomy_mean':               (v) => v.toFixed(2),
   'agent_trade_rate_multiplier':       (v) => v.toFixed(1),
   'network_p_local':                   (v) => v.toFixed(2),
@@ -152,10 +157,260 @@ const LEVER_FORMAT = {
 // Levers that take a string value (selects). Some need translation
 // to the engine override shape (e.g. "on"/"off" → true/false).
 const LEVER_STRING_TRANSFORM = {
-  'regulator.enabled':  (s) => s === 'on',
+  'regulator.enabled':    (s) => s === 'on',
+  'institutions.enabled': (s) => s === 'on',
+  'mission.enabled':      (s) => s === 'on',
   // Pass-through values for the categorical levers (engine accepts
   // the string directly).
 };
+
+// Scenario presets — each entry is a target lever-state vector keyed
+// by data-key. Values are pulled from engine/scenarios/__init__.py so
+// every preset reproduces the scenario's attractor exactly. Off-panel
+// scenario params (folding_branching, fold_real_efficiency, etc.) are
+// left at engine defaults; the panel exposes every knob that
+// distinguishes one preset's regime from another.
+const PRESETS = {
+  coasean_paradise: {
+    title: 'COASEAN PARADISE',
+    targets: {
+      agent_capability_mean: 0.85,
+      human_capability_mean: 0.65,
+      alpha: 0.08,
+      folding_propensity: 0.10,
+      base_friction: 0.025,
+      market_layer_tax: 0.010,
+      cross_stack_permeability: 0.85,
+      folding_max_depth: 2,
+    },
+  },
+  universal_advocate: {
+    title: 'UNIVERSAL ADVOCATE',
+    targets: {
+      agent_capability_mean: 0.90,
+      human_capability_mean: 0.78,
+      alpha: 0.20,
+      base_friction: 0.020,
+      folding_propensity: 0.25,
+    },
+  },
+  exo_baroque_singularity: {
+    title: 'EXO-BAROQUE SINGULARITY',
+    targets: {
+      alpha: 0.97,
+      folding_propensity: 0.78,
+      fold_nominal_multiplier: 2.4,
+      folding_max_depth: 10,
+    },
+  },
+  baroque_cathedral: {
+    title: 'BAROQUE CATHEDRAL',
+    targets: {
+      agent_capability_mean: 0.78,
+      alpha: 0.92,
+      folding_propensity: 0.65,
+      fold_nominal_multiplier: 2.0,
+      base_friction: 0.06,
+      market_layer_tax: 0.04,
+      cross_stack_permeability: 0.45,
+    },
+  },
+  slop_market: {
+    title: 'SLOP MARKET',
+    targets: {
+      agent_capability_mean: 0.40,
+      human_capability_mean: 0.30,
+      alpha: 0.85,
+      folding_propensity: 0.60,
+      fold_nominal_multiplier: 2.2,
+    },
+  },
+  mission_economy: {
+    title: 'MISSION ECONOMY',
+    targets: {
+      agent_capability_mean: 0.70,
+      human_capability_mean: 0.50,
+      alpha: 0.45,
+      folding_propensity: 0.35,
+      base_friction: 0.04,
+      cross_stack_permeability: 0.65,
+      'institutions.enabled': true,
+      'mission.enabled':      true,
+    },
+  },
+};
+
+// Active preset state. The title under the sphere reads from
+// _activePreset.title; the steady-state line reads from
+// _steadyState.triggered.
+let _activePreset = null;
+let _presetTweenActive = false;
+
+// Steady-state detector. Maintains a rolling ring of the last
+// STEADY_WINDOW steps' EBI and real_per_capita_welfare. Once both
+// scalars hold a coefficient of variation under STEADY_COV_THRESHOLD
+// for STEADY_HOLD consecutive emits AND the run has been going for
+// at least STEADY_WARMUP steps, the sub-title flips to STEADY STATE.
+// The detector resets on every preset application.
+const STEADY_WINDOW = 60;
+const STEADY_HOLD = 30;
+const STEADY_COV_THRESHOLD = 0.005;  // 0.5% — both EBI and welfare
+const STEADY_WARMUP = 30;
+const _steadyState = {
+  ebiRing: [],
+  welfareRing: [],
+  consecHits: 0,
+  triggered: false,
+  stepsSeen: 0,
+};
+
+function resetSteadyState() {
+  _steadyState.ebiRing.length = 0;
+  _steadyState.welfareRing.length = 0;
+  _steadyState.consecHits = 0;
+  _steadyState.triggered = false;
+  _steadyState.stepsSeen = 0;
+  setSphereSubtitle('');
+}
+
+function _coefficientOfVariation(arr) {
+  if (arr.length < 2) return Infinity;
+  let sum = 0;
+  for (let i = 0; i < arr.length; i += 1) sum += arr[i];
+  const mean = sum / arr.length;
+  if (!Number.isFinite(mean) || mean === 0) return Infinity;
+  let varSum = 0;
+  for (let i = 0; i < arr.length; i += 1) {
+    const d = arr[i] - mean;
+    varSum += d * d;
+  }
+  const sd = Math.sqrt(varSum / arr.length);
+  return Math.abs(sd / mean);
+}
+
+function updateSteadyState(step) {
+  _steadyState.stepsSeen += 1;
+  const nstep = step.nominal_gdp_step;
+  const rstep = step.real_welfare_step;
+  const ebi = (Number.isFinite(nstep) && Number.isFinite(rstep) && rstep > 0)
+    ? nstep / rstep
+    : null;
+  const welfare = step.real_per_capita_welfare;
+  if (ebi !== null) {
+    _steadyState.ebiRing.push(ebi);
+    if (_steadyState.ebiRing.length > STEADY_WINDOW) _steadyState.ebiRing.shift();
+  }
+  if (Number.isFinite(welfare)) {
+    _steadyState.welfareRing.push(welfare);
+    if (_steadyState.welfareRing.length > STEADY_WINDOW) _steadyState.welfareRing.shift();
+  }
+  if (
+    _steadyState.stepsSeen < STEADY_WARMUP ||
+    _steadyState.ebiRing.length < STEADY_WINDOW ||
+    _steadyState.welfareRing.length < STEADY_WINDOW
+  ) return;
+  const covE = _coefficientOfVariation(_steadyState.ebiRing);
+  const covW = _coefficientOfVariation(_steadyState.welfareRing);
+  if (covE < STEADY_COV_THRESHOLD && covW < STEADY_COV_THRESHOLD) {
+    _steadyState.consecHits += 1;
+  } else {
+    _steadyState.consecHits = 0;
+    if (_steadyState.triggered) {
+      _steadyState.triggered = false;
+      setSphereSubtitle('');
+    }
+  }
+  if (!_steadyState.triggered && _steadyState.consecHits >= STEADY_HOLD) {
+    _steadyState.triggered = true;
+    setSphereSubtitle('STEADY STATE');
+  }
+}
+
+// Sector-level surface topography. Translates the engine's per-sector
+// real-welfare emission into sustained altitude offsets per sector,
+// producing 12 continents whose mass varies with the regime. The
+// per-event bumps from individual trades layer on top as detail
+// texture.
+//
+// Each tick: EMA-smooth the per-sector welfare share, z-score against
+// the population mean, tanh-squash to bounded units, scale into the
+// surface's ±SECTOR_BASE_CAP budget. With the 8 %/tick EMA the
+// continent map responds to a regime change within ~30 ticks (~15 s
+// of engine time) — slow enough to filter per-step noise, fast enough
+// to track a preset transition.
+const _sectorWelfareEMA = new Float32Array(12);
+let _sectorWelfareEMASeeded = false;
+const SECTOR_WELFARE_EMA_RATE = 0.08;
+const SECTOR_TOPO_GAIN = 0.12;  // scales the tanh'd z-score into the
+                                // ±0.18 cap; 0.12 reads as clearly
+                                // visible continents without clamping
+                                // a typical regime's variance.
+
+function updateSectorTopography(step) {
+  const arr = step.real_welfare_per_sector_step;
+  if (!Array.isArray(arr) || arr.length !== 12) return;
+  // EMA-smooth on raw values so a single noisy tick doesn't reshape
+  // the continents. First valid emit seeds the EMA so the first
+  // post-restart tick already reads the engine's level instead of
+  // ramping from zero.
+  if (!_sectorWelfareEMASeeded) {
+    for (let i = 0; i < 12; i += 1) {
+      const v = Number(arr[i]);
+      _sectorWelfareEMA[i] = Number.isFinite(v) ? v : 0;
+    }
+    _sectorWelfareEMASeeded = true;
+  } else {
+    for (let i = 0; i < 12; i += 1) {
+      const v = Number(arr[i]);
+      if (!Number.isFinite(v)) continue;
+      _sectorWelfareEMA[i] =
+        _sectorWelfareEMA[i] * (1 - SECTOR_WELFARE_EMA_RATE) +
+        v * SECTOR_WELFARE_EMA_RATE;
+    }
+  }
+  // Compute mean + std of the smoothed values. Division by std turns
+  // the signal into z-scores so the visual deformation is comparable
+  // across regimes that print very different absolute welfare numbers
+  // (coasean's mean welfare/step is two orders larger than slop's).
+  let mean = 0;
+  for (let i = 0; i < 12; i += 1) mean += _sectorWelfareEMA[i];
+  mean /= 12;
+  let varSum = 0;
+  for (let i = 0; i < 12; i += 1) {
+    const d = _sectorWelfareEMA[i] - mean;
+    varSum += d * d;
+  }
+  const std = Math.sqrt(varSum / 12);
+  if (std < 1e-9) return;  // all sectors equal — nothing to differentiate
+  const deltas = new Float32Array(12);
+  for (let i = 0; i < 12; i += 1) {
+    const z = (_sectorWelfareEMA[i] - mean) / std;
+    // tanh squashes the tails so a single dominant sector doesn't
+    // monopolise the altitude budget while the other 11 read as flat.
+    const squashed = Math.tanh(z);
+    deltas[i] = squashed * SECTOR_TOPO_GAIN;
+  }
+  surface?.setSectorAltitudeTargets?.(deltas);
+}
+
+function resetSectorTopography() {
+  _sectorWelfareEMA.fill(0);
+  _sectorWelfareEMASeeded = false;
+  // The surface API gets cleared via resetHeightmap on restartRun.
+}
+
+function setSphereTitle(text) {
+  const el = document.getElementById('sphere-title-main');
+  if (el) el.textContent = text || '';
+}
+
+function setSphereSubtitle(text) {
+  const el = document.getElementById('sphere-title-sub');
+  if (!el) return;
+  el.textContent = text || '';
+  if (text) el.classList.add('visible');
+  else el.classList.remove('visible');
+}
 // Slider value 0..100 maps log-scale to agentsPerHuman 1..1000.
 // At slider=67, value ≈ 100 (real-population default of 1 human : 100 agents).
 function sliderToAgentsPerHuman(s) {
@@ -186,6 +441,8 @@ const btnPauseEl = document.getElementById('btn-pause');
 //                 to pick up new code.
 const btnResetEl = document.getElementById('btn-reset');
 const btnRestartEl = document.getElementById('btn-restart');
+const btnStartEl = document.getElementById('btn-start');
+const presetSelectEl = document.getElementById('preset-select');
 let cumulativeTrades = 0;       // monotonic — increments per snapshot
 let cumulativeWealth = 0;       // real_welfare_cumulative from engine
 // EMA of per-tick EBI. Drives the world-shape morph. α=0.06 per
@@ -746,6 +1003,15 @@ function initScene() {
   btnResetEl?.addEventListener('click', () => { restartRun(); });
   btnRestartEl?.addEventListener('click', () => {
     if (typeof window !== 'undefined') window.location.reload();
+  });
+  presetSelectEl?.addEventListener('change', () => {
+    const v = presetSelectEl.value;
+    if (btnStartEl) btnStartEl.disabled = !v || !PRESETS[v];
+  });
+  btnStartEl?.addEventListener('click', () => {
+    const name = presetSelectEl?.value;
+    if (!name || !PRESETS[name]) return;
+    applyPreset(name);
   });
   if (ratioSliderEl) {
     const applyRatio = () => {
@@ -1802,6 +2068,7 @@ function applyShape() {
   }
   if (edges) edges.mesh.scale.y = sy;
   if (firms) firms.mesh.scale.y = sy;
+  if (firms?.markerMesh) firms.markerMesh.scale.y = sy;
   if (folds) folds.mesh.scale.y = sy;
   if (clusterOverlay) clusterOverlay.group.scale.y = sy;
 }
@@ -1862,6 +2129,8 @@ function onStep(step) {
   if (typeof window !== 'undefined' && window.__devChecksOnStep) {
     window.__devChecksOnStep(step);
   }
+  updateSteadyState(step);
+  updateSectorTopography(step);
   // Update the trade-stats panel targets. tickTradeStats() in
   // animate() eases the rendered values toward these with a slow
   // EMA so the percentages roll over ~10 s instead of jerking
@@ -2137,6 +2406,103 @@ function onConnectError() {
   setStatus('stream closed', 'error');
 }
 
+// Apply a scenario preset. The preset's `targets` dict maps lever
+// data-key → target value. The flow:
+//
+//   1. Sort targets into structural (kind="structural") and live
+//      (kind="live") by reading the matching DOM control's
+//      data-kind attribute.
+//   2. If any structural target differs from the current control
+//      value, snap the structural controls to their targets, queue
+//      them in _structuralPending, and call restartRun(). The
+//      restart picks up the structural overrides on the new engine
+//      run; live controls stay at their current values during the
+//      restart (the engine resets them to scenario defaults too,
+//      but we tween them up after).
+//   3. Tween live controls from their post-restart values to the
+//      preset targets over PRESET_TWEEN_MS. Each frame dispatches
+//      an `input` event on the slider, which fires the regular
+//      lever listener — formatting + debounced POST /update both
+//      get the synthetic edit just like a manual drag.
+//   4. The title under the sphere flips to the preset name on
+//      click; the steady-state detector resets so a prior STEADY
+//      STATE line doesn't carry into the new run.
+const PRESET_TWEEN_MS = 5000;
+
+async function applyPreset(name) {
+  const preset = PRESETS[name];
+  if (!preset || _presetTweenActive) return;
+  _activePreset = { name, title: preset.title };
+  setSphereTitle(preset.title);
+  resetSteadyState();
+  if (btnStartEl) btnStartEl.disabled = true;
+  if (presetSelectEl) presetSelectEl.disabled = true;
+  _presetTweenActive = true;
+  try {
+    const panel = document.getElementById('levers-panel');
+    if (!panel) return;
+    const structuralChanges = [];
+    const liveChanges = [];
+    for (const [key, target] of Object.entries(preset.targets)) {
+      const el = panel.querySelector(`[data-key="${key}"]`);
+      if (!el) continue;
+      const kind = el.dataset.kind || 'live';
+      if (el.tagName.toLowerCase() === 'select') {
+        // Selects are always structural in the current panel; snap
+        // immediately and route through the queue. Boolean targets
+        // are represented as "on"/"off" strings in the DOM.
+        const raw = typeof target === 'boolean' ? (target ? 'on' : 'off') : String(target);
+        structuralChanges.push({ el, key, raw });
+      } else {
+        const numeric = Number(target);
+        if (!Number.isFinite(numeric)) continue;
+        if (kind === 'structural') {
+          structuralChanges.push({ el, key, value: numeric });
+        } else {
+          liveChanges.push({ el, key, value: numeric });
+        }
+      }
+    }
+    if (structuralChanges.length > 0) {
+      for (const c of structuralChanges) {
+        if (c.el.tagName.toLowerCase() === 'select') {
+          c.el.value = c.raw;
+          c.el.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          c.el.value = String(c.value);
+          c.el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+      await restartRun();
+    }
+    if (liveChanges.length > 0) {
+      const starts = liveChanges.map((c) => parseFloat(c.el.value));
+      const t0 = performance.now();
+      await new Promise((resolve) => {
+        function step() {
+          const now = performance.now();
+          const t = Math.min(1, (now - t0) / PRESET_TWEEN_MS);
+          // Smoothstep for a less mechanical animation.
+          const eased = t * t * (3 - 2 * t);
+          for (let i = 0; i < liveChanges.length; i += 1) {
+            const c = liveChanges[i];
+            const v = starts[i] + (c.value - starts[i]) * eased;
+            c.el.value = String(v);
+            c.el.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          if (t >= 1) resolve();
+          else requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      });
+    }
+  } finally {
+    _presetTweenActive = false;
+    if (btnStartEl) btnStartEl.disabled = false;
+    if (presetSelectEl) presetSelectEl.disabled = false;
+  }
+}
+
 // Cancel the live run, reset dashboard state, and start a fresh
 // run with the current slider values applied as overrides. This is
 // the only way to clear path-dependent state (accumulated folds,
@@ -2209,6 +2575,8 @@ async function restartRun() {
   counters.cast = 0;
   cumulativeWealth = 0;
   cumulativeTrades = 0;
+  resetSteadyState();
+  resetSectorTopography();
   // Reset the trades-panel state so the cumulative counter and
   // success/fail sparklines start fresh on Reset.
   _tsCumulative = 0;
@@ -2405,7 +2773,10 @@ window.__sandbox = {
   hideAgents: (h = true) => { if (agents) agents.mesh.visible = !h; },
   hideSurface: (h = true) => { if (surface) surface.mesh.visible = !h; },
   hideEdges: (h = true) => { if (edges) edges.mesh.visible = !h; },
-  hideFirms: (h = true) => { if (firms) firms.mesh.visible = !h; },
+  hideFirms: (h = true) => {
+    if (firms) firms.mesh.visible = !h;
+    if (firms?.markerMesh) firms.markerMesh.visible = !h;
+  },
   hideFolds: (h = true) => { if (folds) folds.mesh.visible = !h; },
   disableTopology: () => { surface?.setAltitudeScale(0); surface?.setGlobalAltitude(0); },
 };

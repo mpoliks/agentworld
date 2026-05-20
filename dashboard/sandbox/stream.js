@@ -93,5 +93,10 @@ function buildRunBody(levers) {
     cast_size: levers.cast_size,
     pair_sample_k: levers.pair_sample_k,
     overrides: levers.overrides || {},
+    // Sandbox runs free of the Sobol sampling box — the user can
+    // pull α past 0.95, folding_propensity past its prior bound,
+    // etc. The Sobol bounds exist to keep the formal sensitivity
+    // sweep on its calibrated grid; the sandbox is for exploration.
+    extend_bounds: true,
   };
 }

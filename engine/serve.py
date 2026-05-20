@@ -182,6 +182,7 @@ class RunSession:
         pair_sample_k: int = 0,
         continuous: bool = False,
         cast_size: int = 0,
+        extend_bounds: bool = False,
     ) -> None:
         self.run_id = run_id
         self.scenario = scenario
@@ -194,6 +195,7 @@ class RunSession:
         self.pair_sample_k = int(pair_sample_k)
         self.continuous = bool(continuous)
         self.cast_size = int(cast_size)
+        self.extend_bounds = bool(extend_bounds)
         # Live tuning: parameter overrides queued by POST /runs/{id}/update.
         # Drained by the worker between steps. Whitelist enforced at the
         # endpoint so only safe live-tunable fields land here.
@@ -282,7 +284,7 @@ def _run_worker(sess: RunSession) -> None:
         if sess.seed is not None:
             cfg.seed = int(sess.seed)
         if sess.overrides:
-            _apply_overrides(cfg, sess.overrides)
+            _apply_overrides(cfg, sess.overrides, extend_bounds=sess.extend_bounds)
         if sess.alpha_schedule is not None and not sess.continuous:
             cfg.alpha_schedule = list(sess.alpha_schedule)
         if sess.pair_sample_k > 0:
@@ -682,6 +684,7 @@ def create_app():
                 pair_sample_k=req.pair_sample_k,
                 continuous=req.continuous,
                 cast_size=req.cast_size,
+                extend_bounds=req.extend_bounds,
             )
             sess.loop = app.state.loop
             app.state.current = sess

@@ -411,6 +411,61 @@ class World:
         if pig_cfg.recycling == "human_wealth":
             h_wealth = pop.wealth[h_mask].astype(np.float64)
             h_weight = pop.weight[h_mask].astype(np.float64)
+            if pig_cfg.deduct_from_agents:
+                # Stock-based redistribution. The per-pair pigouvian
+                # revenue (fold_tax × nominal cascade) is calibrated for
+                # the legacy print-from-ledger semantics — it sits ~9
+                # orders of magnitude below the weighted population
+                # stock that human_wealth_share is measured against, so
+                # using it as a transfer magnitude would produce
+                # invisible drift even at tax_rate=0.50. In this mode
+                # we ignore the passed-in revenue and instead transfer
+                # a fraction of weighted agent stock per call,
+                # proportional to tax_rate. Three calls per tick (pair
+                # tax, windfall, fold tax) all hit this path, so the
+                # per-call rate is sized to land at ~0.1-0.3% of agent
+                # stock per tick at tax_rate in [0.05, 0.50].
+                # PER_CALL_RATE × 3 calls × tax_rate = per-tick fraction
+                # of agent stock transferred to humans.
+                PER_CALL_TRANSFER_RATE = 0.002
+                a_mask = ~h_mask
+                a_wealth = pop.wealth[a_mask].astype(np.float64)
+                a_weight = pop.weight[a_mask].astype(np.float64)
+                a_stock = a_wealth * a_weight
+                a_total = float(a_stock.sum())
+                if a_total <= 0:
+                    return
+                transfer_amount = (
+                    float(pig_cfg.tax_rate) * PER_CALL_TRANSFER_RATE * a_total
+                )
+                if transfer_amount <= 0:
+                    return
+                # Debit agents proportionally to current weighted stock
+                # (richer agents pay more).
+                a_share = a_stock / a_total
+                per_agent_real = transfer_amount * a_share
+                per_agent_wealth = per_agent_real / np.maximum(a_weight, 1e-12)
+                pop.wealth[a_mask] = np.clip(
+                    pop.wealth[a_mask] - per_agent_wealth.astype(np.float32),
+                    0.0, None,
+                )
+                # Credit humans by the inverse-wealth progressivity
+                # weighting (same shape as the legacy path).
+                inv_w = 1.0 / np.maximum(h_wealth, 1e-6)
+                h_share = (inv_w ** pig_cfg.recycling_progressivity) * h_weight
+                h_share_sum = h_share.sum()
+                if h_share_sum <= 0:
+                    return
+                h_share /= h_share_sum
+                per_human_real = transfer_amount * h_share
+                per_human_wealth = per_human_real / np.maximum(h_weight, 1e-12)
+                pop.wealth[h_mask] = np.clip(
+                    pop.wealth[h_mask] + per_human_wealth.astype(np.float32),
+                    0.0, None,
+                )
+                return
+            # Legacy path: credit-only (no agent debit). Preserves
+            # bit-identical behavior for the Sobol baseline.
             inv_w = 1.0 / np.maximum(h_wealth, 1e-6)
             share = (inv_w ** pig_cfg.recycling_progressivity) * h_weight
             share_sum = share.sum()

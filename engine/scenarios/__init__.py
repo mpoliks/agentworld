@@ -1462,6 +1462,15 @@ def spatial_sandbox() -> WorldConfig:
                 enabled=True,
                 tax_rate=0.10,
                 recycling="human_wealth",
+                # Sandbox-only: Pigouvian is a real transfer (debits
+                # agent wealth before crediting humans). Without this
+                # the recycling is printed from the nominal ledger
+                # while agents continue gaining wealth from base
+                # trade flow, so the human_wealth_share stays pinned
+                # at its initialisation value regardless of the tax
+                # rate. Legacy scenarios leave this False so the
+                # Sobol N=2048 baseline reproduces bit-identically.
+                deduct_from_agents=True,
             ),
             registration=RegistrationConfig(enabled=True),
             institutions=InstitutionConfig(

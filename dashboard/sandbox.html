@@ -287,8 +287,83 @@
     right: 18px;
     z-index: 50;
     display: flex;
+    flex-direction: column;
+    align-items: flex-end;
     gap: 6px;
   }
+  #control-bar-row {
+    display: flex;
+    gap: 6px;
+  }
+  #preset-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  #preset-select {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.78);
+    background: rgba(245, 240, 230, 0.94);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  #preset-select:hover { border-color: rgba(102, 140, 200, 0.55); }
+  #btn-start {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255, 252, 245, 0.97);
+    background: rgba(102, 140, 200, 0.92);
+    border: 1px solid rgba(102, 140, 200, 0.92);
+    border-radius: 12px;
+    padding: 6px 16px;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.12s, border-color 0.12s;
+  }
+  #btn-start:hover {
+    background: rgba(80, 120, 185, 1);
+    border-color: rgba(80, 120, 185, 1);
+  }
+  #btn-start[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  /* Title under the sphere. Centered horizontally, fixed near the
+     bottom; renders the active preset name in all-caps. The
+     steady-state line directly under shows the convergence
+     callout when the rolling CoV of EBI and per-capita welfare
+     drops below the detector threshold. */
+  #sphere-title {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 40px;
+    z-index: 40;
+    text-align: center;
+    pointer-events: none;
+    font-family: var(--mono);
+    font-size: 16px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: rgba(26, 20, 18, 0.78);
+    text-shadow: 0 0 12px rgba(245, 240, 230, 0.85);
+  }
+  #sphere-title-sub {
+    margin-top: 6px;
+    font-size: 10px;
+    letter-spacing: 0.20em;
+    color: rgba(102, 140, 200, 0.88);
+    opacity: 0;
+    transition: opacity 0.5s;
+  }
+  #sphere-title-sub.visible { opacity: 1; }
   /* Density readout — top-left. Surfaces the substrate face count,
      the live cast count, and the per-1K-face caterpillar density so
      the user can read the scaling ratio between the geometry and
@@ -359,7 +434,7 @@
      of three panels. Row body retains the tabular numeric look. */
   #hud-panel {
     position: fixed;
-    top: 54px;
+    top: 96px;
     right: 18px;
     z-index: 50;
     background: rgba(245, 240, 230, 0.94);
@@ -1043,9 +1118,27 @@
   <div id="loader-label">init</div>
 </div>
 <div id="control-bar">
-  <button id="btn-pause" class="control-btn" type="button">pause</button>
-  <button id="btn-reset" class="control-btn" type="button" title="Re-run the engine with current lever values (no page reload)">reset</button>
-  <button id="btn-restart" class="control-btn" type="button" title="Hard restart: reload the dashboard page from scratch">restart</button>
+  <div id="preset-row">
+    <select id="preset-select" title="Pick a scenario; click start to transition the levers to its configuration.">
+      <option value="" selected>— scenario —</option>
+      <option value="coasean_paradise">coasean paradise</option>
+      <option value="universal_advocate">universal advocate</option>
+      <option value="exo_baroque_singularity">exo-baroque singularity</option>
+      <option value="baroque_cathedral">baroque cathedral</option>
+      <option value="slop_market">slop market</option>
+      <option value="mission_economy">mission economy</option>
+    </select>
+    <button id="btn-start" type="button" disabled title="Animate the lever panel to the selected preset's target values.">start</button>
+  </div>
+  <div id="control-bar-row">
+    <button id="btn-pause" class="control-btn" type="button">pause</button>
+    <button id="btn-reset" class="control-btn" type="button" title="Re-run the engine with current lever values (no page reload)">reset</button>
+    <button id="btn-restart" class="control-btn" type="button" title="Hard restart: reload the dashboard page from scratch">restart</button>
+  </div>
+</div>
+<div id="sphere-title">
+  <div id="sphere-title-main"></div>
+  <div id="sphere-title-sub"></div>
 </div>
 <div id="hud-panel">
   <div class="hud-row"><span class="hud-row-label">α (lever)</span><span class="hud-row-value" id="hud-alpha-lever">--</span></div>
@@ -1092,6 +1185,10 @@
     <input type="range" id="lever-cap" data-key="agent_capability_mean" data-kind="live" min="0.1" max="0.9" step="0.01" value="0.55">
   </div>
   <div class="lever-row">
+    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">human capability (mean)</span><span class="lever-value" id="lever-hcap-value">0.55</span></div>
+    <input type="range" id="lever-hcap" data-key="human_capability_mean" data-kind="structural" min="0.1" max="0.95" step="0.01" value="0.55">
+  </div>
+  <div class="lever-row">
     <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">autonomy (mean)</span><span class="lever-value" id="lever-aut-value">0.70</span></div>
     <input type="range" id="lever-aut" data-key="agent_autonomy_mean" data-kind="structural" min="0.1" max="1.0" step="0.01" value="0.70">
   </div>
@@ -1121,6 +1218,28 @@
       <option value="scale_free">scale_free</option>
       <option value="sbm" selected>sbm</option>
     </select>
+  </div>
+
+  <div class="lever-section-header">topology</div>
+  <!-- Engine-level fold-rate knobs. All four are live-tunable per
+       _LIVE_TUNABLE in engine/serve.py:773; setting them mid-run
+       takes effect on the next tick. Together they steer the
+       engine-α (HUD readout) and the per-step fold cascade. -->
+  <div class="lever-row">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">α (engine)</span><span class="lever-value" id="lever-alpha-value">0.50</span></div>
+    <input type="range" id="lever-alpha" data-key="alpha" data-kind="live" min="0" max="1" step="0.01" value="0.50">
+  </div>
+  <div class="lever-row">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">folding propensity</span><span class="lever-value" id="lever-fp-value">0.55</span></div>
+    <input type="range" id="lever-fp" data-key="folding_propensity" data-kind="live" min="0" max="1" step="0.01" value="0.55">
+  </div>
+  <div class="lever-row">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">fold nominal multiplier</span><span class="lever-value" id="lever-fnm-value">1.85</span></div>
+    <input type="range" id="lever-fnm" data-key="fold_nominal_multiplier" data-kind="live" min="1.0" max="3.0" step="0.05" value="1.85">
+  </div>
+  <div class="lever-row">
+    <div class="lever-header"><span class="lever-dot lever-dot-live"></span><span class="lever-label">base friction</span><span class="lever-value" id="lever-bf-value">0.025</span></div>
+    <input type="range" id="lever-bf" data-key="base_friction" data-kind="live" min="0" max="0.10" step="0.001" value="0.025">
   </div>
 
   <div class="lever-section-header">legal</div>
@@ -1165,6 +1284,20 @@
       <option value="human_wealth" selected>human_wealth</option>
       <option value="friction_subsidy">friction_subsidy</option>
       <option value="capability">capability</option>
+    </select>
+  </div>
+  <div class="lever-row">
+    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">institutions</span><span class="lever-value" id="lever-inst-value">off</span></div>
+    <select id="lever-inst" data-key="institutions.enabled" data-kind="structural">
+      <option value="off" selected>off</option>
+      <option value="on">on</option>
+    </select>
+  </div>
+  <div class="lever-row">
+    <div class="lever-header"><span class="lever-dot lever-dot-structural"></span><span class="lever-label">mission</span><span class="lever-value" id="lever-msn-value">off</span></div>
+    <select id="lever-msn" data-key="mission.enabled" data-kind="structural">
+      <option value="off" selected>off</option>
+      <option value="on">on</option>
     </select>
   </div>
 

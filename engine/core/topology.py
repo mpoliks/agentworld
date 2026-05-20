@@ -436,6 +436,15 @@ class PigouvianConfig:
     a2a_floor: float = 0.15
     recycling: Literal["human_wealth", "friction_subsidy", "capability"] = "human_wealth"
     recycling_progressivity: float = 1.0
+    # When True, the `human_wealth` recycling channel debits the
+    # recycled amount from non-human wealth proportionally before
+    # crediting it to humans — Pigouvian becomes a real redistributive
+    # transfer rather than a print-from-nominal credit. Default False
+    # preserves the legacy "credit-only" behavior so existing scenarios
+    # and the Sobol N=2048 baseline reproduce bit-identically; the
+    # spatial_sandbox scenario sets it True so dashboard levers visibly
+    # move the human-wealth stock share.
+    deduct_from_agents: bool = False
 
 
 @dataclass

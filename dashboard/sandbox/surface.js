@@ -447,6 +447,75 @@ export function createSurface(scene, opts = {}) {
 
   let frameCounter = 0;
 
+  // Per-vertex sector mix (12 weights per unique vertex, summing to 1).
+  // Built once from faceSector + the face/vertex incidence table. Used
+  // by the sector-base altitude layer to produce smooth seams at sector
+  // boundaries — vertices on a boundary average the offsets of the
+  // sectors they touch, so the continent edge slopes instead of
+  // cliffing.
+  const vertSectorWeights = new Float32Array(uniqueVertCount * 12);
+  {
+    const counts = new Float32Array(uniqueVertCount);
+    for (let f = 0; f < faceCount; f += 1) {
+      const s = faceSector[f];
+      const u0 = vertIds[f * 3 + 0];
+      const u1 = vertIds[f * 3 + 1];
+      const u2 = vertIds[f * 3 + 2];
+      vertSectorWeights[u0 * 12 + s] += 1;
+      vertSectorWeights[u1 * 12 + s] += 1;
+      vertSectorWeights[u2 * 12 + s] += 1;
+      counts[u0] += 1; counts[u1] += 1; counts[u2] += 1;
+    }
+    for (let u = 0; u < uniqueVertCount; u += 1) {
+      const c = counts[u] || 1;
+      for (let s = 0; s < 12; s += 1) vertSectorWeights[u * 12 + s] /= c;
+    }
+  }
+
+  // Sustained per-sector altitude offsets — the "continents" layer.
+  // The bump-driven `vertAltitudes` decays back to zero on a fast clock
+  // (~38 s half-life); this layer holds its value so regime-level
+  // signals like real_welfare_per_sector_step can paint long-lived
+  // topography. Target is set externally; current eases toward target
+  // each tick to avoid pop-on-update.
+  const sectorBaseTarget  = new Float32Array(12);
+  const sectorBaseCurrent = new Float32Array(12);
+  const vertSectorBase    = new Float32Array(uniqueVertCount);
+  // Hard cap on each per-sector offset. ±0.18 lets a sector rise or
+  // sink visibly without monopolising the altitude budget — the
+  // per-event bump cap is 0.012, so 0.18 reads as ~15 trade events of
+  // sustained baseline elevation.
+  const SECTOR_BASE_CAP = 0.18;
+  // Ease toward target at 4 %/frame — at 60 fps a step of 0.10 settles
+  // in ~0.5 s. Slow enough to feel like landmass shifting; fast enough
+  // that a new preset's continent map shows up well within the
+  // ~5 s tween of the lever transition.
+  const SECTOR_BASE_LERP = 0.04;
+  let sectorBaseDirty = true;
+
+  function setSectorAltitudeTargets(deltas) {
+    if (!deltas || deltas.length !== 12) return;
+    for (let s = 0; s < 12; s += 1) {
+      let v = Number(deltas[s]);
+      if (!Number.isFinite(v)) v = 0;
+      if (v >  SECTOR_BASE_CAP) v =  SECTOR_BASE_CAP;
+      else if (v < -SECTOR_BASE_CAP) v = -SECTOR_BASE_CAP;
+      sectorBaseTarget[s] = v;
+    }
+    sectorBaseDirty = true;
+  }
+
+  function _recomputeVertSectorBase() {
+    for (let u = 0; u < uniqueVertCount; u += 1) {
+      const o = u * 12;
+      let sum = 0;
+      for (let s = 0; s < 12; s += 1) {
+        sum += vertSectorWeights[o + s] * sectorBaseCurrent[s];
+      }
+      vertSectorBase[u] = sum;
+    }
+  }
+
   // Per-sector welfare accumulator. EMA: bumpAltitude(faceIdx, m)
   // deposits m into sectorTotals[faceSector[faceIdx]]; tick() decays
   // the totals at SECTOR_DECAY each frame (~3 s half-life). Pure
@@ -639,19 +708,50 @@ export function createSurface(scene, opts = {}) {
       vertAltitudes[u] = a;
       if (a !== 0) anyNonZero = true;
     }
+    // Ease the per-sector base layer toward target. The bump-driven
+    // vertAltitudes above decays on a ~38 s clock; this layer carries
+    // sustained signals (per-sector real welfare) and only moves when
+    // the target changes. When stable, this is a no-op after settling.
+    let sectorMoved = false;
+    for (let s = 0; s < 12; s += 1) {
+      const tgt = sectorBaseTarget[s];
+      const cur = sectorBaseCurrent[s];
+      if (cur === tgt) continue;
+      const next = cur + (tgt - cur) * SECTOR_BASE_LERP;
+      if (Math.abs(next - tgt) < 1e-5) sectorBaseCurrent[s] = tgt;
+      else sectorBaseCurrent[s] = next;
+      sectorMoved = true;
+    }
+    if (sectorMoved || sectorBaseDirty) {
+      _recomputeVertSectorBase();
+      sectorBaseDirty = false;
+    }
     // Always refresh — agents.js depends on faceAltitudes for the
     // caterpillar segment lift even on frames where everything
-    // decays to zero (so segments settle back to base radius).
+    // decays to zero (so segments settle back to base radius). The
+    // displayed altitude is the sum of (a) the bump-driven dynamic
+    // layer and (b) the sustained per-sector base layer, clamped to
+    // the shader's altitude budget.
     for (let v = 0; v < vertexCount; v += 1) {
-      altitudeArr[v] = vertAltitudes[vertIds[v]];
+      const u = vertIds[v];
+      let a = vertAltitudes[u] + vertSectorBase[u];
+      if (a > altitudeMaxPos) a = altitudeMaxPos;
+      else if (a < -altitudeMaxNeg) a = -altitudeMaxNeg;
+      altitudeArr[v] = a;
     }
     for (let f = 0; f < faceCount; f += 1) {
       const b = f * 3;
-      faceAltitudes[f] = (
-        vertAltitudes[vertIds[b + 0]] +
-        vertAltitudes[vertIds[b + 1]] +
-        vertAltitudes[vertIds[b + 2]]
+      const u0 = vertIds[b + 0];
+      const u1 = vertIds[b + 1];
+      const u2 = vertIds[b + 2];
+      let avg = (
+        (vertAltitudes[u0] + vertSectorBase[u0]) +
+        (vertAltitudes[u1] + vertSectorBase[u1]) +
+        (vertAltitudes[u2] + vertSectorBase[u2])
       ) / 3;
+      if (avg > altitudeMaxPos) avg = altitudeMaxPos;
+      else if (avg < -altitudeMaxNeg) avg = -altitudeMaxNeg;
+      faceAltitudes[f] = avg;
     }
     altitudeAttr.needsUpdate = true;
     void anyNonZero;  // reserved for future dirty-skip optimisation
@@ -700,6 +800,12 @@ export function createSurface(scene, opts = {}) {
       sectorOverlayAlphaArr[k] = 0;
       sectorOverlayRGBArr[k].copy(TINT_ZERO);
     }
+    // Sustained per-sector continent layer: drop targets + current
+    // so a Restart erases the prior regime's topography.
+    sectorBaseTarget.fill(0);
+    sectorBaseCurrent.fill(0);
+    vertSectorBase.fill(0);
+    sectorBaseDirty = true;
   }
 
   function dispose() {
@@ -714,6 +820,8 @@ export function createSurface(scene, opts = {}) {
       frame: frameCounter,
       sectorTotals: Array.from(sectorTotals),
       sectorOverlayAlpha: Array.from(sectorOverlayAlphaArr),
+      sectorBaseTarget: Array.from(sectorBaseTarget),
+      sectorBaseCurrent: Array.from(sectorBaseCurrent),
       altitudeScale: material.uniforms.uAltitudeScale.value,
       perEventBumpCap: PER_EVENT_BUMP_CAP_AMPLIFIED,
     };
@@ -758,5 +866,6 @@ export function createSurface(scene, opts = {}) {
     setGlobalAltitude,
     setHoveredSector,
     setChaos,
+    setSectorAltitudeTargets,
   };
 }
