@@ -19,14 +19,21 @@ engine/
 │   ├── empirical_anchors.py   # BEA, World Bank, Cont, Bacry/Muzy, Atalay
 │   └── README.md
 ├── scenarios/
-│   └── __init__.py      # 17 scenario configs + registry (15 + 2 networked)
+│   └── __init__.py      # ~40 scenario configs + registry (includes
+│                        # spatial_sandbox, the canonical sandbox base)
 ├── ensemble.py          # N-seed ensembles, bootstrapped 5/95 bands, parquet
 ├── runner.py            # run a scenario, write JSON
-├── cli.py               # `agentworld list / run / run-all / ensemble / sobol`
+├── cli.py               # `agentworld list / run / run-all / ensemble / sobol / serve`
 ├── sensitivity.py       # phase-space sweep + Saltelli/Sobol global sensitivity
+├── serve.py             # FastAPI + SSE engine + static-file dashboard host
 ├── plotting.py          # generate matplotlib figures
 └── build_dashboard.py   # bake JSON into self-contained HTML
 ```
+
+`engine/serve.py` is the FastAPI process that hosts both
+`/dashboard/sandbox.html` (the sandbox) and `/dashboard/live.html`
+(the legacy cockpit). `agentworld serve` starts it on
+`127.0.0.1:8765` by default — see [`../dashboard/README.md`](../dashboard/README.md).
 
 For the rules of which parameters are calibrated vs stipulated vs speculative,
 see [`docs/concepts/epistemic_status.md`](../docs/concepts/epistemic_status.md).

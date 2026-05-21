@@ -1,5 +1,22 @@
 # AGENTWORLD
 
+## Run the sandbox
+
+The sandbox is the primary interactive artifact in this repo. One 3D
+scene, three lever panels (27 controls), six scenario presets, a
+deformable hyperspherical substrate, ~10K visible agents.
+
+```bash
+cd agentworld
+uv run agentworld serve --host 127.0.0.1 --port 8765
+# open http://127.0.0.1:8765/dashboard/sandbox.html
+```
+
+See [`dashboard/README.md`](dashboard/README.md) for the lever map,
+preset descriptions, sphere semantics, and steady-state detector.
+
+---
+
 ## What this is
 
 **Agentworld** is a research artifact — a conceptual brief, a vectorized simulation engine, a scenario atlas, and a dashboard — for thinking about the planetary economy when society is composed of **8 billion humans and 800 billion to 1 trillion AI agents**.
@@ -102,8 +119,65 @@ agentworld exo run-all
 agentworld exo sweep
 ```
 
-### 3. The Atlas (`dashboard/` + `outputs/`)
-An interactive web dashboard that lets you slide the smooth-striated variable, run scenarios, compare attractor basins, and read the narrative for each. Built so that Bratton (or anyone) can sit with it and *see* the parameter space.
+### 3. The Sandbox (`dashboard/sandbox.html`)
+
+The headline interactive artifact. One full-bleed 3D scene with a
+deformable hyperspherical substrate, ~10,000 visible agents
+rendered as caterpillars on the surface, and three lever panels:
+
+- **Agentic** — agent capability, human capability, autonomy,
+  trade rate multiplier, network model + locality, norm update
+  rate, certified fraction.
+- **Topology** — α (engine), folding propensity, fold nominal
+  multiplier, base friction. These are the engine-level fold-rate
+  knobs.
+- **Legal** — market layer tax, Pigouvian tax + recycling
+  channel + progressivity, law strength + transaction size cap,
+  fold max depth, regulator on/off, cross-stack permeability,
+  institutions on/off, mission on/off.
+- **Environmental** — compute budget per tick, power cost per
+  trade, compute distribution, scale.
+
+Six scenario presets (`coasean_paradise`, `universal_advocate`,
+`mission_economy`, `baroque_cathedral`, `slop_market`,
+`exo_baroque_singularity`) sit above the pause/reset row. Start
+applies the preset as a target lever-state vector — structural
+levers snap and trigger a restart; live levers tween from
+post-restart values to targets over 5 s. The preset name appears
+under the sphere in all-caps; a steady-state detector watches
+rolling CoV of EBI and real_per_capita_welfare and surfaces
+`STEADY STATE` when the system settles.
+
+The substrate carries three independent deformations: per-event
+trade bumps (~0.012 per executed trade, ~38 s decay), sustained
+per-sector continents driven by `real_welfare_per_sector_step`
+(the 12 sector regions bulge or sink relative to mean), and an
+EBI-driven global shape morph (flatten toward disc at EBI < 2,
+chaotic lobes at EBI > 2). Click any agent to inspect identity,
+sector, capability/autonomy, current firm membership, and recent
+trades.
+
+The Pigouvian tax lever is wired through to a real redistributive
+transfer in the sandbox scenario — agent wealth is debited
+proportionally before humans are credited, so the stock split on
+the wealth meter actually responds to the lever. Existing scenarios
+preserve the legacy credit-only semantics; the Sobol N=2048 baseline
+reproduces bit-identically.
+
+See [`dashboard/README.md`](dashboard/README.md) for the lever map,
+preset metrics, and debug hooks.
+
+### 3b. Legacy cockpit + atlas (`dashboard/live.html`, `dashboard/index.html`)
+
+The earlier per-scenario streaming view (three Plotly charts + a
+fold-tree tab + a scenario dropdown) is still served at
+`/dashboard/live.html`. It is kept for the chart-style readouts; the
+sandbox is the entry point.
+
+The static atlas (`dashboard/index.html` + `outputs/`) is the
+pre-baked, no-engine version that slides through the 25 dashboard
+scenarios and compares attractor basins. Use it when the live engine
+is not running.
 
 A Cursor canvas (`review/`) provides the executive-summary view for in-IDE review.
 
@@ -189,8 +263,8 @@ For the technical reader:
 
 For the executive reader:
 1. This file
-2. `review/agentworld.canvas.tsx` (open in Cursor)
-3. `dashboard/` (run locally; see `dashboard/README.md`)
+2. `dashboard/README.md` — run the sandbox locally; lever map and presets
+3. `review/agentworld.canvas.tsx` (open in Cursor)
 
 ---
 
@@ -321,16 +395,21 @@ failure.
 agentworld serve --host 127.0.0.1 --port 8765
 ```
 
-**Desktop Linux:** open `http://127.0.0.1:8765/` in a browser, pick
-`productive_baroque` from the dropdown, hit *Run*. Three streaming
-Plotly charts (α, EBI, real welfare/capita) update in place; the
-*Fold tree* tab fills in column-by-column as steps arrive.
+The same FastAPI process serves two pages:
+
+- `http://127.0.0.1:8765/dashboard/sandbox.html` — **the sandbox**.
+  Lever panels, presets, 3D substrate. Primary entry point. See
+  `dashboard/README.md` for the lever map and preset table.
+- `http://127.0.0.1:8765/dashboard/live.html` — the legacy
+  cockpit. Pick a scenario from the dropdown, hit *Run*, watch
+  three streaming Plotly charts (α, EBI, real welfare/capita) and
+  the per-tick fold tree fill in.
 
 **Headless server:** SSH-tunnel from your laptop:
 
 ```bash
 ssh -N -L 8765:127.0.0.1:8765 your-server
-# then open http://127.0.0.1:8765/ locally
+# then open http://127.0.0.1:8765/dashboard/sandbox.html locally
 ```
 
 If the page loads but charts stay empty, check the browser DevTools
