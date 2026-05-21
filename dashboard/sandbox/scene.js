@@ -383,20 +383,124 @@ function updateSectorTopography(step) {
   const std = Math.sqrt(varSum / 12);
   if (std < 1e-9) return;  // all sectors equal — nothing to differentiate
   const deltas = new Float32Array(12);
+  const weights = new Float32Array(12);
   for (let i = 0; i < 12; i += 1) {
     const z = (_sectorWelfareEMA[i] - mean) / std;
     // tanh squashes the tails so a single dominant sector doesn't
     // monopolise the altitude budget while the other 11 read as flat.
     const squashed = Math.tanh(z);
-    deltas[i] = squashed * SECTOR_TOPO_GAIN;
+    deltas[i]  = squashed * SECTOR_TOPO_GAIN;
+    // Pass the same squashed z-score in directly as the activity
+    // weight that drives the weighted-Voronoi resize + anchor drift.
+    // A dominant sector (z >> 0 → squashed → +1) annexes contested
+    // boundary faces; a suppressed sector (squashed → -1) loses
+    // ground. The same signal also opens up extra basin depth for
+    // suppressed sectors via the per-sector basin floor.
+    weights[i] = squashed;
   }
   surface?.setSectorAltitudeTargets?.(deltas);
+  surface?.setSectorActivityWeights?.(weights);
 }
 
 function resetSectorTopography() {
   _sectorWelfareEMA.fill(0);
   _sectorWelfareEMASeeded = false;
+  _sectorPairFlowEMA.fill(0);
+  _sectorPairFlowMax = 0;
+  _pinchTarget = 0;
+  _pinchCurrent = 0;
   // The surface API gets cleared via resetHeightmap on restartRun.
+}
+
+// Cross-sector trade-flow EMA. Each executed edge in onEdges()
+// deposits 1 into the (sec_a, sec_b) cell (symmetric — both
+// orderings recorded into the same cell). Decay each tick so the
+// flow magnitude tracks the recent window rather than accumulating
+// across the session. setSectorPairFlows() expects a normalised
+// 144-cell array; we divide by the running max so the hottest pair
+// reads near 1.0 regardless of overall trade volume.
+const _sectorPairFlowEMA = new Float32Array(12 * 12);
+let _sectorPairFlowMax = 0;
+const SECTOR_PAIR_FLOW_DECAY = 0.94;       // ~16-tick half-life
+const SECTOR_PAIR_FLOW_THRESHOLD = 0.10;   // ignore cells below 10 %
+                                           // of max → only the few
+                                           // hot pairs carve rifts
+
+function recordPairFlows(edges) {
+  if (!Array.isArray(edges)) return;
+  for (let i = 0; i < edges.length; i += 1) {
+    const e = edges[i];
+    if (!e || e.executed === false) continue;
+    const a = e.sec_a, b = e.sec_b;
+    if (!Number.isInteger(a) || !Number.isInteger(b)) continue;
+    if (a === b) continue;
+    if (a < 0 || a >= 12 || b < 0 || b >= 12) continue;
+    const lo = a < b ? a : b;
+    const hi = a < b ? b : a;
+    _sectorPairFlowEMA[lo * 12 + hi] += 1;
+  }
+}
+
+function pushPairFlows() {
+  // Find current max so we can normalise.
+  let mx = 0;
+  for (let i = 0; i < 12; i += 1) {
+    for (let j = i + 1; j < 12; j += 1) {
+      const v = _sectorPairFlowEMA[i * 12 + j];
+      if (v > mx) mx = v;
+    }
+  }
+  _sectorPairFlowMax = _sectorPairFlowMax * 0.8 + mx * 0.2;
+  const denom = _sectorPairFlowMax > 1e-6 ? _sectorPairFlowMax : 1;
+  const flat = new Float32Array(12 * 12);
+  for (let i = 0; i < 12; i += 1) {
+    for (let j = i + 1; j < 12; j += 1) {
+      const v = _sectorPairFlowEMA[i * 12 + j] / denom;
+      if (v >= SECTOR_PAIR_FLOW_THRESHOLD) flat[i * 12 + j] = v;
+    }
+  }
+  surface?.setSectorPairFlows?.(flat);
+}
+
+function decayPairFlows() {
+  for (let k = 0; k < _sectorPairFlowEMA.length; k += 1) {
+    _sectorPairFlowEMA[k] *= SECTOR_PAIR_FLOW_DECAY;
+  }
+}
+
+// Gini-driven prolate pinch. Below a Gini floor the strength is 0
+// (sphere reads as a sphere). Above the floor the strength ramps
+// to a per-step target, smoothstep'd, with the shader clamp doing
+// final safety. The axis is picked once per session at scene init
+// so the pinch direction is stable but not aligned with sector
+// anchors — it's a deliberately non-sector-aligned effect.
+const PINCH_GINI_LOW  = 0.50;
+const PINCH_GINI_HIGH = 0.82;
+const PINCH_MAX = 0.16;
+let _pinchTarget = 0;
+let _pinchCurrent = 0;
+const PINCH_LERP = 0.03;
+
+function updatePinchFromGini(g) {
+  if (!Number.isFinite(g)) return;
+  const t0 = (g - PINCH_GINI_LOW) / (PINCH_GINI_HIGH - PINCH_GINI_LOW);
+  const t  = Math.max(0, Math.min(1, t0));
+  const eased = t * t * (3 - 2 * t);
+  _pinchTarget = eased * PINCH_MAX;
+}
+
+function tickPinch() {
+  if (_pinchCurrent === _pinchTarget) return;
+  _pinchCurrent += (_pinchTarget - _pinchCurrent) * PINCH_LERP;
+  if (Math.abs(_pinchTarget - _pinchCurrent) < 1e-4) _pinchCurrent = _pinchTarget;
+  surface?.setPinchStrength?.(_pinchCurrent);
+}
+
+function initPinchAxis() {
+  // Off-axis vector that's not parallel to any sector anchor. The
+  // ratio (1, 0.7, 0.45) is irrational-flavoured enough that it
+  // misses every Fibonacci-anchor direction; the shader normalises.
+  surface?.setPinchAxis?.(1.0, 0.7, 0.45);
 }
 
 function setSphereTitle(text) {
@@ -888,6 +992,8 @@ function initScene() {
       setProgress(overall, label);
     },
   });
+  // Pinch axis is fixed per session — set once after surface is up.
+  initPinchAxis();
 
   agents = createAgents(scene, surface, {
     sphereRadius: theme.radius ?? 700,
@@ -1620,6 +1726,7 @@ function animate() {
   if (!paused) {
     drainBumpQueue();
     tickShape();
+    tickPinch();
     tickEasedHud();
     tickTradeStats();
     tickSparkle();
@@ -2131,6 +2238,11 @@ function onStep(step) {
   }
   updateSteadyState(step);
   updateSectorTopography(step);
+  // Cross-sector rifts: hand the current EMA snapshot to the
+  // surface, then decay for the next window. Order matters — push
+  // first so a single quiet tick doesn't suppress already-hot pairs.
+  pushPairFlows();
+  decayPairFlows();
   // Update the trade-stats panel targets. tickTradeStats() in
   // animate() eases the rendered values toward these with a slow
   // EMA so the percentages roll over ~10 s instead of jerking
@@ -2188,6 +2300,10 @@ function onStep(step) {
   }
   if (Number.isFinite(step.gini_wealth)) {
     easeHudValue('hud-gini', step.gini_wealth, (v) => v.toFixed(3));
+    // High-inequality regimes stretch the sphere along the off-axis
+    // pinch direction. Non-sector-aligned so it reads as a separate
+    // signal from the continent layer.
+    updatePinchFromGini(step.gini_wealth);
   }
   if (hudTpsEl) hudTpsEl.textContent = ticksPerSec().toFixed(1);
 
@@ -2380,6 +2496,10 @@ function onEdges(ev) {
   // detector. Reject pairs and weight-0 pairs are filtered inside
   // ingestEdges; here we hand the whole batch.
   clusters?.ingestEdges(ev.edges);
+  // Cross-sector rift driver: accumulate per-pair executed-edge
+  // counts into the dashboard's pair-flow EMA. onStep decays the
+  // EMA + pushes the normalised matrix into the surface.
+  recordPairFlows(ev.edges);
   // Draw the live trade arcs (blue success, red reject) over the
   // current substrate. Replaces previous snapshot's lines.
   edges?.handleEdges(ev.edges);

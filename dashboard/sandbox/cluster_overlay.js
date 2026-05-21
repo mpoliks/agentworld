@@ -43,8 +43,12 @@ const PATCH_LIFT = 1.006;             // hover just above substrate
 const OUTLINE_LIFT = 1.008;           // outline + dot sit a hair
                                        // above the fill so they don't
                                        // z-fight the patch surface
-const CABAL_OPACITY = 0.10;
-const SYNDICATE_OPACITY = 0.22;       // plan §3.3 — promoted clusters
+// Bumped from 0.10/0.22 — at the prior values the cabals all but
+// vanished against the substrate when the welfare overlay was tinting
+// the same patch. The new floor reads as a clear membrane without
+// drowning the underlying terrain.
+const CABAL_OPACITY = 0.16;
+const SYNDICATE_OPACITY = 0.30;       // plan §3.3 — promoted clusters
                                        // render bolder so the eye
                                        // distinguishes lasting groups
                                        // from transient ones
@@ -121,7 +125,7 @@ function convexHull2d(points) {
 }
 
 export function createClusterOverlay(scene, surface, agents, opts = {}) {
-  const { faceCentroids, vertAltitudes, vertIds, radius } = surface;
+  const { faceCentroids, vertDisplayAlt, vertIds, radius } = surface;
   const sphereRadius = opts.sphereRadius ?? radius ?? 700;
   const cabalOpacity = opts.cabalOpacity ?? CABAL_OPACITY;
   const syndicateOpacity = opts.syndicateOpacity ?? SYNDICATE_OPACITY;
@@ -139,12 +143,16 @@ export function createClusterOverlay(scene, surface, agents, opts = {}) {
     const cx = faceCentroids[f * 3 + 0];
     const cy = faceCentroids[f * 3 + 1];
     const cz = faceCentroids[f * 3 + 2];
+    // Use vertDisplayAlt (bump + continent + trench, clamped) so the
+    // cabal patch hugs the actual deformed surface. Reading the bump
+    // layer alone would leave the patch flat on the un-swollen base
+    // sphere and bury it inside any sector continent that's bulged.
     let avgAlt = 0;
-    if (vertAltitudes && vertIds) {
+    if (vertDisplayAlt && vertIds) {
       const b = f * 3;
-      avgAlt = (vertAltitudes[vertIds[b + 0]]
-              + vertAltitudes[vertIds[b + 1]]
-              + vertAltitudes[vertIds[b + 2]]) / 3;
+      avgAlt = (vertDisplayAlt[vertIds[b + 0]]
+              + vertDisplayAlt[vertIds[b + 1]]
+              + vertDisplayAlt[vertIds[b + 2]]) / 3;
     }
     const k = (1 + (avgAlt + globalAlt) * altScale) * PATCH_LIFT;
     out[0] = cx * k;

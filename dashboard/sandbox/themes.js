@@ -21,7 +21,11 @@ export const THEME = {
                                // of the prior 280 build. Cast stays
                                // at 20K so per-face density doubles
                                // vs. the prior config.
-  baseColor: [0.90, 0.89, 0.85],
+  // Neutral light gray. Earlier value was a warm cream [0.90, 0.89,
+  // 0.85] which compounded with the welfare-overlay positive tint to
+  // bleach the dominant continent toward white. Neutral keeps the
+  // sphere reading as a gray body against the cream page background.
+  baseColor: [0.78, 0.78, 0.78],
   activeColor: [0.08, 0.08, 0.10],
   edgeColor: [0.62, 0.60, 0.55],
   edgeThreshold: 0.06,

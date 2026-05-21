@@ -110,7 +110,7 @@ export function outcomeColor(reason) {
 export const OUTCOME_PALETTE = OUTCOME_COLORS;
 
 export function createEdges(scene, surface, agents, opts = {}) {
-  const { faceCentroids, vertAltitudes, vertIds, radius } = surface;
+  const { faceCentroids, vertDisplayAlt, vertIds, radius } = surface;
   const sphereRadius = opts.sphereRadius ?? radius ?? 700;
   const successColor = opts.successColor ?? [0.10, 0.35, 0.95];
   const rejectColor = opts.rejectColor ?? [0.95, 0.15, 0.15];
@@ -181,10 +181,13 @@ export function createEdges(scene, surface, agents, opts = {}) {
     const cx = faceCentroids[f * 3 + 0];
     const cy = faceCentroids[f * 3 + 1];
     const cz = faceCentroids[f * 3 + 2];
+    // Read DISPLAY altitude (bump + continent + trench, clamped) so
+    // trade arcs anchor onto the actual deformed substrate instead
+    // of the un-swollen base sphere.
     let avgAlt = 0;
-    if (vertAltitudes && vertIds) {
+    if (vertDisplayAlt && vertIds) {
       const b = f * 3;
-      avgAlt = (vertAltitudes[vertIds[b + 0]] + vertAltitudes[vertIds[b + 1]] + vertAltitudes[vertIds[b + 2]]) / 3;
+      avgAlt = (vertDisplayAlt[vertIds[b + 0]] + vertDisplayAlt[vertIds[b + 1]] + vertDisplayAlt[vertIds[b + 2]]) / 3;
     }
     const k = 1 + (avgAlt + globalAlt) * altScale;
     out[0] = cx * k;

@@ -45,7 +45,7 @@ const DEFAULT_AGENTS_PER_HUMAN = 100;
 export function createAgents(scene, surface, opts = {}) {
   const {
     faceCentroids, faceAdjacency, faceCount, facePositions,
-    faceAltitudes, vertAltitudes, vertIds, radius,
+    faceAltitudes, vertAltitudes, vertDisplayAlt, vertIds, radius,
     // Phase 3 §4.1 of spatial-sandbox-completeness.md dropped the
     // same-sector walk filter, so faceSector / facesBySector are
     // no longer destructured here. The substrate still exposes
@@ -607,12 +607,14 @@ export function createAgents(scene, surface, opts = {}) {
 
         // Per-vertex lift to match the substrate's actual displaced
         // face plane. Each agent vertex inherits its corresponding
-        // face vertex's altitude (plus the global offset) — same
-        // formula as the substrate shader so the agent triangle sits
-        // exactly on the substrate face's plane.
-        const a0 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 0]] : 0;
-        const a1 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 1]] : 0;
-        const a2 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 2]] : 0;
+        // face vertex's DISPLAY altitude — bump-driven dynamic layer
+        // + sustained per-sector continent layer + trench channel,
+        // clamped. Reading vertAltitudes alone (the bump layer only)
+        // would bury the caterpillar inside the dominant-sector
+        // continent when it swells outward.
+        const a0 = vertDisplayAlt ? vertDisplayAlt[vertIds[f * 3 + 0]] : 0;
+        const a1 = vertDisplayAlt ? vertDisplayAlt[vertIds[f * 3 + 1]] : 0;
+        const a2 = vertDisplayAlt ? vertDisplayAlt[vertIds[f * 3 + 2]] : 0;
         const lift0 = 1 + (a0 + globalAlt) * altScale;
         const lift1 = 1 + (a1 + globalAlt) * altScale;
         const lift2 = 1 + (a2 + globalAlt) * altScale;
@@ -710,9 +712,9 @@ export function createAgents(scene, surface, opts = {}) {
       const cx0 = (facePositions[fb + 0] + facePositions[fb + 3] + facePositions[fb + 6]) / 3;
       const cy0 = (facePositions[fb + 1] + facePositions[fb + 4] + facePositions[fb + 7]) / 3;
       const cz0 = (facePositions[fb + 2] + facePositions[fb + 5] + facePositions[fb + 8]) / 3;
-      const a0 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 0]] : 0;
-      const a1 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 1]] : 0;
-      const a2 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 2]] : 0;
+      const a0 = vertDisplayAlt ? vertDisplayAlt[vertIds[f * 3 + 0]] : 0;
+      const a1 = vertDisplayAlt ? vertDisplayAlt[vertIds[f * 3 + 1]] : 0;
+      const a2 = vertDisplayAlt ? vertDisplayAlt[vertIds[f * 3 + 2]] : 0;
       const aAvg = (a0 + a1 + a2) / 3;
       const headLift = 1 + (aAvg + globalAlt) * altScale;
       const dotLift = headLift * (1 + humanIndicatorHeadroom);
@@ -752,9 +754,9 @@ export function createAgents(scene, surface, opts = {}) {
         const cx0 = (facePositions[fb + 0] + facePositions[fb + 3] + facePositions[fb + 6]) / 3;
         const cy0 = (facePositions[fb + 1] + facePositions[fb + 4] + facePositions[fb + 7]) / 3;
         const cz0 = (facePositions[fb + 2] + facePositions[fb + 5] + facePositions[fb + 8]) / 3;
-        const a0 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 0]] : 0;
-        const a1 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 1]] : 0;
-        const a2 = vertAltitudes ? vertAltitudes[vertIds[f * 3 + 2]] : 0;
+        const a0 = vertDisplayAlt ? vertDisplayAlt[vertIds[f * 3 + 0]] : 0;
+        const a1 = vertDisplayAlt ? vertDisplayAlt[vertIds[f * 3 + 1]] : 0;
+        const a2 = vertDisplayAlt ? vertDisplayAlt[vertIds[f * 3 + 2]] : 0;
         const aAvg = (a0 + a1 + a2) / 3;
         const lift = (1 + (aAvg + globalAlt) * altScale) * 1.005;
         const cIdx = i * 3;

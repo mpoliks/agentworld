@@ -52,7 +52,7 @@ function depthColor(depth, maxDepth, out) {
 }
 
 export function createFolds(scene, surface, agents, opts = {}) {
-  const { faceCentroids, vertAltitudes, vertIds, radius } = surface;
+  const { faceCentroids, vertDisplayAlt, vertIds, radius } = surface;
   const sphereRadius = opts.sphereRadius ?? radius ?? 700;
   const maxInstances = opts.maxInstances ?? MAX_INSTANCES_DEFAULT;
   // Unit-radius torus (major=1, minor=tube/R). At draw time the
@@ -126,12 +126,16 @@ export function createFolds(scene, surface, agents, opts = {}) {
     const cx = faceCentroids[f * 3 + 0];
     const cy = faceCentroids[f * 3 + 1];
     const cz = faceCentroids[f * 3 + 2];
+    // Read DISPLAY altitude (bump + continent + trench, clamped) so
+    // fold icospheres ride on the actual deformed substrate instead
+    // of the un-swollen base sphere — without this, a fold spawned
+    // inside a swollen sector continent sits buried in the bulge.
     let avgAlt = 0;
-    if (vertAltitudes && vertIds) {
+    if (vertDisplayAlt && vertIds) {
       const b = f * 3;
-      avgAlt = (vertAltitudes[vertIds[b + 0]]
-              + vertAltitudes[vertIds[b + 1]]
-              + vertAltitudes[vertIds[b + 2]]) / 3;
+      avgAlt = (vertDisplayAlt[vertIds[b + 0]]
+              + vertDisplayAlt[vertIds[b + 1]]
+              + vertDisplayAlt[vertIds[b + 2]]) / 3;
     }
     const k = (1 + (avgAlt + globalAlt) * altScale) * (1 + RADIAL_OFFSET);
     out[0] = cx * k;

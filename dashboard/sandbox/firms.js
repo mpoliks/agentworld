@@ -72,7 +72,7 @@ function buildPalette() {
 }
 
 export function createFirms(scene, surface, agents, opts = {}) {
-  const { faceCentroids, vertAltitudes, vertIds, radius } = surface;
+  const { faceCentroids, vertDisplayAlt, vertIds, radius } = surface;
   const sphereRadius = opts.sphereRadius ?? radius ?? 700;
   const maxSpokes = opts.maxSpokes ?? MAX_SPOKES_DEFAULT;
   // Plan §F.1 — size-weighted per-firm opacity. opacity = max alpha
@@ -82,10 +82,14 @@ export function createFirms(scene, surface, agents, opts = {}) {
   // marker, so the ceiling is lower than before (cap 0.25 vs 0.55).
   // Cross-sector firms keep a boost so the engine PR that delivered
   // them is still visible.
-  const opacity = opts.opacity ?? 0.25;
+  const opacity = opts.opacity ?? 0.35;
   const spokeLift = opts.spokeLift ?? 1.003;
   const centroidLift = opts.centroidLift ?? 1.012;
-  const FIRM_OPACITY_CAP = 0.25;
+  // Bumped from 0.25 — firms were the loser of the three-way fight
+  // between cabal patches, sector welfare tint, and firm spokes.
+  // 0.35 gives the membership network a real presence without making
+  // it the loudest layer.
+  const FIRM_OPACITY_CAP = 0.35;
   const FIRM_OPACITY_INTERCEPT = 0.05;
   const FIRM_OPACITY_SLOPE = 0.015;
   const FIRM_CROSS_SECTOR_BOOST = 0.05;
@@ -114,12 +118,20 @@ export function createFirms(scene, surface, agents, opts = {}) {
 
   // Firm centroid markers. One instance per active firm, sized by
   // log2(member count), tinted by the same palette as the spokes.
-  // Hexagonal prism geometry (radial=6, height short) gives a
-  // distinctive "badge" silhouette so the markers don't read as
-  // fold rings or cabal dots. renderOrder=6 puts them above spokes
-  // but below trade arcs (10).
+  // Hexagonal prism geometry (radial=6) with a tall vertical aspect
+  // so the marker reads as a stalk rising from the substrate — visible
+  // from any orbit angle, not just the one where the badge happens
+  // to face the camera. The X/Z radial scale carries the member-count
+  // size weighting; the Y scale is a fixed fraction of sphere radius
+  // so the stalk height is consistent across firm sizes (member count
+  // affects girth, not height — matches how the eye picks "important"
+  // out of a forest of markers).
+  // renderOrder=6 puts the stalk above spokes (5) but below trade
+  // arcs (10) and fold icospheres (8).
   const maxFirmMarkers = opts.maxFirmMarkers ?? MAX_FIRMS_DEFAULT;
-  const firmMarkerGeom = new THREE.CylinderGeometry(1, 1, 0.6, 6);
+  const firmMarkerGeom = new THREE.CylinderGeometry(1, 1, 1, 6);
+  const FIRM_STALK_FRAC = 0.035;       // stalk height = 3.5% of R
+                                       // (~24.5 units at R=700)
   // Cylinder defaults to lying along Y. We'll rotate per-instance so
   // the prism's axis aligns with the outward radial direction.
   const firmMarkerMat = new THREE.MeshBasicMaterial({
@@ -238,13 +250,24 @@ export function createFirms(scene, surface, agents, opts = {}) {
     const cx = faceCentroids[f * 3 + 0];
     const cy = faceCentroids[f * 3 + 1];
     const cz = faceCentroids[f * 3 + 2];
+    // Use the DISPLAY altitude (bump + continent + trench) so spokes
+    // and the centroid stalk hug the actual deformed substrate
+    // instead of the un-swollen base sphere — without this, members
+    // of a sector whose continent is bulging end up with their spoke
+    // endpoint buried inside the bulge.
     let avgAlt = 0;
-    if (vertAltitudes && vertIds) {
+    if (vertDisplayAlt && vertIds) {
       const b = f * 3;
-      avgAlt = (vertAltitudes[vertIds[b + 0]]
-              + vertAltitudes[vertIds[b + 1]]
-              + vertAltitudes[vertIds[b + 2]]) / 3;
+      avgAlt = (vertDisplayAlt[vertIds[b + 0]]
+              + vertDisplayAlt[vertIds[b + 1]]
+              + vertDisplayAlt[vertIds[b + 2]]) / 3;
     }
+    // vertDisplayAlt already incorporates uGlobalAltitude indirectly
+    // via the substrate's clamping — but the displacement formula in
+    // the shader and here multiplies by `(1 + (alt + globalAlt) *
+    // scale)`, and globalAlt is independent of the per-vertex stored
+    // value. Keep adding it so spokes match shader displacement on
+    // global-altitude swings.
     const k = 1 + (avgAlt + globalAlt) * altScale;
     out[0] = cx * k;
     out[1] = cy * k;
@@ -297,16 +320,21 @@ export function createFirms(scene, surface, agents, opts = {}) {
           CENTROID_BASE_FRAC + CENTROID_GROWTH_FRAC * Math.log2(memCount),
         );
         let markerR = sphereRadius * sizeFrac;
-        // Marker sits a bit higher than spokes so it floats over the
-        // spoke fan.
+        const stalkHeight = sphereRadius * FIRM_STALK_FRAC;
+        // Anchor the stalk so its base sits on the substrate and the
+        // shaft extends outward — the centroid of the unit cylinder is
+        // at its midpoint, so push outward by half the stalk height
+        // along the outward normal.
+        _markerOutward.set(cx / n, cy / n, cz / n).normalize();
         _markerPos.set(
-          (cx / n) * centroidLift,
-          (cy / n) * centroidLift,
-          (cz / n) * centroidLift,
+          (cx / n) * centroidLift + _markerOutward.x * stalkHeight * 0.5,
+          (cy / n) * centroidLift + _markerOutward.y * stalkHeight * 0.5,
+          (cz / n) * centroidLift + _markerOutward.z * stalkHeight * 0.5,
         );
-        _markerOutward.copy(_markerPos).normalize();
         _markerQuat.setFromUnitVectors(_yAxis, _markerOutward);
-        _markerScale.set(markerR, markerR, markerR);
+        // Girth scales with member count; height is fixed so a small
+        // firm and a big firm both read as columns of the same length.
+        _markerScale.set(markerR, stalkHeight, markerR);
         _markerMat.compose(_markerPos, _markerQuat, _markerScale);
         firmMarkerMesh.setMatrixAt(markerSlot, _markerMat);
         // Hovered firm marker at full intensity; others dim slightly
