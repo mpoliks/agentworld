@@ -247,14 +247,29 @@ let _activePreset = null;
 let _presetTweenActive = false;
 
 // Steady-state detector. Maintains a rolling ring of the last
-// STEADY_WINDOW steps' EBI and real_per_capita_welfare. Once both
-// scalars hold a coefficient of variation under STEADY_COV_THRESHOLD
-// for STEADY_HOLD consecutive emits AND the run has been going for
-// at least STEADY_WARMUP steps, the sub-title flips to STEADY STATE.
-// The detector resets on every preset application.
+// STEADY_WINDOW steps' EBI ratio (nominal/real). Once the CoV holds
+// under STEADY_COV_THRESHOLD for STEADY_HOLD consecutive emits AND
+// the run has been going for at least STEADY_WARMUP steps, the
+// sub-title flips to STEADY STATE. The detector resets on every
+// preset application.
+//
+// Why EBI-only: the prior detector also required
+// real_per_capita_welfare CoV to clear the same bar, but welfare
+// trends monotonically upward as wealth accumulates — its rolling
+// CoV is dominated by the slope, not by stationarity, so it never
+// settles even in a steady regime. EBI is a ratio (a level, not a
+// trend) and is the right scalar to test for "this run has reached
+// equilibrium."
+//
+// Why 0.035: the 0.5% threshold was set against a batch
+// (deterministic) run; live-engine per-tick stochastic noise from
+// random pair sampling keeps EBI CoV around 2.5–3.5% even at
+// equilibrium. 3.5% catches the typical settled state with a small
+// headroom while still being tight enough to reject obvious
+// transient periods.
 const STEADY_WINDOW = 60;
 const STEADY_HOLD = 30;
-const STEADY_COV_THRESHOLD = 0.005;  // 0.5% — both EBI and welfare
+const STEADY_COV_THRESHOLD = 0.035;
 const STEADY_WARMUP = 30;
 const _steadyState = {
   ebiRing: [],
@@ -306,12 +321,13 @@ function updateSteadyState(step) {
   }
   if (
     _steadyState.stepsSeen < STEADY_WARMUP ||
-    _steadyState.ebiRing.length < STEADY_WINDOW ||
-    _steadyState.welfareRing.length < STEADY_WINDOW
+    _steadyState.ebiRing.length < STEADY_WINDOW
   ) return;
+  // EBI CoV alone gates the trigger. welfareRing is still maintained
+  // for diagnostic visibility but isn't part of the firing rule —
+  // see comment block on STEADY_COV_THRESHOLD above.
   const covE = _coefficientOfVariation(_steadyState.ebiRing);
-  const covW = _coefficientOfVariation(_steadyState.welfareRing);
-  if (covE < STEADY_COV_THRESHOLD && covW < STEADY_COV_THRESHOLD) {
+  if (covE < STEADY_COV_THRESHOLD) {
     _steadyState.consecHits += 1;
   } else {
     _steadyState.consecHits = 0;
@@ -2846,6 +2862,25 @@ window.addEventListener('beforeunload', () => {
 window.__sandbox = {
   fps: () => fps,
   surface: () => surface?.diagnostics?.(),
+  // Debug peek into the steady-state detector — used to investigate
+  // why STEADY STATE never fires. Returns the live ring contents +
+  // current CoVs against the threshold so external probes can see
+  // how close (or far) the run is from settling.
+  steadyState: () => ({
+    triggered: _steadyState.triggered,
+    consecHits: _steadyState.consecHits,
+    stepsSeen: _steadyState.stepsSeen,
+    threshold: STEADY_COV_THRESHOLD,
+    holdRequired: STEADY_HOLD,
+    windowSize: STEADY_WINDOW,
+    warmup: STEADY_WARMUP,
+    ebiCov: _coefficientOfVariation(_steadyState.ebiRing),
+    welfareCov: _coefficientOfVariation(_steadyState.welfareRing),
+    ebiSize: _steadyState.ebiRing.length,
+    welfareSize: _steadyState.welfareRing.length,
+    ebiSample: _steadyState.ebiRing.slice(-10),
+    welfareSample: _steadyState.welfareRing.slice(-10),
+  }),
   agents: () => agents?.diagnostics?.(),
   edges: () => edges?.diagnostics?.(),
   firms: () => firms?.diagnostics?.(),
